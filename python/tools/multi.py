@@ -4,6 +4,11 @@ Multiprocessing-enabled versions of functions from tools.py
 
 import pandas as pd
 import numpy as np
+import pickle
+
+import dask.dataframe as dd
+from dask import delayed
+from dask.distributed import Client
 
 from sklearn.metrics import confusion_matrix, roc_curve
 from sklearn.model_selection import StratifiedKFold, cross_val_predict
@@ -250,3 +255,202 @@ def boot_roc(targets,
     rocs = p.starmap(roc_curve, roc_input)
     
     return rocs
+
+# Dask-enabled preprocessing class
+class load_parquets_dask(object):
+
+    # HACK:
+    # Yeah, yeah. It's not great.
+    # Could also pass in during init or just abstract away even more
+    # but this is the extent of my py-fu
+    final_names = ['vitals', 'bill', 'gen_lab', 'proc', 'diag', 'lab_res']
+    dask_frames = ['_vitals', '_bill', '_genlab', '_proc', '_diag', '_lab_res']
+    feat_prefix = ['vtl', 'bill', 'genl', 'proc', 'dx', 'lbrs']
+    time_cols = [
+        ['observation_day_number','observation_time_of_day'],
+        ['serv_day'],
+        ['collection_day_number', 'collection_time_of_day'],
+        ['proc_day'],
+        None,
+        ['spec_day_number', 'spec_time_of_day']
+    ]
+
+    text_cols = ['lab_test', 'std_chg_desc', 'lab_test_loinc_desc', 'icd_code', 'icd_code', 'text']
+    num_col = ['test_result_numeric_value', None, 'numeric_value', None, None, None]
+
+    df_arg_names = ['df', 'text_col', 'feature_prefix', 'num_col', 'time_cols']
+
+    def __init__(self, dir='data/data/', pkl_dict='../output/pkl/feature_lookup.pkl'):
+
+        # Start Dask client
+        self.client = Client(processes=False)
+        print(self.client)
+
+        # Specifying some columns to pull
+        genlab_cols = ['pat_key', 'collection_day_number',
+                       'collection_time_of_day', 'lab_test_loinc_desc',
+                       'numeric_value']
+        vital_cols = ['pat_key', 'observation_day_number',
+                      'observation_time_of_day', 'lab_test',
+                      'test_result_numeric_value']
+        bill_cols = ['pat_key', 'std_chg_desc', 'serv_day']
+        lab_res_cols = ['pat_key', 'spec_day_number', 'spec_time_of_day',
+                        'test', 'observation']
+
+        # Pulling in the visit tables
+        self.pat = dd.read_parquet(dir + 'vw_covid_pat/')
+        self.id = dd.read_parquet(dir + 'vw_covid_id/')
+        
+        # Pulling the lab and vitals
+        genlab = dd.read_parquet(dir + 'vw_covid_genlab/',
+                                      columns=genlab_cols)
+        hx_genlab = dd.read_parquet(dir + 'vw_covid_hx_genlab/',
+                                         columns=genlab_cols)
+        lab_res = dd.read_parquet(dir + 'vw_covid_lab_res/',
+                                       columns=lab_res_cols)
+        
+        hx_lab_res = dd.read_parquet(dir + 'vw_covid_hx_lab_res/',
+                                          columns=lab_res_cols)
+        vitals = dd.read_parquet(dir + 'vw_covid_vitals/',
+                                      columns=vital_cols)
+        hx_vitals = dd.read_parquet(dir + 'vw_covid_hx_vitals/',
+                                         columns=vital_cols)
+        
+        # Concatenating the current and historical labs and vitals
+        self._genlab = dd.concat([genlab, hx_genlab], axis=0, interleave_partitions=True)
+        self._vitals = dd.concat([vitals, hx_vitals], axis=0, interleave_partitions=True)
+        self._lab_res = dd.concat([lab_res, hx_lab_res], axis=0, interleave_partitions=True)
+        
+        # Pulling in the billing tables
+        bill_lab = dd.read_parquet(dir + 'vw_covid_bill_lab/',
+                                   columns=bill_cols)
+        bill_pharm = dd.read_parquet(dir + 'vw_covid_bill_pharm/',
+                                     columns=bill_cols)
+        bill_oth = dd.read_parquet(dir + 'vw_covid_bill_oth/',
+                                   columns=bill_cols)
+        hx_bill = dd.read_parquet(dir + 'vw_covid_hx_bill/',
+                                       columns=bill_cols)
+        self._bill = dd.concat([bill_lab, bill_pharm, 
+                               bill_oth, hx_bill], axis=0, interleave_partitions=True)
+        
+        # Pulling in the additional diagnosis and procedure tables
+        pat_diag = dd.read_parquet(dir + 'vw_covid_paticd_diag/')
+        pat_proc = dd.read_parquet(dir + 'vw_covid_paticd_proc/')
+        add_diag = dd.read_parquet(dir + 'vw_covid_additional_paticd_' +
+                                        'diag/')
+        add_proc = dd.read_parquet(dir + 'vw_covid_additional_paticd_' +
+                                        'proc/')
+        self._diag = dd.concat([pat_diag, add_diag], axis=0, interleave_partitions=True)
+        self._proc = dd.concat([pat_proc, add_proc], axis=0, interleave_partitions=True)
+                
+        # And any extras
+        self.icd = dd.read_parquet(dir + 'icdcode/')
+
+        # Fixing lab_res
+        self._lab_res['text'] = self._lab_res['test'].astype(str) + ' ' + self._lab_res['observation'].astype(str)
+
+        # Compute all the needed arguments for df_to_feature
+        self.df_kwargs = self.compute_kwargs()
+
+        # NOTE: Creates dict of dask dataframes for each table
+        # but does not read into memory without a compute() call
+        # so the memory overhead is lower. Also writes out a pickle file
+        # with all of the dicts
+        self.data = self.all_df_to_feat(pkl_dict)
+
+        return
+    
+    def compute_kwargs(self):
+        out = [dict(zip(self.df_arg_names, a)) for a in zip(self.dask_frames, self.text_cols, self.feat_prefix, self.num_col, self.time_cols)]
+
+        return out
+
+    def all_df_to_feat(self, outfile):
+
+        out_promise = []
+
+        for kwargs in self.df_kwargs:
+            out_promise.append(self.client.compute(self.df_to_features(**kwargs), sync=False))
+        
+        # BUG: This is pretty neophyte-level parallelism,
+        # revisit eventually if you ever think of a better approach
+        out = [promise.result() for promise in out_promise]
+
+        # Combining the feature dicts and saving to disk
+        ftr_dict = dict(zip(tp.flatten([d.keys() for _, d in out]),
+                            tp.flatten([d.values() for _, d in out])))
+
+        # Write all dictionaries to pickle
+        with open(outfile, 'wb') as file:
+            pickle.dump(ftr_dict, file)
+        
+        # return dict of dask dataframes which contain the slimmed down data
+        # NOTE: These still have to be evaluated, but
+        # the hope is keeping it as a task graph will keep memory overhead low
+        # until it's absolutely necessary to read in
+        return dict(zip(self.final_names, [a for a, _ in out]))
+
+    def col_to_features(self, text, feature_prefix):
+
+        unique_codes = self.client.compute(text.unique(), sync = True)
+        n_codes = len(unique_codes) 
+        ftr_codes = [''.join([feature_prefix, str(i)]) for i in range(n_codes)]
+        code_dict = dict(zip(ftr_codes, unique_codes))
+
+        return code_dict
+
+    def num_to_quant(self, df, text, num, buckets):
+        df = df.set_index(text)
+        
+        df['q'] = (df
+            .groupby(text)[num]
+            .transform(pd.qcut, q=buckets, labels=False, duplicates='drop')
+        )
+
+        df = df.reset_index(drop=False)
+
+        df[text] += ' q' + df['q'].astype(str)
+
+        return df
+
+    @delayed
+    def df_to_features(self, df,
+                   text_col,
+                   feature_prefix,
+                   num_col=None,
+                   time_cols=None,
+                   buckets=5,
+                   slim=True):
+
+        df_local = getattr(self, df)
+
+        # Pulling out the text
+        df_local[text_col] = df_local[text_col].astype(str)
+        
+        # Optionally quantizing the numeric column
+        if num_col is not None:
+
+            df_local = self.num_to_quant(df_local, text_col, num_col, buckets)
+        
+        # text = self.client.compute(df_local[text_col], sync=True)
+        
+        # Making a lookup dict for the features
+        code_dict = self.col_to_features(df_local[text_col], feature_prefix)
+        
+        # Return full set (as pandas DF)
+        if not slim:
+            return client.compute(df_local, sync=True), code_dict
+        
+        out_cols = ['pat_key']
+
+        if time_cols is not None:
+            out_cols += time_cols
+        
+        out = df_local[out_cols]
+
+        # Adding the combined feature col back into the original df
+        out['ftr'] = df_local[text_col].map({k: v for v, k in code_dict.items()})
+
+        # Return as a dask lazy Df and a persistent dict with the features
+        return out, code_dict
+
