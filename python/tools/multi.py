@@ -6,6 +6,8 @@ import pandas as pd
 import numpy as np
 import pickle
 
+from itertools import product
+
 import dask.dataframe as dd
 from dask import delayed
 from dask.distributed import Client
@@ -274,8 +276,7 @@ class parquets_dask(object):
 
     def __init__(
         self,
-        dir="data/data/",
-        pkl_dict="../output/pkl/feature_lookup.pkl",
+        data_dir="data/data/",
         agg_lvl="dfi",
     ):
 
@@ -308,17 +309,23 @@ class parquets_dask(object):
         ]
 
         # Pulling in the visit tables
-        self.pat = dd.read_parquet(dir + "vw_covid_pat/")
-        self.id = dd.read_parquet(dir + "vw_covid_id/")
+        self.pat = dd.read_parquet(data_dir + "vw_covid_pat/")
+        self.id = dd.read_parquet(data_dir + "vw_covid_id/")
 
         # Pulling the lab and vitals
-        genlab = dd.read_parquet(dir + "vw_covid_genlab/", columns=genlab_cols)
-        hx_genlab = dd.read_parquet(dir + "vw_covid_hx_genlab/", columns=genlab_cols)
-        lab_res = dd.read_parquet(dir + "vw_covid_lab_res/", columns=lab_res_cols)
+        genlab = dd.read_parquet(data_dir + "vw_covid_genlab/", columns=genlab_cols)
+        hx_genlab = dd.read_parquet(
+            data_dir + "vw_covid_hx_genlab/", columns=genlab_cols
+        )
+        lab_res = dd.read_parquet(data_dir + "vw_covid_lab_res/", columns=lab_res_cols)
 
-        hx_lab_res = dd.read_parquet(dir + "vw_covid_hx_lab_res/", columns=lab_res_cols)
-        vitals = dd.read_parquet(dir + "vw_covid_vitals/", columns=vital_cols)
-        hx_vitals = dd.read_parquet(dir + "vw_covid_hx_vitals/", columns=vital_cols)
+        hx_lab_res = dd.read_parquet(
+            data_dir + "vw_covid_hx_lab_res/", columns=lab_res_cols
+        )
+        vitals = dd.read_parquet(data_dir + "vw_covid_vitals/", columns=vital_cols)
+        hx_vitals = dd.read_parquet(
+            data_dir + "vw_covid_hx_vitals/", columns=vital_cols
+        )
 
         # Concatenating the current and historical labs and vitals
         self._genlab = dd.concat(
@@ -332,10 +339,12 @@ class parquets_dask(object):
         )
 
         # Pulling in the billing tables
-        bill_lab = dd.read_parquet(dir + "vw_covid_bill_lab/", columns=bill_cols)
-        bill_pharm = dd.read_parquet(dir + "vw_covid_bill_pharm/", columns=bill_cols)
-        bill_oth = dd.read_parquet(dir + "vw_covid_bill_oth/", columns=bill_cols)
-        hx_bill = dd.read_parquet(dir + "vw_covid_hx_bill/", columns=bill_cols)
+        bill_lab = dd.read_parquet(data_dir + "vw_covid_bill_lab/", columns=bill_cols)
+        bill_pharm = dd.read_parquet(
+            data_dir + "vw_covid_bill_pharm/", columns=bill_cols
+        )
+        bill_oth = dd.read_parquet(data_dir + "vw_covid_bill_oth/", columns=bill_cols)
+        hx_bill = dd.read_parquet(data_dir + "vw_covid_hx_bill/", columns=bill_cols)
         self._bill = dd.concat(
             [bill_lab, bill_pharm, bill_oth, hx_bill],
             axis=0,
@@ -343,15 +352,15 @@ class parquets_dask(object):
         )
 
         # Pulling in the additional diagnosis and procedure tables
-        pat_diag = dd.read_parquet(dir + "vw_covid_paticd_diag/")
-        pat_proc = dd.read_parquet(dir + "vw_covid_paticd_proc/")
-        add_diag = dd.read_parquet(dir + "vw_covid_additional_paticd_" + "diag/")
-        add_proc = dd.read_parquet(dir + "vw_covid_additional_paticd_" + "proc/")
+        pat_diag = dd.read_parquet(data_dir + "vw_covid_paticd_diag/")
+        pat_proc = dd.read_parquet(data_dir + "vw_covid_paticd_proc/")
+        add_diag = dd.read_parquet(data_dir + "vw_covid_additional_paticd_" + "diag/")
+        add_proc = dd.read_parquet(data_dir + "vw_covid_additional_paticd_" + "proc/")
         self._diag = dd.concat([pat_diag, add_diag], axis=0, interleave_partitions=True)
         self._proc = dd.concat([pat_proc, add_proc], axis=0, interleave_partitions=True)
 
         # And any extras
-        self.icd = dd.read_parquet(dir + "icdcode/")
+        self.icd = dd.read_parquet(data_dir + "icdcode/")
 
         # Fixing lab_res
         self._lab_res["text"] = (
@@ -363,14 +372,33 @@ class parquets_dask(object):
         # Compute all the needed arguments for df_to_feature
         self.df_kwargs = self.compute_kwargs()
 
-        # NOTE: Creates dict of dask dataframes for each table
-        # but does not read into memory without a compute() call
-        # so the memory overhead is lower. Also writes out a pickle file
-        # with all of the dicts
-        self.data = self.all_df_to_feat(pkl_dict)
+        # Save agg level information
+
+        # Quick lookup for multiplier based on agg_lvl
+        # NOTE: we will use these values to transform
+        # day count to the appropriate time unit agg_lvl.
+        # and also use them to transform the time (in seconds)
+        # pulled from a timestamp to the appropriate time unit
+        day_vals = [1, 24, 1440]
+        sec_vals = [60 * 60 * 24, 60 * 60, 60]
+        agg_lvls = ["dfi", "hfi", "mfi"]
+
+        self.from_days = dict(zip(agg_lvls, day_vals))
+        self.from_seconds = dict(zip(agg_lvls, sec_vals))
+
+        self.agg_level = agg_lvl
 
         # Compute timing from index for each visit
-        self.visit_timing = self.get_visit_timing(self.id, agg_level=agg_lvl)
+        self.visit_timing = self.get_visit_timing(self.id)
+
+        # Compute an H:M:S lookup table
+        # (which is quick and prevents us from parsing or using string ops)
+        time_stamps = [
+            "{:02d}:{:02d}:{:02d}".format(a, b, c)
+            for a, b, c in product(range(24), range(60), range(60))
+        ]
+
+        self.time_dict = dict(zip(time_stamps, range(len(time_stamps))))
 
         return
 
@@ -388,7 +416,7 @@ class parquets_dask(object):
 
         return out
 
-    def all_df_to_feat(self, outfile):
+    def all_df_to_feat(self, pkl_file=None):
 
         out_promise = []
 
@@ -410,14 +438,15 @@ class parquets_dask(object):
         )
 
         # Write all dictionaries to pickle
-        with open(outfile, "wb") as file:
-            pickle.dump(ftr_dict, file)
+        if pkl_file is not None:
+            with open(pkl_file, "wb") as file:
+                pickle.dump(ftr_dict, file)
 
         # return dict of dask dataframes which contain the slimmed down data
         # NOTE: These still have to be evaluated, but
         # the hope is keeping it as a task graph will keep memory overhead low
         # until it's absolutely necessary to read in
-        return dict(zip(self.final_names, [a for a, _ in out]))
+        return dict(zip(self.final_names, [a for a, _ in out])), ftr_dict
 
     def col_to_features(self, text, feature_prefix):
 
@@ -485,21 +514,62 @@ class parquets_dask(object):
         # Return as a dask lazy Df and a persistent dict with the features
         return out, code_dict
 
-    def get_visit_timing(self, id_table, agg_level="dfi"):
+    def get_visit_timing(self, id_table):
 
-        out = id_table[["pat_key", "days_from_index"]]
+        out = id_table[["pat_key", "days_from_index"]].set_index("pat_key")
 
-        if agg_level == "dfi":
-            out = out.rename({"days_from_index": "dfi"})
-        elif agg_level == "hfi":
-            out[agg_level] = out["days_from_index"] * 24
-            out = out.drop("days_from_index", axis=1)
-        elif agg_level == "mfi":
-            out[agg_level] = out["days_from_index"] * 24 * 60
-            out = out.drop("days_from_index", axis=1)
+        out[self.agg_level] = out["days_from_index"] * self.from_days[self.agg_level]
+
+        out = out.drop("days_from_index", axis=1)
 
         return out
 
-    def get_seconds(self, df, dict, day_col=None, time_col=None, ftr_col="ftr"):
-        # TODO
-        pass
+    def get_timing(self, df, day_col=None, time_col=None, ftr_col="ftr"):
+
+        # Compute which cols we will have
+        out_cols = [
+            col for col in ["pat_key", ftr_col, day_col, time_col] if col is not None
+        ]
+
+        # Merge in timing for visit which was already computed
+        # make sure to index by pat_key so we can keep this efficient.
+        # out: dask df with [out_cols], agg_lvl
+        out = df[out_cols]
+        out = out.merge(
+            self.visit_timing, how="left", left_on="pat_key", right_index=True
+        )
+
+        # If we have no other timing information, the visit timing is
+        # all we can add, so return as-is
+        if day_col is None:
+            return out
+
+        # Add day column contribution to the timing
+        out[self.agg_level] += out[day_col] * self.from_days[self.agg_level]
+
+        # We don't need the day col anymore
+        out = out.drop(day_col, axis=1)
+
+        if time_col is not None:
+            # Using a seconds in a day dictionary lookup
+            # map HMS strings to dict to convert to seconds
+            # then aggregate to appropriate agg_level
+
+            out[self.agg_level] += (
+                out[time_col].map(self.time_dict) / self.from_seconds[self.agg_level]
+            )
+
+            # Done with the time col
+            out = out.drop(time_col, axis=1)
+
+        return out
+
+    def reset_agg_level(self, new_level):
+
+        # Update agg level
+        self.agg_level = new_level
+
+        # Recompute visit timing based on new agg level
+        self.visit_timing = self.get_visit_timing(self.id)
+
+        return None
