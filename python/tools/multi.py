@@ -492,14 +492,12 @@ class parquets_dask(object):
 
             df_local = self.num_to_quant(df_local, text_col, num_col, buckets)
 
-        # text = self.client.compute(df_local[text_col], sync=True)
-
         # Making a lookup dict for the features
         code_dict = self.col_to_features(df_local[text_col], feature_prefix)
 
         # Return full set (as pandas DF)
         if not slim:
-            return client.compute(df_local, sync=True), code_dict
+            return df_local, code_dict
 
         out_cols = ["pat_key"]
 
@@ -573,3 +571,14 @@ class parquets_dask(object):
         self.visit_timing = self.get_visit_timing(self.id)
 
         return None
+
+    def agg_features(self, df, id_col="pat_key", ftr_col="ftr"):
+        """Aggregate feature column to token columns by time step + id"""
+
+        grouped = df[[self.agg_level, id_col, ftr_col]].groupby(
+            [self.agg_level, id_col]
+        )
+        agged = grouped.agg(list).reset_index().rename(columns={ftr_col: "ftrs"})
+        agged["ftrs"] = agged["ftrs"].map(lambda x: " ".join(x))
+
+        return agged
