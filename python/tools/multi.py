@@ -411,6 +411,9 @@ class parquets_dask(object):
         # Compute timing from index for each visit
         self.visit_timing = self.get_visit_timing(self.id)
 
+        # Pull id as a pandas dataframe since it's not too large
+        self.id = self.client.compute(self.id, sync=True)
+
         # Compute an H:M:S lookup table
         # (which is quick and prevents us from parsing or using string ops)
         time_stamps = [

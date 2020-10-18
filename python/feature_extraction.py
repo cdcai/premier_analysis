@@ -89,7 +89,11 @@ agg_merged = tm.dask_merge_all(agg, how="outer")
 agg_all = agg_merged.reset_index(drop=False)
 
 # NOTE: somehow we ended up with a multiindex, so reset to just pat_key
-agg_all = agg_all.join(pq.id[["covid_visit", "medrec_key"]], how="left", on="pat_key")
+agg_all = agg_all.join(
+    pq.id[["covid_visit", "medrec_key"]],
+    how="left",
+    on="pat_key",
+)
 
 # Reordering the columns
 agg_all = agg_all[
