@@ -1,16 +1,7 @@
 #%%
-import numpy as np
-import pandas as pd
-import pickle
-import json
-import ipython_memory_usage.ipython_memory_usage as imu
-
-from importlib import reload
-
 import tools.preprocessing as tp
 import tools.multi as tm
 
-imu.start_watching_memory()
 # %%Unit of time to use for aggregation
 TIME_UNIT = "dfi"
 
@@ -55,23 +46,24 @@ diag = pq.get_timing(all_data["diag"])
 
 # %% Aggregating features by day
 print("Aggregating the features by day...")
-vitals_agg = pq.agg_features(vitals)
-bill_agg = pq.agg_features(bill)
-genlab_agg = pq.agg_features(genlab)
-lab_res_agg = pq.agg_features(lab_res)
-proc_agg = pq.agg_features(proc)
-diag_agg = pq.agg_features(diag)
+vitals_agg = pq.agg_features(vitals, out_col="vitals")
+bill_agg = pq.agg_features(bill, out_col="bill")
+genlab_agg = pq.agg_features(genlab, out_col="genlab")
+lab_res_agg = pq.agg_features(lab_res, out_col="lab_res")
+proc_agg = pq.agg_features(proc, out_col="proc")
+diag_agg = pq.agg_features(diag, out_col="diag")
 
 
 # %% Merging all the tables into a single flat file
 print("And merging the aggregated tables into a flat file.")
 agg = [vitals_agg, bill_agg, genlab_agg, lab_res_agg, proc_agg, diag_agg]
-agg_names = ["vitals", "bill", "genlab", "lab_res", "proc", "diag"]
-agg_merged = tp.merge_all(agg, on=["pat_key", TIME_UNIT])
-agg_merged.columns = ["pat_key", TIME_UNIT] + agg_names
+agg_merged = tm.dask_merge_all(agg, how="outer")
 
-agg_merged = agg_merged.set_index("pat_key")
-# Adjusting diag times to be at the end of the visit
+# %%
+
+# agg_merged = agg_merged.set_index("pat_key")
+
+# %% Adjusting diag times to be at the end of the visit
 # BUG: Figure out to to do this with Dask
 # Probably requires LOS column in the id table and adding that
 # instead during pq.get_timing
@@ -92,11 +84,12 @@ agg_merged = agg_merged.set_index("pat_key")
 # agg_all.rename({"ftrs": "dx"}, axis=1, inplace=True)
 
 # %% Adding COVID visit indicator
-agg_all = agg_all.merge(
-    pq.id[["pat_key", "covid_visit", "medrec_key"]].set_index("pat_key"),
-    left_index=True,
-    right_index=True,
-)
+
+
+agg_all = agg_merged.reset_index(drop=False)
+
+# NOTE: somehow we ended up with a multiindex, so reset to just pat_key
+agg_all = agg_all.join(pq.id[["covid_visit", "medrec_key"]], how="left", on="pat_key")
 
 # Reordering the columns
 agg_all = agg_all[
@@ -109,23 +102,24 @@ agg_all = agg_all[
         "genlab",
         "lab_res",
         "proc",
-        "dx",
+        "diag",
         "covid_visit",
     ]
 ]
 
 # %% Sorting by medrec, pat, and time
 # HACK: sort_values isn't supported by default, so we will try something else
-agg_all = agg_all.map_partitions(
-    lambda df: df.sort_values(["medrec_key", "pat_key", TIME_UNIT])
-)
+# agg_all = agg_all.map_partitions(lambda df: df.sort_values([TIME_UNIT, "medrec_key"]))
 
 # %% Writing a sample of the flat file to disk
-samp_ids = agg_all.pat_key.sample(1000)
-agg_samp = agg_all[agg_all.pat_key.isin(samp_ids)]
-agg_samp.to_csv(out_dir + "samples/agg_samp.csv", index=False)
+
+# agg_all = agg_all.reset_index(drop=False).rename(columns={"index": "pat_key"})
+# samp_ids = agg_all.pat_key.sample(frac=0.01).compute()
+# agg_samp = agg_all[agg_all.pat_key.isin(samp_ids)]
+# agg_samp.to_csv(out_dir + "samples/agg_samp.csv", index=False)
 
 # %% Writing the flat feature file to disk
-agg_all.to_parquet(
-    parq_dir + "flat_features/", index=False, row_group_size=5000, engine="pyarrow"
+pq.client.compute(
+    agg_all.to_parquet(parq_dir + "flat_features/", write_index=False),
+    sync=True,
 )
