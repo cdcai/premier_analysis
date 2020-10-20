@@ -608,11 +608,14 @@ class parquets_dask(object):
 
         return None
 
-    def agg_features(self, df, ftr_col="ftr", out_col="ftrs"):
+    def agg_features(self, df, as_str=True, ftr_col="ftr", out_col="ftrs"):
         """Aggregate feature column to token columns by time step + id"""
 
         grouped = df[[self.agg_level, ftr_col]].groupby([self.agg_level, df.index])
         agged = grouped.agg(list).rename(columns={ftr_col: out_col})
-        agged[out_col] = agged[out_col].map(lambda x: " ".join(x))
+
+        # We might want to keep as list-of-lists instead of concatenating
+        if as_str:
+            agged[out_col] = agged[out_col].map(lambda x: " ".join(x))
 
         return self.client.persist(agged)
