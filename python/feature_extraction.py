@@ -2,13 +2,13 @@
 import tools.preprocessing as tp
 import tools.multi as tm
 import os
-
+import time
 # %%Unit of time to use for aggregation
 TIME_UNIT = "dfi"
 
 # Setting the file directories
-prem_dir = "../data/data/"
-out_dir = "../output/"
+prem_dir = "data/data/"
+out_dir = "output/"
 parq_dir = out_dir + "parquet/"
 pkl_dir = out_dir + "pkl/"
 
@@ -17,6 +17,7 @@ _ = [os.makedirs(dirs, exist_ok=True) for dirs in [parq_dir, pkl_dir]]
 print("")
 print("Loading the parquet files...")
 
+t1 = time.time()
 pq = tm.parquets_dask(prem_dir, agg_lvl=TIME_UNIT)
 
 # %% Pull all data as dask Df to a dictionary
@@ -66,7 +67,7 @@ agg_merged = tm.dask_merge_all(agg, how="outer")
 agg_all = agg_merged.reset_index(drop=False)
 
 agg_all = agg_all.join(
-    pq.id[["covid_visit", "medrec_key"]],
+    pq.id.result()[["covid_visit", "medrec_key"]],
     how="left",
     on="pat_key",
 )
@@ -105,3 +106,7 @@ pq.client.compute(
     agg_all.to_parquet(parq_dir + "flat_features/", write_index=False),
     sync=True,
 )
+
+t2 = time.time()
+
+print("Time total: {}".format(t2-t1))
