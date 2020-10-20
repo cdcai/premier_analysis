@@ -6,7 +6,7 @@
 *.RDS
 
 # VSCode settings
-.vscode/settings.json
+.vscode/
 
 ##
 ## R Section - See https://github.com/github/gitignore/blob/master/R.gitignore

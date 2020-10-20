@@ -1,6 +1,7 @@
 #%%
 import tools.preprocessing as tp
 import tools.multi as tm
+import os
 
 # %%Unit of time to use for aggregation
 TIME_UNIT = "dfi"
@@ -11,6 +12,7 @@ out_dir = "../output/"
 parq_dir = out_dir + "parquet/"
 pkl_dir = out_dir + "pkl/"
 
+_ = [os.makedirs(dirs, exist_ok=True) for dirs in [parq_dir, pkl_dir]]
 # %% Lazily Importing the parquet files
 print("")
 print("Loading the parquet files...")
