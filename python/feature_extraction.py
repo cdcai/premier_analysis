@@ -42,7 +42,7 @@ lab_res = pq.get_timing(
 
 proc = pq.get_timing(all_data["proc"], day_col="proc_day")
 
-diag = pq.get_timing(all_data["diag"])
+diag = pq.get_timing(all_data["diag"], end_of_visit=True)
 
 # %% Aggregating features by day
 print("Aggregating the features by day...")
@@ -59,36 +59,10 @@ print("And merging the aggregated tables into a flat file.")
 agg = [vitals_agg, bill_agg, genlab_agg, lab_res_agg, proc_agg, diag_agg]
 agg_merged = tm.dask_merge_all(agg, how="outer")
 
-# %%
-
-# agg_merged = agg_merged.set_index("pat_key")
-
-# %% Adjusting diag times to be at the end of the visit
-# BUG: Figure out to to do this with Dask
-# Probably requires LOS column in the id table and adding that
-# instead during pq.get_timing
-
-# max_times = agg_merged.groupby("pat_key")[TIME_UNIT].max()
-# max_ids = max_times.index.values
-# if TIME_UNIT != "dfi":
-#     max_dict = dict(zip(max_ids, max_times.values + 1))
-# else:
-#     max_dict = dict(zip(max_ids, max_times.values))
-
-# base_dict = dict(zip(diag_agg.pat_key, diag_agg[TIME_UNIT]))
-# base_dict.update(max_dict)
-# diag_agg[TIME_UNIT] = [base_dict[id] for id in diag_agg.pat_key]
-
-# Merging diagnoses with the rest of the columns
-# agg_all = tp.merge_all([agg_merged, diag_agg], on=["pat_key", TIME_UNIT])
-# agg_all.rename({"ftrs": "dx"}, axis=1, inplace=True)
-
 # %% Adding COVID visit indicator
-
 
 agg_all = agg_merged.reset_index(drop=False)
 
-# NOTE: somehow we ended up with a multiindex, so reset to just pat_key
 agg_all = agg_all.join(
     pq.id[["covid_visit", "medrec_key"]],
     how="left",
@@ -112,13 +86,15 @@ agg_all = agg_all[
 ]
 
 # %% Sorting by medrec, pat, and time
-# HACK: sort_values isn't supported by default, so we will try something else
+# BUG: sorting in dask isn't really possible, and multiindex support isn't allowed
+# so we will just have to make due, or sort after it's persistent
 # agg_all = agg_all.map_partitions(lambda df: df.sort_values([TIME_UNIT, "medrec_key"]))
 
 # %% Writing a sample of the flat file to disk
+# BUG: This will honestly take more time than just writing it out and sampling will
+# so I've commented it out. Maybe it's fine on the supercomputer
 
-# agg_all = agg_all.reset_index(drop=False).rename(columns={"index": "pat_key"})
-# samp_ids = agg_all.pat_key.sample(frac=0.01).compute()
+# samp_ids = agg_all.pat_key.sample(frac=0.01).compute().tolist()
 # agg_samp = agg_all[agg_all.pat_key.isin(samp_ids)]
 # agg_samp.to_csv(out_dir + "samples/agg_samp.csv", index=False)
 

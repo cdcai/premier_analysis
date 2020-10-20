@@ -409,10 +409,10 @@ class parquets_dask(object):
         self.agg_level = agg_lvl
 
         # Compute timing from index for each visit
-        self.visit_timing = self.get_visit_timing(self.id)
+        self.visit_timing = self.client.compute(self.get_visit_timing(self.id))
 
         # Pull id as a pandas dataframe since it's not too large
-        self.id = self.client.compute(self.id, sync=True)
+        self.id = self.client.compute(self.id)
 
         # Compute an H:M:S lookup table
         # (which is quick and prevents us from parsing or using string ops)
@@ -533,7 +533,8 @@ class parquets_dask(object):
         if time_cols is not None:
             out_cols += time_cols
 
-        # Adding the combined feature col back into the original df
+        # Reverse-mapping our long-read features to the short ones
+        # we've defined in our code_dict (feat_prefix + feat_num)
         df_local["ftr"] = df_local[text_col].map({k: v for v, k in code_dict.items()})
 
         # Return as a dask lazy Df and a persistent dict with the features
@@ -541,17 +542,19 @@ class parquets_dask(object):
 
         return out, code_dict
 
-    def get_visit_timing(self, id_table):
+    def get_visit_timing(self, id_table, day_col="days_from_index"):
 
-        out = id_table["days_from_index"].to_frame()
+        out = id_table[day_col].to_frame()
 
-        out[self.agg_level] = out["days_from_index"] * self.from_days[self.agg_level]
+        out[self.agg_level] = out[day_col] * self.from_days[self.agg_level]
 
-        out = out[[self.agg_level]]
+        out = out.drop(day_col, axis=1)
 
         return out
 
-    def get_timing(self, df, day_col=None, time_col=None, ftr_col="ftr"):
+    def get_timing(
+        self, df, day_col=None, end_of_visit=False, time_col=None, ftr_col="ftr"
+    ):
 
         # Compute which cols we will have
         out_cols = [col for col in [ftr_col, day_col, time_col] if col is not None]
@@ -560,9 +563,15 @@ class parquets_dask(object):
         # make sure to index by pat_key so we can keep this efficient.
         # out: dask df with [out_cols], agg_lvl
         out = df[out_cols]
-        out = out.merge(
-            self.visit_timing, how="left", left_index=True, right_index=True
-        )
+        out = out.join(self.visit_timing.result(), how="left", on="pat_key")
+
+        # If we want this to occur at the end of the visit, add visit LOS to our timing
+        # that was computed in get_visit_timing
+        if end_of_visit:
+            out = out.join(self.id.result()["los"].to_frame(), how="left", on="pat_key")
+
+            out[self.agg_level] += out["los"] * self.from_days[self.agg_level]
+            out = out.drop("los", axis=1)
 
         # If we have no other timing information, the visit timing is
         # all we can add, so return as-is
