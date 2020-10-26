@@ -1,9 +1,8 @@
 # %%
-from tensorflow.keras.preprocessing.text import Tokenizer
+import tensorflow as tf
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 import pandas as pd
 import numpy as np
-import pickle
 
 # %%
 output_dir = "../output/"
@@ -18,12 +17,6 @@ time_seq = 225
 all_features = pd.read_parquet(output_dir + "parquet/flat_features/")
 pat_data = pd.read_parquet(data_dir + "vw_covid_pat/")
 
-with open(output_dir + "pkl/feature_lookup.pkl", "rb") as file:
-    feature_lookup = pickle.load(file)
-# %% DEBUG: Filter to only a few keys to test
-# med_key = pat_data.head(2)["medrec_key"].tolist()
-
-# all_features = all_features[all_features.loc[:, "medrec_key"].isin(med_key)]
 # %% determine unique medrec_keys
 n_medrec = all_features["medrec_key"].nunique()
 
@@ -49,33 +42,21 @@ trimmed_seq["ftrs"] = (
     .agg(" ".join, axis=1)
 )
 
-# %% Remove other feature cols we won't need
-trimmed_seq.drop(ftr_cols, axis=1, inplace=True)
-
-# %%
+# %% Pad sequences for timestep
 trimmed_seq.reset_index(drop=False, inplace=True)
 trimmed_seq.set_index(["medrec_key"], inplace=True)
 
-trimmed_seq
+# list of np arrays split by medrec_key
+df_gen = [df.values for _, df in trimmed_seq["ftrs"].groupby("medrec_key")]
 
-# %% Vectorize tokens
-# NOTE: We could use n-grams here also, I'll just use BoW
-tokenizer = Tokenizer()
-tokenizer.fit_on_texts(trimmed_seq["ftrs"])
+padded_seq = pad_sequences(df_gen, maxlen=time_seq, dtype=object, value="")
 
-trimmed_seq["seq"] = tokenizer.texts_to_sequences(trimmed_seq["ftrs"])
+# %% Construct a RaggedTensor with the split text data
+# (n_medrec, time_seq) -> (n_medrec, time_seq, 1)
+X = tf.strings.split(padded_seq[:, :, np.newaxis])
+X.shape
 
-# %% produce our sequences
-# NOTE: First we pad the token sequences so we can stack
-# then we pad the timesteps to the max length
-
-trimmed_seq["padded"] = pad_sequences(
-    trimmed_seq.loc[:, "seq"].tolist(), dtype="object"
-).tolist()
-
-df_gen = [np.stack(df.values) for _, df in trimmed_seq["seq"].groupby("medrec_key")]
-
-padded_seq = pad_sequences(df_gen, maxlen=time_seq)
-# %% Just to make sure we've done it
-# Should be (n_medrec, time_seq, token-len)
-padded_seq.shape
+# %% Create labels
+# TODO
+# %%
+dataset = tf.data.Dataset.from_tensor_slices(X)
