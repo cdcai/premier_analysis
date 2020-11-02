@@ -13,7 +13,7 @@ import tools.multi as tm
 TIME_UNIT = 'dfi'
 
 # Setting the file directories
-prem_dir = 'data/data/'
+prem_dir = 'data/'
 out_dir = 'output/'
 parq_dir = out_dir + 'parquet/'
 pkl_dir = out_dir + 'pkl/'
@@ -21,7 +21,7 @@ pkl_dir = out_dir + 'pkl/'
 # Importing the parquet files
 print('')
 print('Loading the parquet files...')
-pq = tp.load_parquets()
+pq = tp.load_parquets(prem_dir)
 
 # Making some lookup tables to use later
 medrec_dict = dict(zip(pq.id.pat_key.astype(int),
