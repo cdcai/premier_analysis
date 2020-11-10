@@ -1,62 +1,93 @@
-# %%
 import tensorflow as tf
-from tensorflow.keras.preprocessing.sequence import pad_sequences
 import pandas as pd
 import numpy as np
+import pickle as pkl
 
-# %%
-output_dir = "../output/"
-data_dir = "../data/data/"
-ftr_cols = ["vitals", "bill", "genlab", "lab_res", "proc", "diag"]
-final_cols = ["covid_visit", "ftrs"]
+from multiprocessing import Pool
+from sklearn.feature_extraction.text import CountVectorizer
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
 
-# Max time steps
-time_seq = 225
+# Setting up top-level parameters
+NO_VITALS = True
+PAD_BAGS = False
+PAD_SEQS = False
+PAD_VAL = 0
+MAX_TIME = 225
 
-# %% Read in all data
-all_features = pd.read_parquet(output_dir + "parquet/flat_features/")
-pat_data = pd.read_parquet(data_dir + "vw_covid_pat/")
+# Setting up the directories
+output_dir = '../output/'
+data_dir = '../data/data/'
+pkl_dir = output_dir + 'pkl/'
+ftr_cols = ['vitals', 'bill', 'genlab',
+            'lab_res', 'proc', 'diag']
+final_cols = ['covid_visit', 'ftrs']
 
-# %% determine unique medrec_keys
-n_medrec = all_features["medrec_key"].nunique()
+# Read in all data
+all_features = pd.read_parquet(output_dir + 'parquet/flat_features.parquet')
 
-# %% Ensure we're sorted
-all_features.set_index(["medrec_key", "pat_key", "dfi"], inplace=True)
+# Determine unique medrec_keys
+n_medrec = all_features['medrec_key'].nunique()
+
+# Ensure we're sorted
+all_features.set_index(['medrec_key', 'pat_key', "dfi"], inplace=True)
 all_features.sort_index(inplace=True)
 
-# %% trim the sequences
-# Here we're taking only the most recent times leading up to final covid visit
-# as determined by time_seq. We will then have to fill in the ones which don't
-# have full observation length or pass as a ragged tensor (but the latter is not as computationally efficient)
-trimmed_seq = all_features.groupby(["medrec_key"]).tail(time_seq)
-trimmed_seq.drop_duplicates()
+# Trim the sequences
+trimmed_seq = all_features.groupby(['medrec_key']).tail(max_time)
+trimmed_seq.drop_duplicates(inplace=True)
 
-trimmed_seq
+# pPtionally drops vitals and genlab from the features
+if NO_VITALS:
+    ftr_cols = ['bill', 'lab_res', 'proc', 'diag']
 
-# %% Aggregate all feature tokens into a single col
-# which we will then vectorize and use in an embedding layer
-trimmed_seq["ftrs"] = (
-    trimmed_seq.loc[:, ftr_cols]
+# Combining the separate feature columns into one
+trimmed_seq['ftrs'] = (
+    trimmed_seq[ftr_cols]
     .astype(str)
-    .replace(["None", "nan"], "")
-    .agg(" ".join, axis=1)
+    .replace(['None', 'nan'], '')
+    .agg(' '.join, axis=1)
 )
 
-# %% Pad sequences for timestep
+# Resetting the index
 trimmed_seq.reset_index(drop=False, inplace=True)
-trimmed_seq.set_index(["medrec_key"], inplace=True)
+trimmed_seq.set_index(['medrec_key'], inplace=True)
+
+# Fitting the vectorizer to the features
+ftrs = [doc for doc in trimmed_seq.ftrs]
+vec = CountVectorizer(ngram_range=(1, 1),
+                      min_df=5,
+                      binary=True)
+vec.fit(ftrs)
+vocab = vec.vocabulary_
+
+# Adding 1 to the vocab indices to 0 can be saved for padding (if needed)
+for k in vocab.keys():
+    vocab[k] += 1
+
+# Saving the updated vocab to disk
+with open(pkl_dir + 'all_ftrs_dict.pkl', 'wb') as f:
+    pkl.dump(vocab, f)
+    f.close()
+
+# Converting the bags of feature strings to integers
+int_ftrs = [[vocab[k] for k in doc.split() if k in vocab.keys()] 
+            for doc in ftrs]
+trimmed_seq['int_ftrs'] = int_ftrs
 
 # list of np arrays split by medrec_key
-df_gen = [df.values for _, df in trimmed_seq["ftrs"].groupby("medrec_key")]
+int_seqs = [
+    df.values for _, df in trimmed_seq['int_ftrs'].groupby('medrec_key')
+]
 
-padded_seq = pad_sequences(df_gen, maxlen=time_seq, dtype=object, value="")
+# Converting to a nested list to keep things clean
+seq_gen = [[seq for seq in medrec] for medrec in int_seqs]
 
-# %% Construct a RaggedTensor with the split text data
-# (n_medrec, time_seq) -> (n_medrec, time_seq, 1)
-X = tf.strings.split(padded_seq[:, :, np.newaxis])
-X.shape
+# Optionally padding the sequence of visits
+if PAD_SEQS:
+    seq_gen = [l + [[PAD_VAL]]*(MAX_TIME - len(l)) for l in seq_gen]
 
-# %% Create labels
-# TODO
-# %%
-dataset = tf.data.Dataset.from_tensor_slices(X)
+# Pickling the sequences of visits for loading in the modeling script
+with open(pkl_dir + 'X.pkl', 'wb') as f:
+    pkl.dump(seq_gen, f)
+    f.close()
