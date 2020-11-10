@@ -10,8 +10,7 @@ from itertools import product
 from functools import reduce
 
 import dask.dataframe as dd
-from dask import delayed
-from dask.distributed import Client
+import dask.distributed as distributed
 
 from sklearn.metrics import confusion_matrix, roc_curve
 from sklearn.model_selection import StratifiedKFold, cross_val_predict
@@ -258,7 +257,6 @@ class parquets_dask(object):
     # Could also pass in during init or just abstract away even more
     # but this is the extent of my py-fu
     final_names = ["vitals", "bill", "gen_lab", "proc", "diag", "lab_res"]
-    dask_frames = ["_vitals", "_bill", "_genlab", "_proc", "_diag", "_lab_res"]
     feat_prefix = ["vtl", "bill", "genl", "proc", "dx", "lbrs"]
     time_cols = [
         ["observation_day_number", "observation_time_of_day"],
@@ -284,11 +282,12 @@ class parquets_dask(object):
     def __init__(
         self,
         data_dir="data/data/",
-        agg_lvl="dfi",
+        dask_client=None,
+        agg_lvl="dfi"
     ):
 
         # Start Dask client
-        self.client = Client(processes=False)
+        self.client = dask_client
         print(self.client)
 
         # Specifying some columns to pull
@@ -429,7 +428,7 @@ class parquets_dask(object):
         out = [
             dict(zip(self.df_arg_names, a))
             for a in zip(
-                self.dask_frames,
+                [self._vitals, self._bill, self._genlab, self._proc, self._diag, self._lab_res],
                 self.text_cols,
                 self.feat_prefix,
                 self.num_col,
@@ -439,24 +438,26 @@ class parquets_dask(object):
 
         return out
 
-    def all_df_to_feat(self, pkl_file=None):
+    def all_df_to_feat(self, pkl_file=None, force_compute=False):
 
-        out_promise = []
+        out = []
+        code_dicts = []
 
-        for kwargs in self.df_kwargs:
-            out_promise.append(
-                self.client.compute(self.df_to_features(**kwargs), sync=False)
-            )
+        # Quantize numeric output, rename text column to "text"
+        # NOTE: This is persistent
+        out = [self.df_to_features(**kw) for kw in self.df_kwargs]
 
-        # BUG: This is pretty neophyte-level parallelism,
-        # revisit eventually if you ever think of a better approach
-        out = [promise.result() for promise in out_promise]
+        # Compute all feature values for each table for lookup table
+        code_dicts = [self.col_to_features(a["text"], b["feature_prefix"]) for a, b in zip(out, self.df_kwargs)]
+       
+       # Convert long feature name to condensed value computed in code dict
+        out = [self.condense_features(a, "text", b) for a, b in zip(out, code_dicts)]
 
         # Combining the feature dicts and saving to disk
         ftr_dict = dict(
             zip(
-                tp.flatten([d.keys() for _, d in out]),
-                tp.flatten([d.values() for _, d in out]),
+                tp.flatten([d.keys() for d in code_dicts]),
+                tp.flatten([d.values() for d in code_dicts]),
             )
         )
 
@@ -469,7 +470,14 @@ class parquets_dask(object):
         # NOTE: These still have to be evaluated, but
         # the hope is keeping it as a task graph will keep memory overhead low
         # until it's absolutely necessary to read in
-        return dict(zip(self.final_names, [a for a, _ in out])), ftr_dict
+        return dict(zip(self.final_names, out)), ftr_dict
+
+    def condense_features(self, df, text_col = "text", code_dict = None):
+        df["ftr"] = df[text_col].map({k: v for v, k in code_dict.items()})
+
+        df = df.drop(text_col, axis=1)
+
+        return self.client.persist(df)
 
     def col_to_features(self, text, feature_prefix):
 
@@ -480,26 +488,6 @@ class parquets_dask(object):
 
         return code_dict
 
-    def num_to_quant(self, df, text, num, buckets):
-        # BUG: Transform triggers a shuffle which is very
-        # computationally intensive. If there were a faster
-        # way to have the data indexed by the text col first and
-        # then reindex by pat_key, that would be ideal.
-        # any operation where groupby uses a non-index is costly
-
-        df["q"] = (
-            df.groupby(text)[num]
-            .transform(
-                pd.qcut, q=buckets, labels=False, duplicates="drop", meta=("q", "f")
-            )
-            .reset_index(drop=True)
-        )
-
-        df[text] += " q" + df["q"].astype(str)
-
-        return df
-
-    @delayed
     def df_to_features(
         self,
         df,
@@ -511,36 +499,42 @@ class parquets_dask(object):
         slim=True,
     ):
 
-        df_local = getattr(self, df)
-
         # Pulling out the text
-        df_local[text_col] = df_local[text_col].astype(str)
+        df[text_col] = df[text_col].astype(str)
 
         # Optionally quantizing the numeric column
         if num_col is not None:
+        # BUG: Transform triggers a shuffle which is very
+        # computationally intensive. If there were a faster
+        # way to have the data indexed by the text col first and
+        # then reindex by pat_key, that would be ideal.
+        # any operation where groupby uses a non-index is costly
+            df["q"] = (
+                df.groupby(text_col)[num_col]
+                .transform(
+                    pd.qcut, q=buckets, labels=False, duplicates="drop", meta=("q", "f")
+                )
+                .reset_index(drop=True)
+            )
 
-            df_local = self.num_to_quant(df_local, text_col, num_col, buckets)
-
-        # Making a lookup dict for the features
-        code_dict = self.col_to_features(df_local[text_col], feature_prefix)
+            df[text_col] += " q" + df["q"].astype(str)
 
         # Return full set (as pandas DF)
         if not slim:
-            return df_local, code_dict
+            return df
 
-        out_cols = ["ftr"]
+        # Rename text_col to "text" for further downstream processing
+        df = df.rename(columns={text_col: "text"})
+
+        out_cols = ["text"]
 
         if time_cols is not None:
             out_cols += time_cols
 
-        # Reverse-mapping our long-read features to the short ones
-        # we've defined in our code_dict (feat_prefix + feat_num)
-        df_local["ftr"] = df_local[text_col].map({k: v for v, k in code_dict.items()})
-
         # Return as a dask lazy Df and a persistent dict with the features
-        out = df_local[out_cols]
+        out = df[out_cols]
 
-        return out, code_dict
+        return self.client.persist(out)
 
     def get_visit_timing(self, id_table, day_col="days_from_index"):
 

@@ -1,14 +1,23 @@
 #%%
 import tools.preprocessing as tp
 import tools.multi as tm
+import dask.dataframe as dd
+from dask.distributed import Client
 import os
 import time
+import ipython_memory_usage 
+%ipython_memory_usage_start 
 # %%Unit of time to use for aggregation
 TIME_UNIT = "dfi"
 
+# HACK: For LIZA use, use this offset
+# Which forces data into memory during certain steps
+# to avoid slowdown
+on_liza = True
+
 # Setting the file directories
-prem_dir = "data/data/"
-out_dir = "output/"
+prem_dir = "../data/data/"
+out_dir = "../output/"
 parq_dir = out_dir + "parquet/"
 pkl_dir = out_dir + "pkl/"
 
@@ -16,9 +25,10 @@ _ = [os.makedirs(dirs, exist_ok=True) for dirs in [parq_dir, pkl_dir]]
 # %% Lazily Importing the parquet files
 print("")
 print("Loading the parquet files...")
+client = Client(processes=False)
 
 t1 = time.time()
-pq = tm.parquets_dask(prem_dir, agg_lvl=TIME_UNIT)
+pq = tm.parquets_dask(prem_dir, dask_client = client, agg_lvl=TIME_UNIT)
 
 # %% Pull all data as dask Df to a dictionary
 # and save the feature dictionaries to a pkl
@@ -56,11 +66,21 @@ lab_res_agg = pq.agg_features(lab_res, out_col="lab_res")
 proc_agg = pq.agg_features(proc, out_col="proc")
 diag_agg = pq.agg_features(diag, out_col="diag")
 
+t11 = time.time()
 
+print("Time to agg: {}".format(t11-t1))
 # %% Merging all the tables into a single flat file
 print("And merging the aggregated tables into a flat file.")
+
 agg = [vitals_agg, bill_agg, genlab_agg, lab_res_agg, proc_agg, diag_agg]
-agg_merged = tm.dask_merge_all(agg, how="outer")
+
+if not on_liza:
+    agg_merged = tm.dask_merge_all(agg, how="outer")
+else:
+    agg = [res.compute() for res in agg]
+    agg_merged = agg[0].join(agg[1:6], how="outer")
+
+
 
 # %% Adding COVID visit indicator
 
@@ -102,10 +122,17 @@ agg_all = agg_all[
 # agg_samp.to_csv(out_dir + "samples/agg_samp.csv", index=False)
 
 # %% Writing the flat feature file to disk
-pq.client.compute(
-    agg_all.to_parquet(parq_dir + "flat_features/", write_index=False),
-    sync=True,
-)
+
+print("Writing to disk")
+
+if not on_liza:
+    pq.client.compute(
+        agg_all.to_parquet(parq_dir + "flat_features/", write_index=False),
+        sync=True,
+    )
+else:
+    agg_all_da = dd.from_pandas(agg_all, chunksize = 1e5)
+    agg_all_da.to_parquet(parq_dir + "flat_features/", write_index=False)
 
 t2 = time.time()
 
