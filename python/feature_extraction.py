@@ -10,7 +10,7 @@ import time
 TIME_UNIT = "dfi"
 
 # HACK: For LIZA use, different cluster settings
-on_liza = True
+on_liza = False
 
 # Setting the file directories
 prem_dir = "data/data/"
@@ -27,7 +27,7 @@ if __name__ == "__main__":
 
     # Bokeh dashboard at localhost:8787
     if not on_liza:
-        clust = LocalCluster(processes=False)
+        clust = LocalCluster(n_workers=2, threads_per_worker=4)
     else:
         clust = LocalCluster(n_workers=10, threads_per_worker=4)
 
