@@ -1,137 +1,155 @@
-# %%
+import numpy as np
+import pandas as pd
+import pickle
+import json
+
+from importlib import reload
+
 import tools.preprocessing as tp
 import tools.multi as tm
-import dask.dataframe as dd
-from dask.distributed import Client, LocalCluster
-import os
-import time
 
-# %% Unit of time to use for aggregation
+
+# Unit of time to use for aggregation
 TIME_UNIT = "dfi"
 
-# HACK: For LIZA use, different cluster settings
-on_liza = False
-
 # Setting the file directories
-prem_dir = "data/data/"
+prem_dir = "data/"
 out_dir = "output/"
 parq_dir = out_dir + "parquet/"
 pkl_dir = out_dir + "pkl/"
 
-if __name__ == "__main__":
+# Importing the parquet files
+print("")
+print("Loading the parquet files...")
+pq = tp.load_parquets(prem_dir)
 
-    _ = [os.makedirs(dirs, exist_ok=True) for dirs in [parq_dir, pkl_dir]]
-    # %% Lazily Importing the parquet files
-    print("")
-    print("Loading the parquet files...")
+# Making some lookup tables to use later
+medrec_dict = dict(zip(pq.id.pat_key.astype(int), pq.id.medrec_key.astype(int)))
+day_dict = dict(zip(pq.id.pat_key.astype(int), pq.id.days_from_index.astype(int)))
+covid_dict = dict(zip(pq.id.pat_key.astype(int), pq.id.covid_visit.astype(int)))
 
-    # Bokeh dashboard at localhost:8787
-    if not on_liza:
-        clust = LocalCluster(n_workers=2, threads_per_worker=4)
-    else:
-        clust = LocalCluster(n_workers=10, threads_per_worker=4)
+print("Converting the free-text fields to features...")
 
-    with Client(clust) as client:
+# Vectorizing the single free text fields
+vitals, v_dict = tp.df_to_features(
+    pq.vitals,
+    feature_prefix="vtl",
+    text_col="lab_test",
+    time_cols=["observation_day_number", "observation_time_of_day"],
+    num_col="test_result_numeric_value",
+)
+bill, bill_dict = tp.df_to_features(
+    pq.bill, feature_prefix="bill", text_col="std_chg_desc", time_cols=["serv_day"]
+)
+genlab, genlab_dict = tp.df_to_features(
+    pq.genlab,
+    feature_prefix="genl",
+    text_col="lab_test_loinc_desc",
+    time_cols=["collection_day_number", "collection_time_of_day"],
+    num_col="numeric_value",
+)
+proc, proc_dict = tp.df_to_features(
+    pq.proc, feature_prefix="proc", text_col="icd_code", time_cols=["proc_day"]
+)
+diag, diag_dict = tp.df_to_features(pq.diag, feature_prefix="dx", text_col="icd_code")
 
-        t1 = time.time()
-        pq = tm.parquets_dask(prem_dir, dask_client=client, agg_lvl=TIME_UNIT)
+# Vectorizing the microbiology lab results
+lab_text = pq.lab_res.test.astype(str)
+lab_text = lab_text + " " + pq.lab_res.observation.astype(str)
+lab_text = pd.DataFrame(lab_text, columns=["text"])
+lab_res = pd.concat([pq.lab_res, lab_text], axis=1)
+lab_res, lab_res_dict = tp.df_to_features(
+    lab_res,
+    feature_prefix="lbrs",
+    text_col="text",
+    time_cols=["spec_day_number", "spec_time_of_day"],
+)
 
-        # %% Pull all data as dask Df to a dictionary
-        # and save the feature dictionaries to a pkl
-        all_data, _ = pq.all_df_to_feat(pkl_dir + "feature_lookup.pkl")
+# Combining the feature dicts and saving to disk
+dicts = [v_dict, bill_dict, genlab_dict, proc_dict, diag_dict, lab_res_dict]
+ftr_dict = dict(
+    zip(tp.flatten([d.keys() for d in dicts]), tp.flatten([d.values() for d in dicts]))
+)
 
-        # %% Calculating time from index for each observation (based on agg level)
-        vitals = pq.get_timing(
-            all_data["vitals"],
-            day_col="observation_day_number",
-            time_col="observation_time_of_day",
-        )
+# Calculating days and minutes from index for each observation
+vitals = tm.get_times(
+    vitals, day_dict, "observation_day_number", "observation_time_of_day"
+)
+genlab = tm.get_times(
+    genlab, day_dict, "collection_day_number", "collection_time_of_day"
+)
+lab_res = tm.get_times(lab_res, day_dict, "spec_day_number", "spec_time_of_day")
+bill = tm.get_times(bill, day_dict, "serv_day")
+proc = tm.get_times(proc, day_dict, "proc_day")
+diag = tm.get_times(diag, day_dict)
 
-        bill = pq.get_timing(all_data["bill"], day_col="serv_day")
+# Freeing up memory
+pq = []
 
-        genlab = pq.get_timing(
-            all_data["gen_lab"],
-            day_col="collection_day_number",
-            time_col="collection_time_of_day",
-        )
+# Aggregating features by day
+print("Aggregating the features by day...")
+vitals_agg = tp.agg_features(vitals, TIME_UNIT)
+bill_agg = tp.agg_features(bill, TIME_UNIT)
+genlab_agg = tp.agg_features(genlab, TIME_UNIT)
+lab_res_agg = tp.agg_features(lab_res, TIME_UNIT)
+proc_agg = tp.agg_features(proc, TIME_UNIT)
+diag_agg = tp.agg_features(diag, TIME_UNIT)
 
-        lab_res = pq.get_timing(
-            all_data["lab_res"], day_col="spec_day_number", time_col="spec_time_of_day"
-        )
+# Merging all the tables into a single flat file
+print("And merging the aggregated tables into a flat file.")
+agg = [vitals_agg, bill_agg, genlab_agg, lab_res_agg, proc_agg]
+agg_names = ["vitals", "bill", "genlab", "lab_res", "proc"]
+agg_merged = tp.merge_all(agg, on=["pat_key", TIME_UNIT])
+agg_merged.columns = ["pat_key", TIME_UNIT] + agg_names
 
-        proc = pq.get_timing(all_data["proc"], day_col="proc_day")
+# Adjusting diag times to be at the end of the visit
+max_times = agg_merged.groupby("pat_key")[TIME_UNIT].max()
+max_ids = max_times.index.values
+if TIME_UNIT != "dfi":
+    max_dict = dict(zip(max_ids, max_times.values + 1))
+else:
+    max_dict = dict(zip(max_ids, max_times.values))
 
-        diag = pq.get_timing(all_data["diag"], end_of_visit=True)
+base_dict = dict(zip(diag_agg.pat_key, diag_agg[TIME_UNIT]))
+base_dict.update(max_dict)
+diag_agg[TIME_UNIT] = [base_dict[id] for id in diag_agg.pat_key]
 
-        # %% Aggregating features by day
-        print("Aggregating the features by day...")
-        vitals_agg = pq.agg_features(vitals, out_col="vitals")
-        bill_agg = pq.agg_features(bill, out_col="bill")
-        genlab_agg = pq.agg_features(genlab, out_col="genlab")
-        lab_res_agg = pq.agg_features(lab_res, out_col="lab_res")
-        proc_agg = pq.agg_features(proc, out_col="proc")
-        diag_agg = pq.agg_features(diag, out_col="diag")
+# Merging diagnoses with the rest of the columns
+agg_all = tp.merge_all([agg_merged, diag_agg], on=["pat_key", TIME_UNIT])
+agg_all.rename({"ftrs": "dx"}, axis=1, inplace=True)
 
-        t11 = time.time()
+# Adding COVID visit indicator
+agg_all["covid_visit"] = [covid_dict[id] for id in agg_all.pat_key]
 
-        print("Time to agg: {}".format(t11 - t1))
-        # %% Merging all the tables into a single flat file
-        print("And merging the aggregated tables into a flat file.")
+# And adding medrec key
+agg_all["medrec_key"] = [medrec_dict[id] for id in agg_all.pat_key]
 
-        agg = [vitals_agg, bill_agg, genlab_agg, lab_res_agg, proc_agg, diag_agg]
+# Reordering the columns
+agg_all = agg_all[
+    [
+        "medrec_key",
+        "pat_key",
+        TIME_UNIT,
+        "vitals",
+        "bill",
+        "genlab",
+        "lab_res",
+        "proc",
+        "dx",
+        "covid_visit",
+    ]
+]
 
-        agg_merged = tm.dask_merge_all(agg, how="outer")
+# Sorting by medrec, pat, and time
+agg_all.sort_values(["medrec_key", "pat_key", TIME_UNIT], inplace=True)
 
-        # %% Adding COVID visit indicator
+# Writing a sample of the flat file to disk
+samp_ids = agg_all.pat_key.sample(1000)
+agg_samp = agg_all[agg_all.pat_key.isin(samp_ids)]
+agg_samp.to_csv(out_dir + "samples/agg_samp.csv", index=False)
 
-        agg_all = agg_merged.reset_index(drop=False)
+# Writing the flat feature file to disk
+agg_all.to_parquet(parq_dir + "flat_features.parquet", index=False)
 
-        agg_all = agg_all.join(
-            pq.id.result()[["covid_visit", "medrec_key"]],
-            how="left",
-            on="pat_key",
-        )
-
-        # Reordering the columns
-        agg_all = agg_all[
-            [
-                "medrec_key",
-                "pat_key",
-                TIME_UNIT,
-                "vitals",
-                "bill",
-                "genlab",
-                "lab_res",
-                "proc",
-                "diag",
-                "covid_visit",
-            ]
-        ]
-
-        # %% Sorting by medrec, pat, and time
-        # BUG: sorting in dask isn't really possible, and multiindex support isn't allowed
-        # so we will just have to make due, or sort after it's persistent
-        # agg_all = agg_all.map_partitions(lambda df: df.sort_values([TIME_UNIT, "medrec_key"]))
-
-        # %% Writing a sample of the flat file to disk
-        # BUG: This will honestly take more time than just writing it out and sampling will
-        # so I've commented it out. Maybe it's fine on the supercomputer
-
-        # samp_ids = agg_all.pat_key.sample(frac=0.01).compute().tolist()
-        # agg_samp = agg_all[agg_all.pat_key.isin(samp_ids)]
-        # agg_samp.to_csv(out_dir + "samples/agg_samp.csv", index=False)
-
-        # %% Writing the flat feature file to disk
-
-        print("Writing to disk")
-
-        client.compute(
-            agg_all.repartition(partition_size="100MB").to_parquet(
-                parq_dir + "flat_features/", write_index=False
-            ),
-            sync=True,
-        )
-
-        t2 = time.time()
-
-        print("Time total: {}".format(t2 - t1))
+# And saving the feature dict to disk
+pickle.dump(ftr_dict, open(pkl_dir + "feature_lookup.pkl", "wb"))
