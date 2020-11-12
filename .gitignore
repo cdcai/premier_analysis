@@ -141,3 +141,6 @@ ENV/
 
 # Dask worker space
 dask-worker-space/
+
+# pylint
+*.pylintrc
