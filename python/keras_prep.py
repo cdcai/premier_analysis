@@ -1,12 +1,10 @@
 '''This script merges the feature columns and converts them to ints.'''
 
-import tensorflow as tf
 import pandas as pd
 import numpy as np
 import pickle as pkl
 
 from sklearn.feature_extraction.text import CountVectorizer
-from tensorflow.keras.preprocessing.sequence import pad_sequences
 
 
 # Setting up top-level parameters
