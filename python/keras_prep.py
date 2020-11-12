@@ -1,12 +1,8 @@
-import tensorflow as tf
 import pandas as pd
 import numpy as np
 import pickle as pkl
 
-from multiprocessing import Pool
 from sklearn.feature_extraction.text import CountVectorizer
-from tensorflow.keras.preprocessing.text import Tokenizer
-from tensorflow.keras.preprocessing.sequence import pad_sequences
 
 # Setting up top-level parameters
 NO_VITALS = True
@@ -16,14 +12,14 @@ PAD_VAL = 0
 MAX_TIME = 225
 
 # Setting up the directories
-output_dir = "../output/"
-data_dir = "../data/data/"
+output_dir = "output/"
+data_dir = "data/data/"
 pkl_dir = output_dir + "pkl/"
 ftr_cols = ["vitals", "bill", "genlab", "lab_res", "proc", "diag"]
 final_cols = ["covid_visit", "ftrs"]
 
 # Read in all data
-all_features = pd.read_parquet(output_dir + "parquet/flat_features.parquet")
+all_features = pd.read_parquet(output_dir + "parquet/flat_features/")
 
 # Determine unique medrec_keys
 n_medrec = all_features["medrec_key"].nunique()
@@ -36,7 +32,7 @@ all_features.sort_index(inplace=True)
 trimmed_seq = all_features.groupby(["medrec_key"]).tail(MAX_TIME)
 trimmed_seq.drop_duplicates(inplace=True)
 
-# pPtionally drops vitals and genlab from the features
+# Optionally drops vitals and genlab from the features
 if NO_VITALS:
     ftr_cols = ["bill", "lab_res", "proc", "diag"]
 
