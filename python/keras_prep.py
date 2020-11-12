@@ -1,14 +1,16 @@
+'''This script merges the feature columns and converts them to ints.'''
+
 import tensorflow as tf
 import pandas as pd
 import numpy as np
 import pickle as pkl
 
-from multiprocessing import Pool
 from sklearn.feature_extraction.text import CountVectorizer
-from tensorflow.keras.preprocessing.text import Tokenizer
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 
+
 # Setting up top-level parameters
+MIN_DF = 5
 NO_VITALS = True
 PAD_BAGS = False
 PAD_SEQS = False
@@ -34,10 +36,10 @@ all_features.set_index(['medrec_key', 'pat_key', "dfi"], inplace=True)
 all_features.sort_index(inplace=True)
 
 # Trim the sequences
-trimmed_seq = all_features.groupby(['medrec_key']).tail(max_time)
+trimmed_seq = all_features.groupby(['medrec_key']).tail(MAX_TIME)
 trimmed_seq.drop_duplicates(inplace=True)
 
-# pPtionally drops vitals and genlab from the features
+# Optionally drops vitals and genlab from the features
 if NO_VITALS:
     ftr_cols = ['bill', 'lab_res', 'proc', 'diag']
 
@@ -56,7 +58,7 @@ trimmed_seq.set_index(['medrec_key'], inplace=True)
 # Fitting the vectorizer to the features
 ftrs = [doc for doc in trimmed_seq.ftrs]
 vec = CountVectorizer(ngram_range=(1, 1),
-                      min_df=5,
+                      min_df=MIN_DF,
                       binary=True)
 vec.fit(ftrs)
 vocab = vec.vocabulary_
@@ -76,9 +78,8 @@ int_ftrs = [[vocab[k] for k in doc.split() if k in vocab.keys()]
 trimmed_seq['int_ftrs'] = int_ftrs
 
 # list of np arrays split by medrec_key
-int_seqs = [
-    df.values for _, df in trimmed_seq['int_ftrs'].groupby('medrec_key')
-]
+int_seqs = [df.values for _, df 
+            in trimmed_seq['int_ftrs'].groupby('medrec_key')]
 
 # Converting to a nested list to keep things clean
 seq_gen = [[seq for seq in medrec] for medrec in int_seqs]
@@ -88,6 +89,6 @@ if PAD_SEQS:
     seq_gen = [l + [[PAD_VAL]]*(MAX_TIME - len(l)) for l in seq_gen]
 
 # Pickling the sequences of visits for loading in the modeling script
-with open(pkl_dir + 'X.pkl', 'wb') as f:
+with open(pkl_dir + 'int_seqs.pkl', 'wb') as f:
     pkl.dump(seq_gen, f)
     f.close()
