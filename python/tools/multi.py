@@ -549,6 +549,25 @@ class parquets_dask(object):
     def get_timing(
         self, df, day_col=None, end_of_visit=False, time_col=None, ftr_col="ftr"
     ):
+        """Compute timing for each feature based on the granularity specified.
+
+        Arguments:
+
+        df: Dask or pandas dataframe
+            Data where time and feature columns can be found
+
+        day_col: str (default: None)
+            Name of column in df which contains days from record index
+
+        end_of_visit: bool (default: False)
+            Should the feature values be appended to the last day in the visit?
+
+        time_col: str (default: None)
+            Optional column name in df which contains intra-day timing
+
+        ftr_col: str (default: "ftr")
+            Name of feature column to aggregate
+        """
 
         # Compute which cols we will have
         out_cols = [col for col in [ftr_col, day_col, time_col] if col is not None]
@@ -593,7 +612,10 @@ class parquets_dask(object):
         return out
 
     def reset_agg_level(self, new_level):
-
+        """Helper function to reset aggregation level during runtime
+        in the unlikely event that you'd like to recompute at a different
+        level of time aggregation without re-running the whole pipeline.
+        """
         # Update agg level
         self.agg_level = new_level
 
