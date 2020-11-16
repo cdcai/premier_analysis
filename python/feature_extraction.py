@@ -168,7 +168,7 @@ if COVID_ONLY:
     total_covid = agg_all.groupby('medrec_key')['covid_visit'].sum()
     total_dict = dict(zip(agg_all.medrec_key.unique(), 
                           total_covid > 0))
-    covid_medrec = [total_dict[id]for id in agg_all.medrec_key]
+    covid_medrec = [total_dict[id] for id in agg_all.medrec_key]
     agg_all = agg_all.iloc[covid_medrec, :]
 
 # Writing a sample of the flat file to disk
