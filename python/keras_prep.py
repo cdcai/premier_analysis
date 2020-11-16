@@ -24,15 +24,27 @@ ftr_cols = ['vitals', 'bill', 'genlab',
             'lab_res', 'proc', 'diag']
 final_cols = ['covid_visit', 'ftrs']
 
-# Read in all data
+# Read in the pat and ID tables
+pat_df = pd.read_parquet(data_dir + 'vw_covid_pat_all/')
+id_df = pd.read_parquet(data_dir + 'vw_covid_id/') 
+
+# Read in the flat feature file
 all_features = pd.read_parquet(output_dir + 'parquet/flat_features.parquet')
 
 # Determine unique medrec_keys
 n_medrec = all_features['medrec_key'].nunique()
 
 # Ensure we're sorted
-all_features.set_index(['medrec_key', 'pat_key', "dfi"], inplace=True)
-all_features.sort_index(inplace=True)
+all_features.sort_values(['medrec_key', 'pat_key', "dfi"], inplace=True)
+
+# List of covid visit indicator arrays split by medrec_key
+covid_visits = [df.values for _, df
+                in all_features.groupby('medrec_key')['covid_visit']]
+
+# Figuring out which visit was the first for COVID;
+covid_idx = [np.where(arr == 1)[0] for arr in covid_visits]
+first = [idx.min() for idx in covid_idx]
+last = [idx.max() for idx in covid_idx]
 
 # Trim the sequences
 trimmed_seq = all_features.groupby(['medrec_key']).tail(MAX_TIME)
@@ -50,10 +62,6 @@ trimmed_seq['ftrs'] = (
     .agg(' '.join, axis=1)
 )
 
-# Resetting the index
-trimmed_seq.reset_index(drop=False, inplace=True)
-trimmed_seq.set_index(['medrec_key'], inplace=True)
-
 # Fitting the vectorizer to the features
 ftrs = [doc for doc in trimmed_seq.ftrs]
 vec = CountVectorizer(ngram_range=(1, 1),
@@ -62,7 +70,7 @@ vec = CountVectorizer(ngram_range=(1, 1),
 vec.fit(ftrs)
 vocab = vec.vocabulary_
 
-# Adding 1 to the vocab indices to 0 can be saved for padding (if needed)
+# Saving the index 0 for padding
 for k in vocab.keys():
     vocab[k] += 1
 
@@ -76,9 +84,9 @@ int_ftrs = [[vocab[k] for k in doc.split() if k in vocab.keys()]
             for doc in ftrs]
 trimmed_seq['int_ftrs'] = int_ftrs
 
-# list of np arrays split by medrec_key
+# list of integer sequence arrays split by medrec_key
 int_seqs = [df.values for _, df 
-            in trimmed_seq['int_ftrs'].groupby('medrec_key')]
+            in trimmed_seq.groupby('medrec_key')['int_ftrs']]
 
 # Converting to a nested list to keep things clean
 seq_gen = [[seq for seq in medrec] for medrec in int_seqs]
@@ -91,3 +99,9 @@ if PAD_SEQS:
 with open(pkl_dir + 'int_seqs.pkl', 'wb') as f:
     pkl.dump(seq_gen, f)
     f.close()
+
+# Constructing some of the targets
+died = np.array(['EXPIRED' in status for status in pat_df.disc_status_desc],
+                dtype=np.uint8)
+death_dict = dict(zip(pat_df.pat_key, died))
+pat_died = [
