@@ -132,7 +132,7 @@ diag_agg[TIME_UNIT] = [base_dict[id] for id in diag_agg.pat_key]
 
 # Merging diagnoses with the rest of the columns
 agg_all = tp.merge_all([agg_merged, diag_agg], on=['pat_key', TIME_UNIT])
-agg_all.rename({'ftrs': 'dx'}, axis=1, inplace=True)
+agg_all.rename({'ftrs': 'diag'}, axis=1, inplace=True)
 
 # Adding COVID visit indicator
 agg_all['covid_visit'] = [covid_dict[id] for id in agg_all.pat_key]
@@ -151,7 +151,7 @@ agg_all = agg_all[
         'genlab',
         'lab_res',
         'proc',
-        'dx',
+        'diag',
         'covid_visit',
     ]
 ]
