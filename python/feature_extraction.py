@@ -16,6 +16,9 @@ import tools.multi as tm
 # Unit of time to use for aggregation
 TIME_UNIT = 'dfi'
 
+# Whether to limit the output to folks with at least 1 COVID visit
+COVID_ONLY = True
+
 # Setting the file directories
 prem_dir = '../data/data/'
 out_dir = '../output/'
@@ -158,6 +161,15 @@ agg_all = agg_all[
 
 # Sorting by medrec, pat, and time
 agg_all.sort_values(['medrec_key', 'pat_key', TIME_UNIT], inplace=True)
+
+# Optionally getting rid of non-COVID patients; i'm sure there's a more
+# efficient way of doing this, but I can't figure it out.
+if COVID_ONLY:
+    total_covid = agg_all.groupby('medrec_key')['covid_visit'].sum()
+    total_dict = dict(zip(agg_all.medrec_key.unique(), 
+                          total_covid > 0))
+    covid_medrec = [total_dict[id]for id in agg_all.medrec_key]
+    agg_all = agg_all.iloc[covid_medrec, :]
 
 # Writing a sample of the flat file to disk
 samp_ids = agg_all.pat_key.sample(1000)
