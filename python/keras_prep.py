@@ -3,6 +3,7 @@
 import pandas as pd
 import numpy as np
 import pickle as pkl
+import os
 
 from sklearn.feature_extraction.text import CountVectorizer
 
@@ -16,8 +17,8 @@ PAD_VAL = 0
 MAX_TIME = 225
 
 # Setting up the directories
-output_dir = '../output/'
-data_dir = '../data/data/'
+output_dir = os.path.abspath('../output/') + '/'
+data_dir = os.path.abspath('../data/data/') + '/'
 pkl_dir = output_dir + 'pkl/'
 ftr_cols = ['vitals', 'bill', 'genlab',
             'lab_res', 'proc', 'diag']
