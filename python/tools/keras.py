@@ -4,13 +4,14 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 import kerastuner as kt
-from kerastuner import HyperModel
+
 import pickle as pkl
 
 from tensorflow import keras as keras
 from tensorflow.keras.layers import Input, LSTM, Embedding, Dense
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tensorflow.keras import backend as K
+from kerastuner import HyperModel
 
 
 class DataGenerator(keras.utils.Sequence):
@@ -75,25 +76,57 @@ class LSTMHyperModel(HyperModel):
     and LSTM layer.
 
     Args:
+        ragged (bool, default: `False`): Should the input be treated as ragged or dense?
         n_timesteps (int): length of time sequence
         n_tokens (int): Vocabulary size for embedding layer
         batch_size (int): Training batch size
-        n_lstm (int): Number of LSTM neurons in the recurrent layer
     """
-    def __init__(self, n_timesteps, n_tokens, batch_size, n_lstm):
+    def __init__(self, ragged = False, n_timesteps, n_tokens, batch_size):
         # Capture model parameters at init
+        self.ragged = ragged
         self.n_timesteps = n_timesteps
         self.n_tokens = n_tokens
         self.batch_size = batch_size
-        self.n_lstm = n_lstm
 
     def build(self, hp):
-        """Build LSTM model
+        """Build LSTM model 
 
+        Notes:
+            This is normally called within a HyperModel context.
         Args:
             hp (:obj:`HyperParameters`): `HyperParameters` instance
 
         Returns:
-            A built model
+            A built/compiled keras model ready for hyperparameter tuning
         """
-        pass
+        # NOTE: Not doing sequential here incase we want
+        # to use multiple inputs / multi embedding
+        inp = Input(
+            shape=(n_timesteps, None if self.ragged else n_tokens),
+            ragged = self.ragged,
+            batch_size=self.batch_size
+        )
+        emb = Embedding(
+            input_dim=self.n_tokens
+        )(inp)
+        lstm = LSTM(
+            units=hp.Int("LSTM Units", min_value=32, max_value=512, step=32),
+            dropout=hp.Float("LSTM Dropout", min_value=0., max_value=0.9, step=0.05),
+            recurrent_dropout=hp.Float("LSTM Recurrent Dropout", min_value=0., max_value=0.9, step=0.05)
+        )(emb)
+        output = Dense(1, activation="relu")(lstm)
+
+        model = keras.Model(inp, output)
+
+        model.compile(
+            optimizer=keras.optimizers.Adagrad(
+                # NOTE: we could also use a LR adjustment callback on train
+                # instead.
+                hp.Choice("Learning Rate", values=[1e-2, 1e-3, 1e-4])
+            ),
+            # NOTE: Assuming binary classification task, but we could change.
+            loss="binary_crossentropy",
+            metrics=["accuracy"]
+        )
+
+        return model
