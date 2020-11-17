@@ -1,3 +1,5 @@
+'''Classes and functions to support feature_extraction.py'''
+
 import numpy as np
 import pandas as pd
 import multiprocessing
@@ -16,6 +18,9 @@ pd.options.mode.chained_assignment = None
 class load_parquets:
     def __init__(self,
                  dir='data/data/'):
+        # Pulling the absolute path to avoid weirdness with pd.read_parquet
+        dir = os.path.abspath(dir) + '/'
+        
         # Specifying some columns to pull
         genlab_cols = ['pat_key', 'collection_day_number',
                        'collection_time_of_day', 'lab_test_loinc_desc',
@@ -122,7 +127,7 @@ def df_to_features(df,
     ftr = [ftr_dict[code] for code in text]
     
     # Combining the features with the original data
-    df['ftr'] = ftr
+    df['ftr'] = pd.Series(ftr, dtype=str)
     
     # Optionally slimming down the output data frame
     if slim:
@@ -139,14 +144,21 @@ def agg_features(df,
                  id_col='pat_key', 
                  ft_col='ftr'):
     '''Aggregates feature tokens by time.'''
+    # Makign sure the features are strings
+    df[ft_col] = df[ft_col].astype(str)
+    
+    # Aggregating by time if time is provided
     if time_col is not None:
         grouped = df.groupby([id_col, time_col], as_index=False)
         agged = grouped[ft_col].agg({'ftrs': ' '.join})
         agged.columns = [id_col, time_col, 'ftrs']
         agged[time_col] = agged[time_col].astype(int)
+    
+    # Otherwise aggregating by ID
     else:
         grouped = df.groupby(id_col, as_index=False)
         agged = grouped[ft_col].agg({'ftrs': ' '.join})
+    
     return agged
 
 
@@ -190,6 +202,4 @@ def sparsify(col,
 
 def flatten(l):
     return [item for sublist in l for item in sublist]
-
-
     
