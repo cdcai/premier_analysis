@@ -2,13 +2,13 @@
 
 import pandas as pd
 import numpy as np
-import pickle as pkl
+import cpickle as pkl
 import os
 
 from sklearn.feature_extraction.text import CountVectorizer
 
 
-# Setting up top-level parameters
+# Setting top-level parameters
 MIN_DF = 5
 NO_VITALS = True
 PAD_BAGS = False
@@ -16,7 +16,7 @@ PAD_SEQS = False
 PAD_VAL = 0
 MAX_TIME = 225
 
-# Setting up the directories
+# Setting the directories
 output_dir = os.path.abspath('../output/') + '/'
 data_dir = os.path.abspath('../data/data/') + '/'
 pkl_dir = output_dir + 'pkl/'
@@ -36,15 +36,6 @@ n_medrec = all_features['medrec_key'].nunique()
 
 # Ensure we're sorted
 all_features.sort_values(['medrec_key', 'pat_key', "dfi"], inplace=True)
-
-# List of covid visit indicator arrays split by medrec_key
-covid_visits = [df.values for _, df
-                in all_features.groupby('medrec_key')['covid_visit']]
-
-# Figuring out which visit was the first for COVID;
-covid_idx = [np.where(arr == 1)[0] for arr in covid_visits]
-first = [idx.min() for idx in covid_idx]
-last = [idx.max() for idx in covid_idx]
 
 # Trim the sequences
 trimmed_seq = all_features.groupby(['medrec_key']).tail(MAX_TIME)
@@ -95,13 +86,51 @@ seq_gen = [[seq for seq in medrec] for medrec in int_seqs]
 if PAD_SEQS:
     seq_gen = [l + [[PAD_VAL]]*(MAX_TIME - len(l)) for l in seq_gen]
 
-# Pickling the sequences of visits for loading in the modeling script
-with open(pkl_dir + 'int_seqs.pkl', 'wb') as f:
-    pkl.dump(seq_gen, f)
-    f.close()
+# Starting to construct the labels part 1: figuring out which visit
+# were covid visits, and which patients have no covid visits (post-trim)
+cv_dict = dict(zip(pat_df.pat_key, pat_df.covid_visit))
+cv_pats = [[cv_dict[pat_key] for pat_key in np.unique(seq.values)] 
+           for _, seq in trimmed_seq.groupby('medrec_key').pat_key]
+no_covid = np.where([np.sum(doc) == 0 for doc in cv_pats])[0]
 
-# Constructing some of the targets
+# Removing the non-covid patients from seq_gen, cv_pats, and trimmed_seq
+for n in no_covid:
+    del cv_pats[n]
+    del seq_gen[n]
+    medrec = trimmed_seq.medrec_key[n]
+    trimmed_seq.drop(trimmed_seq[trimmed_seq.medrec_key == medrec].index,
+                     axis=0,
+                     inplace=True)
+    
+# Sanity check
+assert len(cv_pats) == len(seq_gen) == trimmed_seq.medrec_key.nunique()
+
+# Figuring out which visits were first and last covid visits
+cv_idx = [np.where(np.array(arr) == 1)[0] for arr in cv_pats]
+first = [np.min(arr) for arr in cv_idx]
+last = [np.max(arr) for arr in cv_idx]
+
+# Part 2: figuring out how many feature bagsin each sequence belong
+# to each visit
+pat_lengths = trimmed_seq.groupby(['medrec_key', 'pat_key']).pat_key.count()
+pat_lengths = [[n for n in df.values] for _, df 
+               in pat_lengths.groupby('medrec_key')]
+
+# Part 3: Figuring out whether a patient died after a visit
 died = np.array(['EXPIRED' in status for status in pat_df.disc_status_desc],
                 dtype=np.uint8)
 death_dict = dict(zip(pat_df.pat_key, died))
-pat_died = [
+pat_deaths = [[death_dict[id] for id in np.unique(df.values)]
+              for _, df in trimmed_seq.groupby('medrec_key').pat_key]
+
+# Rolling things up into a dict for easier saving
+pat_dict = {'cv_pats': cv_pats,
+            'cv_idx': cv_idx,
+            'first_cv': first,
+            'last_cv': last,
+            'pat_lengths': pat_lengths,
+            'pat_deaths': pat_deaths}
+
+# Pickling the sequences of visits for loading in the modeling script
+pkl.dump(seq_gen, open(pkl_dir + 'int_seqs.pkl', 'wb'))
+pkl.dump(pat_dict, open(pkl_dir + 'pat_data.pkl', 'wb'))
