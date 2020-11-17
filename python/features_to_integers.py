@@ -2,7 +2,7 @@
 
 import pandas as pd
 import numpy as np
-import cpickle as pkl
+import pickle as pkl
 import os
 
 from sklearn.feature_extraction.text import CountVectorizer
@@ -97,15 +97,15 @@ no_covid = np.where([np.sum(doc) == 0 for doc in cv_pats])[0]
 for n in no_covid:
     del cv_pats[n]
     del seq_gen[n]
-    medrec = trimmed_seq.medrec_key[n]
+    medrec = trimmed_seq.medrec_key.unique()[n]
     trimmed_seq.drop(trimmed_seq[trimmed_seq.medrec_key == medrec].index,
                      axis=0,
                      inplace=True)
-    
+
 # Sanity check
 assert len(cv_pats) == len(seq_gen) == trimmed_seq.medrec_key.nunique()
 
-# Part 2: figuring out how many feature bagsin each sequence belong
+# Part 2: figuring out how many feature bags in each sequence belong
 # to each visit
 pat_lengths = trimmed_seq.groupby(['medrec_key', 'pat_key']).pat_key.count()
 pat_lengths = [[n for n in df.values] for _, df 
