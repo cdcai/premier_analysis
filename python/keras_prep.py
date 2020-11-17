@@ -1,5 +1,6 @@
 '''This script merges the feature columns and converts them to ints.'''
 
+# %%
 import pandas as pd
 import numpy as np
 import pickle as pkl
@@ -16,9 +17,9 @@ PAD_SEQS = False
 PAD_VAL = 0
 MAX_TIME = 225
 
-# Setting the directories
-output_dir = os.path.abspath("output/") + "/"
-data_dir = os.path.abspath("data/data/") + "/"
+# %% Setting the directories
+output_dir = os.path.abspath("../output/") + "/"
+data_dir = os.path.abspath("../data/data/") + "/"
 pkl_dir = output_dir + "pkl/"
 ftr_cols = ["vitals", "bill", "genlab", "lab_res", "proc", "diag"]
 final_cols = ["covid_visit", "ftrs"]
@@ -52,7 +53,7 @@ trimmed_seq['ftrs'] = (
     .agg(' '.join, axis=1)
 )
 
-# Fitting the vectorizer to the features
+# %% Fitting the vectorizer to the features
 ftrs = [doc for doc in trimmed_seq.ftrs]
 vec = CountVectorizer(ngram_range=(1, 1),
                       min_df=MIN_DF,
@@ -91,37 +92,36 @@ cv_pats = [[cv_dict[pat_key] for pat_key in np.unique(seq.values)]
            for _, seq in trimmed_seq.groupby('medrec_key').pat_key]
 no_covid = np.where([np.sum(doc) == 0 for doc in cv_pats])[0]
 
-# Removing the non-covid patients from seq_gen, cv_pats, and trimmed_seq
+# %% Removing the non-covid patients from seq_gen, cv_pats, and trimmed_seq
 for n in no_covid:
     del cv_pats[n]
     del seq_gen[n]
-    medrec = trimmed_seq.medrec_key[n]
-    trimmed_seq.drop(trimmed_seq[trimmed_seq.medrec_key == medrec].index,
-                     axis=0,
-                     inplace=True)
-    
-# Sanity check
+    medrec = trimmed_seq.iloc[n, 0]
+    trimmed_seq.drop(
+        trimmed_seq.loc[trimmed_seq.medrec_key == medrec, :].index, axis=0, inplace=True
+    )
+
+# %% Sanity check
 assert len(cv_pats) == len(seq_gen) == trimmed_seq.medrec_key.nunique()
 
-# Part 2: figuring out how many feature bagsin each sequence belong
+# %% Part 2: figuring out how many feature bagsin each sequence belong
 # to each visit
 pat_lengths = trimmed_seq.groupby(['medrec_key', 'pat_key']).pat_key.count()
 pat_lengths = [[n for n in df.values] for _, df 
                in pat_lengths.groupby('medrec_key')]
 
-# Part 3: Figuring out whether a patient died after a visit
-died = np.array(['EXPIRED' in status for status in pat_df.disc_status_desc],
-                dtype=np.uint8)
+# %% Part 3: Figuring out whether a patient died after a visit
+died = np.array(
+    ["EXPIRED" in status for status in pat_df.disc_status_desc], dtype=np.uint8
+)
 death_dict = dict(zip(pat_df.pat_key, died))
 pat_deaths = [[death_dict[id] for id in np.unique(df.values)]
               for _, df in trimmed_seq.groupby('medrec_key').pat_key]
 
-# Rolling things up into a dict for easier saving
-pat_dict = {'cv_pats': cv_pats,
-            'pat_lengths': pat_lengths,
-            'pat_deaths': pat_deaths}
+# %% Rolling things up into a dict for easier saving
+pat_dict = {"cv_pats": cv_pats, "pat_lengths": pat_lengths, "pat_deaths": pat_deaths}
 
-# Pickling the sequences of visits for loading in the modeling script
+# %% Pickling the sequences of visits for loading in the modeling script
 with open(pkl_dir + "int_seqs.pkl", "wb") as f:
     pkl.dump(seq_gen, f)
 
