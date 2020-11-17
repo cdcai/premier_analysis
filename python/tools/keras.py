@@ -3,11 +3,14 @@
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+import kerastuner as kt
+from kerastuner import HyperModel
 import pickle as pkl
 
 from tensorflow import keras as keras
+from tensorflow.keras.layers import Input, LSTM, Embedding, Dense
 from tensorflow.keras.preprocessing.sequence import pad_sequences
-from keras import backend as K
+from tensorflow.keras import backend as K
 
 
 class DataGenerator(keras.utils.Sequence):
@@ -64,3 +67,33 @@ class DataGenerator(keras.utils.Sequence):
         X = np.stack(padded_seqs).astype(np.uint32)
         
         return X, self.labels[idx]
+
+class LSTMHyperModel(HyperModel):
+    """LSTM model with hyperparameter tuning.
+
+    This is the first-draft LSTM model with a single embedding layer
+    and LSTM layer.
+
+    Args:
+        n_timesteps (int): length of time sequence
+        n_tokens (int): Vocabulary size for embedding layer
+        batch_size (int): Training batch size
+        n_lstm (int): Number of LSTM neurons in the recurrent layer
+    """
+    def __init__(self, n_timesteps, n_tokens, batch_size, n_lstm):
+        # Capture model parameters at init
+        self.n_timesteps = n_timesteps
+        self.n_tokens = n_tokens
+        self.batch_size = batch_size
+        self.n_lstm = n_lstm
+
+    def build(self, hp):
+        """Build LSTM model
+
+        Args:
+            hp (:obj:`HyperParameters`): `HyperParameters` instance
+
+        Returns:
+            A built model
+        """
+        pass
