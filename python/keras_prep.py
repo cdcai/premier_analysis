@@ -2,7 +2,7 @@
 
 import pandas as pd
 import numpy as np
-import cpickle as pkl
+import pickle as pkl
 import os
 
 from sklearn.feature_extraction.text import CountVectorizer
@@ -17,8 +17,8 @@ PAD_VAL = 0
 MAX_TIME = 225
 
 # Setting the directories
-output_dir = os.path.abspath("../output/") + "/"
-data_dir = os.path.abspath("../data/data/") + "/"
+output_dir = os.path.abspath("output/") + "/"
+data_dir = os.path.abspath("data/data/") + "/"
 pkl_dir = output_dir + "pkl/"
 ftr_cols = ["vitals", "bill", "genlab", "lab_res", "proc", "diag"]
 final_cols = ["covid_visit", "ftrs"]
@@ -28,7 +28,7 @@ pat_df = pd.read_parquet(data_dir + "vw_covid_pat_all/")
 id_df = pd.read_parquet(data_dir + "vw_covid_id/")
 
 # Read in the flat feature file
-all_features = pd.read_parquet(output_dir + "parquet/flat_features.parquet")
+all_features = pd.read_parquet(output_dir + "parquet/flat_features/")
 
 # Determine unique medrec_keys
 n_medrec = all_features["medrec_key"].nunique()
@@ -62,7 +62,6 @@ for k in vocab.keys():
 # Saving the updated vocab to disk
 with open(pkl_dir + "all_ftrs_dict.pkl", "wb") as f:
     pkl.dump(vocab, f)
-    f.close()
 
 # Converting the bags of feature strings to integers
 int_ftrs = [[vocab[k] for k in doc.split() if k in vocab.keys()] for doc in ftrs]
@@ -118,5 +117,8 @@ pat_deaths = [
 pat_dict = {"cv_pats": cv_pats, "pat_lengths": pat_lengths, "pat_deaths": pat_deaths}
 
 # Pickling the sequences of visits for loading in the modeling script
-pkl.dump(seq_gen, open(pkl_dir + "int_seqs.pkl", "wb"))
-pkl.dump(pat_dict, open(pkl_dir + "pat_data.pkl", "wb"))
+with open(pkl_dir + "int_seqs.pkl", "wb") as f:
+    pkl.dump(seq_gen, f)
+
+with open(pkl_dir + "pat_data.pkl", "wb") as f:
+    pkl.dump(pat_dict, f)
