@@ -202,4 +202,26 @@ def sparsify(col,
 
 def flatten(l):
     return [item for sublist in l for item in sublist]
+
+
+def chop_days(covid_visit, 
+              visit_length, 
+              tail=1, 
+              how='first'):
+    covid_idx = np.where(np.array(covid_visit) == 1)[0] 
+    first = np.min(covid_idx)
+    first_end = np.sum(visit_length[0:first],
+                       dtype=np.uint16) + tail
+    last = np.max(covid_idx)
+    last_end = np.sum(visit_length[0:last],
+                      dtype=np.uint16) + tail
+    if how == 'first':
+        return 0, first_end
+    elif how == 'last':
+        return 0, last_end
+    elif how == 'both':
+        return first_end, last_end
+
+    
+    
     
