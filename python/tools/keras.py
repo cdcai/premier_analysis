@@ -1,17 +1,16 @@
 '''Support classes and functions for Keras'''
 
+import pickle as pkl
+
+import kerastuner as kt
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-import kerastuner as kt
-
-import pickle as pkl
-
-from tensorflow import keras as keras
-from tensorflow.keras.layers import Input, LSTM, Embedding, Dense
-from tensorflow.keras.preprocessing.sequence import pad_sequences
-from tensorflow.keras import backend as K
 from kerastuner import HyperModel
+from tensorflow import keras as keras
+from tensorflow.keras import backend as K
+from tensorflow.keras.layers import LSTM, Dense, Embedding, Input
+from tensorflow.keras.preprocessing.sequence import pad_sequences
 
 
 class DataGenerator(keras.utils.Sequence):
