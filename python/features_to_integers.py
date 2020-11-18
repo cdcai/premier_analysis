@@ -122,9 +122,10 @@ pat_dict = {
     "pat_deaths": pat_deaths
 }
 
-# %% Pickling the sequences of visits for loading in the modeling script
-with open(pkl_dir + "int_seqs.pkl", "wb") as f:
-    pkl.dump(seq_gen, f)
+# Rolling things up into a dict for easier saving
+pat_dict = {'covid': cv_pats,
+            'length': pat_lengths,
+            'death': pat_deaths}
 
 with open(pkl_dir + "pat_data.pkl", "wb") as f:
     pkl.dump(pat_dict, f)
