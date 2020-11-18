@@ -2,7 +2,6 @@
 
 import pickle as pkl
 
-import kerastuner as kt
 import numpy as np
 import pandas as pd
 import tensorflow as tf
@@ -102,14 +101,15 @@ class LSTMHyperModel(HyperModel):
             A built/compiled keras model ready for hyperparameter tuning
         """
 
-        inp = Input(shape=(n_timesteps, None if self.ragged else self.n_bags),
+        inp = Input(shape=(self.n_timesteps,
+                           None if self.ragged else self.n_bags),
                     ragged=self.ragged,
                     batch_size=self.batch_size,
                     name="Input")
         emb = Embedding(input_dim=self.n_tokens,
                         output_dim=1,
                         name="Embedding")(inp)
-        reshape = Reshape((n_timesteps, self.n_tokens), name="Reshape")(emb)
+        reshape = Reshape((self.n_timesteps, self.n_bags), name="Reshape")(emb)
         lstm = LSTM(units=hp.Int("LSTM Units",
                                  min_value=32,
                                  max_value=512,
