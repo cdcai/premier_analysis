@@ -119,9 +119,9 @@ pat_deaths = [[death_dict[id] for id in np.unique(df.values)]
               for _, df in trimmed_seq.groupby('medrec_key').pat_key]
 
 # Rolling things up into a dict for easier saving
-pat_dict = {'cv_pats': cv_pats,
-            'pat_lengths': pat_lengths,
-            'pat_deaths': pat_deaths}
+pat_dict = {'covid': cv_pats,
+            'length': pat_lengths,
+            'death': pat_deaths}
 
 # Pickling the sequences of visits for loading in the modeling script
 pkl.dump(seq_gen, open(pkl_dir + 'int_seqs.pkl', 'wb'))
