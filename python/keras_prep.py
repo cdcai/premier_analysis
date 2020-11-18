@@ -1,13 +1,12 @@
 '''This script merges the feature columns and converts them to ints.'''
 
 # %%
-import pandas as pd
-import numpy as np
-import pickle as pkl
 import os
+import pickle as pkl
 
+import numpy as np
+import pandas as pd
 from sklearn.feature_extraction.text import CountVectorizer
-
 
 # Setting top-level parameters
 MIN_DF = 5
