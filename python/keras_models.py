@@ -69,6 +69,7 @@ if HYPER_TUNING:
         objective="accuracy",
         max_epochs=5,
         project_name="hyperparameter-tuning",
+        directory="data/model_checkpoints/",
         distribution_strategy=tf.distribute.MirroredStrategy())
 
     # Announce the search space
