@@ -76,12 +76,12 @@ class LSTMHyperModel(HyperModel):
     and LSTM layer.
 
     Args:
-        ragged (bool, default: `False`): Should the input be treated as ragged or dense?
+        ragged (bool): Should the input be treated as ragged or dense?
         n_timesteps (int): length of time sequence
         n_tokens (int): Vocabulary size for embedding layer
         batch_size (int): Training batch size
     """
-    def __init__(self, ragged = False, n_timesteps, n_tokens, batch_size):
+    def __init__(self, ragged, n_timesteps, n_tokens, batch_size):
         # Capture model parameters at init
         self.ragged = ragged
         self.n_timesteps = n_timesteps
