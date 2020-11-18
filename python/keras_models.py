@@ -60,16 +60,15 @@ input_layer = keras.Input(
 # NOTE: Not sure if we need to mask ragged or not, but if so, there should
 # be a masking layer here and the embedding layer should be set to ignore
 # 0 as a mask and input_dim=n_tok+1 accordingly
-emb_layer = keras.layers.Embedding(n_tok, output_dim=1, input_length=time_seq)(
-    input_layer
-)
+emb_layer = keras.layers.Embedding(n_tok, output_dim=1,
+                                   input_length=time_seq)(input_layer)
 
 # BUG: I think this is it? Maybe I need to look at the math again
 reshape = keras.layers.Reshape((time_seq, n_bags))(emb_layer)
 
 lstm_layer = keras.layers.LSTM(
-    n_lstm, dropout=lstm_dropout, recurrent_dropout=lstm_recurrent_dropout
-)(reshape)
+    n_lstm, dropout=lstm_dropout,
+    recurrent_dropout=lstm_recurrent_dropout)(reshape)
 
 output_dim = keras.layers.Dense(1, activation="softmax")(lstm_layer)
 
@@ -81,6 +80,8 @@ model.summary()
 
 # %% Train
 # NOTE: Multiprocessing is superfluous here with epochs=1, but we could use it
-model.fit_generator(generator=dat_generator, use_multiprocessing=True, workers=4)
+model.fit_generator(generator=dat_generator,
+                    use_multiprocessing=True,
+                    workers=4)
 
 # %%
