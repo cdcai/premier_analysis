@@ -21,6 +21,9 @@ CUT_METHOD = 'first'
 # Time in days to the prediction horizon from the start of the final visit
 HORIZON = 1
 
+# Pat-level outcome to use as the label
+OUTCOME = 'death'
+
 # Setting the directories
 output_dir = os.path.abspath('../output/') + '/'
 data_dir = os.path.abspath('../data/data/') + '/'
@@ -35,8 +38,8 @@ n_patients = len(int_seqs)
 
 # Finding the cut points for the day sequences
 p = Pool()
-find_input = [(pat_data['cv_pats'][i],
-               pat_data['pat_lengths'][i],
+find_input = [(pat_data['covid'][i],
+               pat_data['length'][i],
                HORIZON,
                CUT_METHOD)
            for i in range(n_patients)]
@@ -44,8 +47,10 @@ cut_points = p.starmap(tp.find_cutpoints, find_input)
 
 # Trimming the inputs and outputs to the right length
 trim_input = [(int_seqs[i], 
-               pat_data['pat_deaths'][i],
+               pat_data[OUTCOME][i],
                cut_points[i])
               for i in range(n_patients)]
 trim_out = p.starmap(tp.trim_sequence, trim_input)
 
+# Saving the trimmed sequences to disk
+pkl.dump(trim_out, open(pkl_dir + 'trimmed_seqs.pkl', 'wb'))
