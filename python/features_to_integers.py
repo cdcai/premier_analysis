@@ -16,6 +16,9 @@ PAD_SEQS = False
 PAD_VAL = 0
 MAX_TIME = 225
 
+# Whether to write the full trimmed sequence file to disk as pqruet
+WRITE_PARQUET = False
+
 # Setting the directories
 output_dir = os.path.abspath('../output/') + '/'
 data_dir = os.path.abspath('../data/data/') + '/'
@@ -105,6 +108,10 @@ for n in no_covid:
 # Sanity check
 assert len(cv_pats) == len(seq_gen) == trimmed_seq.medrec_key.nunique()
 
+# Writing the trimmed sequences to disk
+if WRITE_PARQUET:
+    trimmed_seq.to_parquet(output_dir + 'parquet/trimmed_seq.parquet')
+
 # Part 2: figuring out how many feature bags in each sequence belong
 # to each visit
 pat_lengths = trimmed_seq.groupby(['medrec_key', 'pat_key']).pat_key.count()
@@ -118,10 +125,30 @@ death_dict = dict(zip(pat_df.pat_key, died))
 pat_deaths = [[death_dict[id] for id in np.unique(df.values)]
               for _, df in trimmed_seq.groupby('medrec_key').pat_key]
 
+# Part 4: Mixing in the MIS-A targets
+misa_data = pd.read_csv('../targets/targets.csv')
+
+# Making a lookup for the first case definition
+misa_pt_pats = misa_data[misa_data.misa_pt == 1].pat_key
+misa_pt_dict = dict(zip(pat_df.pat_key, [0] * len(pat_df.pat_key)))
+[misa_pt_dict.update{pat: 1} for pat in misa_pt_pats]
+misa_pt = [[misa_pt_dict[id] for id in np.unique(df.values)]
+           for _, df in trimmed_seq.groupby('medrec_key').pat_key]
+
+# And making a lookup for the second case definition
+misa_res_pats = misa_data[misa_data.misa_resp == 1].pat-key
+misa_resp_dict = dict(zip(pat_df.pat_key, [0] * len(pat_df.pat_key)))
+for pat in misa_resp_pats:
+    misa_resp_dict.update{pat: 1}
+misa_resp = [[misa_resp_dict[id] for id in np.unique(df.galues)]
+              for _, df in trimmed_seq.groupby('medrec_key').pat_key]
+
 # Rolling things up into a dict for easier saving
 pat_dict = {'covid': cv_pats,
             'length': pat_lengths,
-            'death': pat_deaths}
+            'death': pat_deaths,
+            'misa_pt': misa_pt,
+            'misa_resp': misa_resp}
 
 # Pickling the sequences of visits for loading in the modeling script
 pkl.dump(seq_gen, open(pkl_dir + 'int_seqs.pkl', 'wb'))
