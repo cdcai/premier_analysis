@@ -109,18 +109,18 @@ class LSTMHyperModel(HyperModel):
             shape=(n_timesteps, None if self.ragged else self.n_bags),
             ragged = self.ragged,
             batch_size=self.batch_size,
-            name = "Input"
+            name="Input"
         )
         emb = Embedding(
             input_dim=self.n_tokens, output_dim=1,
-            name = "Embedding"
+            name="Embedding"
         )(inp)
         reshape = Reshape((n_timesteps, self.n_tokens), name = "Reshape")(emb)
         lstm = LSTM(
             units=hp.Int("LSTM Units", min_value=32, max_value=512, step=32),
             dropout=hp.Float("LSTM Dropout", min_value=0., max_value=0.9, step=0.05),
             recurrent_dropout=hp.Float("LSTM Recurrent Dropout", min_value=0., max_value=0.9, step=0.05),
-            name = "Recurrent"
+            name="Recurrent"
         )(reshape)
         output = Dense(1, activation="softmax", name = "Output")(lstm)
 
@@ -130,7 +130,7 @@ class LSTMHyperModel(HyperModel):
             optimizer=keras.optimizers.Adam(
                 # NOTE: we could also use a LR adjustment callback on train
                 # instead. We could also use any optimizer here
-                learning_rate = hp.Choice("Learning Rate", values=[1e-2, 1e-3, 1e-4])
+                learning_rate=hp.Choice("Learning Rate", values=[1e-2, 1e-3, 1e-4])
             ),
             # NOTE: Assuming binary classification task, but we could change.
             loss="binary_crossentropy",
