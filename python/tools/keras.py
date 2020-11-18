@@ -20,7 +20,7 @@ class DataGenerator(keras.utils.Sequence):
     '''
     def __init__(self, 
                  inputs, 
-                 dim,
+                 max_time=225,
                  labels=None, 
                  batch_size=32, 
                  shuffle=True):
@@ -37,15 +37,17 @@ class DataGenerator(keras.utils.Sequence):
           shuffle: whether to shuffle the data after each epoch
         '''
         # Setting some basic attributes
-        self.dim = max_time
+        self.max_time = max_time
         self.batch_size = batch_size
-        self.inputs = inputs
         self.shuffle = shuffle
         
         # Separating the inputs and labels, in case they were passed as one
         if labels is None:
             labels = np.array([tup[1] for tup in inputs])
             inputs = [tup[0] for tup in inputs]
+        
+        self.inputs = inputs
+        self.labels = labels
         
         # Shuffling the data to start
         self.on_epoch_end()
@@ -59,7 +61,7 @@ class DataGenerator(keras.utils.Sequence):
         '''Fetches a batch of X, y pairs given a batch number'''
         # Generate idx of the batch
         idx = self.idx[index*self.batch_size:(index+1)*self.batch_size]
-            
+        
         # Generate data for the batch
         X, y = self.__data_generation(idx)
 
@@ -75,13 +77,18 @@ class DataGenerator(keras.utils.Sequence):
     def __data_generation(self, idx):
         '''Yields a batch of X, y pairs given batch indicies'''
         # Making a list of the visit sequences in the batch
-        bags = [self.inputs[k] for k in idx]
+        seqs = [self.inputs[k] for k in idx]
+        
+        # Figuring out how much to pad the bags
+        biggest_bag = np.max([[len(bag) for bag in seq]
+                          for seq in seqs])[0]
         
         # Padding the feature bags in each visit to V
-        padded_bags = [pad_sequences(bag, self.dim[-1]) for bag in bags]
+        padded_bags = [pad_sequences(seq, biggest_bag, padding='post') 
+                       for seq in seqs]
         
         # Padding each visit sequence to MAX_TIME
-        padded_seqs = pad_sequences(padded_bags, self.dim[0], value=[[0]])
+        padded_seqs = pad_sequences(padded_bags, self.max_time, value=[[0]])
         
         # Stacking the fully-padded sequences of bags into a single array and
         # selecting the corresponding labels
