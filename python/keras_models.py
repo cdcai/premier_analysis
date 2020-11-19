@@ -15,19 +15,21 @@ import tensorflow.keras as keras
 import tools.keras as tk
 
 # %% Globals
-sample_n = 10000
-time_seq = 225
-lstm_dropout = 0.2
-lstm_recurrent_dropout = 0.2
-n_lstm = 128
-HYPER_TUNING = True
+SAMPLE_N = 10000
+TIME_SEQ = 225
+LSTM_DROPOUT = 0.2
+LSTM_RECURRENT_DROPOUT = 0.2
+N_LSTM = 128
+HYPER_TUNING = False
 BATCH_SIZE = 32
+
 # %% Load in Data
-output_dir = os.path.abspath("output/") + "/"
-data_dir = os.path.abspath("data/data/") + "/"
+output_dir = os.path.abspath("../output/") + "/"
+data_dir = os.path.abspath("../data/data/") + "/"
 pkl_dir = output_dir + "pkl/"
 
-X_ = pd.read_parquet(output_dir + "parquet/trimmed_seq.parquet")
+with open(pkl_dir + "int_seqs.pkl", "rb") as f:
+    X_ = pkl.load(f)
 
 with open(pkl_dir + "pat_data.pkl", "rb") as f:
     y_ = pkl.load(f)
@@ -36,17 +38,16 @@ with open(pkl_dir + "all_ftrs_dict.pkl", "rb") as f:
     vocab = pkl.load(f)
 
 # %% Determining number of vocab entries
-n_tok = len(vocab)
+N_VOCAB = len(vocab)
 # %% HACK: Sampling only a few to prototype:
-X = random.choices(X_, k=sample_n)
+X = random.choices(X_, k=SAMPLE_N)
 
 # HACK: Randomly generating labels to prototype, remove before moving on
 y = np.random.randint(low=0, high=2, size=len(X))
 
-
 # %% Create data generator for On-the-fly batch generation
-dat_generator = tk.DataGenerator((X,y)
-                                 max_time=time_seq,
+dat_generator = tk.DataGenerator(inputs = X, labels = y,
+                                 max_time=TIME_SEQ,
                                  batch_size=BATCH_SIZE)
 
 # %% Model
@@ -54,15 +55,15 @@ dat_generator = tk.DataGenerator((X,y)
 if HYPER_TUNING:
     # Generate Hyperparameter model
     hyper_model = tk.LSTMHyperModel(ragged=False,
-                                    n_timesteps=time_seq,
-                                    n_tokens=n_tok,
-                                    n_bags=n_bags,
+                                    n_timesteps=TIME_SEQ,
+                                    vocab_size=N_VOCAB,
                                     batch_size=BATCH_SIZE)
     tuner = tuners.Hyperband(
         hyper_model,
         objective="accuracy",
         max_epochs=5,
         project_name="hyperparameter-tuning",
+        # NOTE: This could be in output as well if we don't want to track/version it
         directory="data/model_checkpoints/",
         distribution_strategy=tf.distribute.MirroredStrategy())
 
@@ -78,25 +79,25 @@ else:
 
     # Normal model, no hyperparameter tuning nonsense
     input_layer = keras.Input(
-        shape=(time_seq, None),
+        shape=(TIME_SEQ, None),
         batch_size=BATCH_SIZE,
     )
     # Feature Embeddings
-    emb1 = keras.layers.Embedding(n_tok,
+    emb1 = keras.layers.Embedding(N_VOCAB,
                                   output_dim=512,
-                                  name="Feature Embeddings")(input_layer)
+                                  name="Feature_Embeddings")(input_layer)
     # Average weights of embedding
-    emb2 = keras.layers.Embedding(n_tok,
+    emb2 = keras.layers.Embedding(N_VOCAB,
                                   output_dim=1,
-                                  name="Average Embeddings")(input_layer)
+                                  name="Average_Embeddings")(input_layer)
 
     # Multiply and average
-    mult = Multiply(name="Embeddings x Ave Weights")[emb1, emb2]
-    avg = K.mean(mult, axis=2)
+    mult = keras.layers.Multiply(name="Embeddings_by_Average")([emb1, emb2])
+    avg = keras.backend.mean(mult, axis=2)
 
-    lstm_layer = keras.layers.LSTM(n_lstm,
-                                   dropout=lstm_dropout,
-                                   recurrent_dropout=lstm_recurrent_dropout,
+    lstm_layer = keras.layers.LSTM(N_LSTM,
+                                   dropout=LSTM_DROPOUT,
+                                   recurrent_dropout=LSTM_RECURRENT_DROPOUT,
                                    name="Recurrent")(avg)
 
     output_dim = keras.layers.Dense(1, activation="sigmoid",
@@ -110,4 +111,6 @@ else:
 
     # %% Train
     # NOTE: Multiprocessing is superfluous here with epochs=1, but we could use it
-    model.fit(dat_generator, use_multiprocessing=True, workers=4)
+    model.fit(dat_generator)
+
+# %%
