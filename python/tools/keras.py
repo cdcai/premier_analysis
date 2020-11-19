@@ -110,15 +110,14 @@ class LSTMHyperModel(HyperModel):
     Args:
         ragged (bool): Should the input be treated as ragged or dense?
         n_timesteps (int): length of time sequence
-        n_tokens (int): Vocabulary size for embedding layer
-        n_bags (int): length of maximum bags of text sequences
+        vocab_size (int): Vocabulary size for embedding layer
         batch_size (int): Training batch size
     """
-    def __init__(self, ragged, n_timesteps, n_tokens, n_bags, batch_size):
+    def __init__(self, ragged, n_timesteps, vocab_size, batch_size):
         # Capture model parameters at init
         self.ragged = ragged
         self.n_timesteps = n_timesteps
-        self.n_tokens = n_tokens
+        self.vocab_size = vocab_size
         self.n_bags = n_bags
         self.batch_size = batch_size
 
@@ -143,11 +142,11 @@ class LSTMHyperModel(HyperModel):
                                            min_value=64,
                                            max_value=1024,
                                            step=64),
-                         name="Feature Embeddings")(inp)
+                         name="Feature_Embeddings")(inp)
         emb2 = Embedding(input_dim=self.n_tokens,
                          output_dim=1,
-                         name="Average Embeddings")(inp)
-        mult = Multiply(name="Embeddings x Ave Weights")[emb1, emb2]
+                         name="Average_Embeddings")(inp)
+        mult = Multiply(name="Embeddings_by_Average")([emb1, emb2])
         avg = K.mean(mult, axis=2)
         lstm = LSTM(units=hp.Int("LSTM Units",
                                  min_value=32,
