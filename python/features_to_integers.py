@@ -108,6 +108,10 @@ assert len(cv_pats) == len(seq_gen) == trimmed_seq.medrec_key.nunique()
 if WRITE_PARQUET:
     trimmed_seq.to_parquet(output_dir + 'parquet/trimmed_seq.parquet')
 
+# Save list-of-list-of-lists as pickle
+with open(pkl_dir + "int_seqs.pkl", "wb") as f:
+    pkl.dump(seq_gen, f)
+
 # Part 2: figuring out how many feature bags in each sequence belong
 # to each visit
 pat_lengths = trimmed_seq.groupby(["medrec_key", "pat_key"]).pat_key.count()
