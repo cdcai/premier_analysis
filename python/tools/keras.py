@@ -8,7 +8,7 @@ import tensorflow as tf
 from kerastuner import HyperModel
 from tensorflow import keras as keras
 from tensorflow.keras import backend as K
-from tensorflow.keras.layers import LSTM, Dense, Embedding, Input, Reshape
+from tensorflow.keras.layers import LSTM, Dense, Embedding, Input, Reshape, Multiply
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 
 
@@ -135,15 +135,21 @@ class LSTMHyperModel(HyperModel):
             A built/compiled keras model ready for hyperparameter tuning
         """
 
-        inp = Input(shape=(self.n_timesteps,
-                           None if self.ragged else self.n_bags),
+        inp = Input(shape=(self.n_timesteps, None),
                     ragged=self.ragged,
                     batch_size=self.batch_size,
                     name="Input")
-        emb = Embedding(input_dim=self.n_tokens,
-                        output_dim=1,
-                        name="Embedding")(inp)
-        reshape = Reshape((self.n_timesteps, self.n_bags), name="Reshape")(emb)
+        emb1 = Embedding(input_dim=self.n_tokens,
+                         output_dim=hp.Int("Embedding Dimension",
+                                           min_value=64,
+                                           max_value=1024,
+                                           step=64),
+                         name="Feature Embeddings")(inp)
+        emb2 = Embedding(input_dim=self.n_tokens,
+                         output_dim=1,
+                         name="Average Embeddings")(inp)
+        mult = Multiply(name="Embeddings x Ave Weights")[emb1, emb2]
+        avg = K.mean(mult, axis=2)
         lstm = LSTM(units=hp.Int("LSTM Units",
                                  min_value=32,
                                  max_value=512,
@@ -156,8 +162,8 @@ class LSTMHyperModel(HyperModel):
                                                min_value=0.,
                                                max_value=0.9,
                                                step=0.05),
-                    name="Recurrent")(reshape)
-        output = Dense(1, activation="softmax", name="Output")(lstm)
+                    name="Recurrent")(avg)
+        output = Dense(1, activation="sigmoid", name="Output")(lstm)
 
         model = keras.Model(inp, output, name="LSTM-Hyper")
 

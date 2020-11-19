@@ -81,25 +81,32 @@ if HYPER_TUNING:
     # Get results
     tuner.results_summary()
 else:
+
+    # Normal model, no hyperparameter tuning nonsense
     input_layer = keras.Input(
-        shape=(time_seq, n_bags),
+        shape=(time_seq, None),
         batch_size=BATCH_SIZE,
     )
-    # NOTE: Not sure if we need to mask ragged or not, but if so, there should
-    # be a masking layer here and the embedding layer should be set to ignore
-    # 0 as a mask and input_dim=n_tok+1 accordingly
-    emb_layer = keras.layers.Embedding(n_tok,
-                                       output_dim=1,
-                                       input_length=time_seq)(input_layer)
+    # Feature Embeddings
+    emb1 = keras.layers.Embedding(n_tok,
+                                  output_dim=512,
+                                  name="Feature Embeddings")(input_layer)
+    # Average weights of embedding
+    emb2 = keras.layers.Embedding(n_tok,
+                                  output_dim=1,
+                                  name="Average Embeddings")(input_layer)
 
-    # BUG: I think this is it? Maybe I need to look at the math again
-    reshape = keras.layers.Reshape((time_seq, n_bags))(emb_layer)
+    # Multiply and average
+    mult = Multiply(name="Embeddings x Ave Weights")[emb1, emb2]
+    avg = K.mean(mult, axis=2)
 
-    lstm_layer = keras.layers.LSTM(
-        n_lstm, dropout=lstm_dropout,
-        recurrent_dropout=lstm_recurrent_dropout)(reshape)
+    lstm_layer = keras.layers.LSTM(n_lstm,
+                                   dropout=lstm_dropout,
+                                   recurrent_dropout=lstm_recurrent_dropout,
+                                   name="Recurrent")(avg)
 
-    output_dim = keras.layers.Dense(1, activation="softmax")(lstm_layer)
+    output_dim = keras.layers.Dense(1, activation="sigmoid",
+                                    name="Output")(lstm_layer)
 
     model = keras.Model(input_layer, output_dim)
 
