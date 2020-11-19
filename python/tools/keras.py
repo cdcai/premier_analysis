@@ -30,8 +30,7 @@ class DataGenerator(keras.utils.Sequence):
           inputs: either a list of lists of lists of integers, or a list
             of visit-level tuples of the form ([list of lists of 
             integers], label)
-          dim: a tuple of the form (max_time, vocab_size) that specifies
-            the goal (i.e., padded) size for a single input example
+          max_time (int): The target time step length for each visit after padding
           labels: a np.array of sequence-level labels
           batch_size: size for the minibatches
           shuffle: whether to shuffle the data after each epoch
