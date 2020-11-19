@@ -27,8 +27,7 @@ output_dir = os.path.abspath("output/") + "/"
 data_dir = os.path.abspath("data/data/") + "/"
 pkl_dir = output_dir + "pkl/"
 
-with open(pkl_dir + "int_seqs.pkl", "rb") as f:
-    X_ = pkl.load(f)
+X_ = pd.read_parquet(output_dir + "parquet/trimmed_seq.parquet")
 
 with open(pkl_dir + "pat_data.pkl", "rb") as f:
     y_ = pkl.load(f)
@@ -44,15 +43,10 @@ X = random.choices(X_, k=sample_n)
 # HACK: Randomly generating labels to prototype, remove before moving on
 y = np.random.randint(low=0, high=2, size=len(X))
 
-# Determine largest bag size
-# NOTE: There's probably an easier way to do this
-lens = [[len(x) for x in y] for y in X]
-n_bags = max(itertools.chain(*lens))
 
 # %% Create data generator for On-the-fly batch generation
-dat_generator = tk.DataGenerator(inputs=X,
-                                 labels=y,
-                                 dim=[time_seq, n_bags],
+dat_generator = tk.DataGenerator((X,y)
+                                 max_time=time_seq,
                                  batch_size=BATCH_SIZE)
 
 # %% Model
