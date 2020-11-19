@@ -146,7 +146,7 @@ misa_resp_dict = dict(zip(pat_df.pat_key, [0] * len(pat_df.pat_key)))
 
 for pat in misa_resp_pats:
     misa_resp_dict.update({pat: 1})
-misa_resp = [[misa_resp_dict[id] for id in np.unique(df.galues)]
+misa_resp = [[misa_resp_dict[id] for id in np.unique(df.values)]
              for _, df in trimmed_seq.groupby('medrec_key').pat_key]
 
 # Rolling things up into a dict for easier saving
