@@ -204,11 +204,11 @@ def flatten(l):
     return [item for sublist in l for item in sublist]
 
 
-def chop_days(covid_visit, 
-              visit_length, 
-              tail=1, 
-              how='first'):
-    covid_idx = np.where(np.array(covid_visit) == 1)[0] 
+def find_cutpoints(visit_type,
+                   visit_length,
+                   tail=1,
+                   how='first'):
+    covid_idx = np.where(np.array(visit_type) == 1)[0] 
     first = np.min(covid_idx)
     first_end = np.sum(visit_length[0:first],
                        dtype=np.uint16) + tail
@@ -216,12 +216,16 @@ def chop_days(covid_visit,
     last_end = np.sum(visit_length[0:last],
                       dtype=np.uint16) + tail
     if how == 'first':
-        return 0, first_end
+        return (0, first_end), first
     elif how == 'last':
-        return 0, last_end
+        return (0, last_end), last
     elif how == 'both':
-        return first_end, last_end
+        return (first_end, last_end), last
 
-    
+
+def trim_sequence(inputs, labels, cuts):
+    in_start, in_end = cuts[0][0], cuts[0][1]
+    label_id = cuts[1]
+    return inputs[in_start:in_end], labels[label_id]
     
     

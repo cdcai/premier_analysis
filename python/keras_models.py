@@ -15,16 +15,17 @@ import tensorflow.keras as keras
 import tools.keras as tk
 
 # %% Globals
-sample_n = 10000
-time_seq = 225
-lstm_dropout = 0.2
-lstm_recurrent_dropout = 0.2
-n_lstm = 128
-HYPER_TUNING = True
+SAMPLE_N = 10000
+TIME_SEQ = 225
+LSTM_DROPOUT = 0.2
+LSTM_RECURRENT_DROPOUT = 0.2
+N_LSTM = 128
+HYPER_TUNING = False
 BATCH_SIZE = 32
+
 # %% Load in Data
-output_dir = os.path.abspath("output/") + "/"
-data_dir = os.path.abspath("data/data/") + "/"
+output_dir = os.path.abspath("../output/") + "/"
+data_dir = os.path.abspath("../data/data/") + "/"
 pkl_dir = output_dir + "pkl/"
 
 with open(pkl_dir + "int_seqs.pkl", "rb") as f:
@@ -37,22 +38,16 @@ with open(pkl_dir + "all_ftrs_dict.pkl", "rb") as f:
     vocab = pkl.load(f)
 
 # %% Determining number of vocab entries
-n_tok = len(vocab)
+N_VOCAB = len(vocab)
 # %% HACK: Sampling only a few to prototype:
-X = random.choices(X_, k=sample_n)
+X = random.choices(X_, k=SAMPLE_N)
 
 # HACK: Randomly generating labels to prototype, remove before moving on
 y = np.random.randint(low=0, high=2, size=len(X))
 
-# Determine largest bag size
-# NOTE: There's probably an easier way to do this
-lens = [[len(x) for x in y] for y in X]
-n_bags = max(itertools.chain(*lens))
-
 # %% Create data generator for On-the-fly batch generation
-dat_generator = tk.DataGenerator(inputs=X,
-                                 labels=y,
-                                 dim=[time_seq, n_bags],
+dat_generator = tk.DataGenerator(inputs = X, labels = y,
+                                 max_time=TIME_SEQ,
                                  batch_size=BATCH_SIZE)
 
 # %% Model
@@ -60,15 +55,15 @@ dat_generator = tk.DataGenerator(inputs=X,
 if HYPER_TUNING:
     # Generate Hyperparameter model
     hyper_model = tk.LSTMHyperModel(ragged=False,
-                                    n_timesteps=time_seq,
-                                    n_tokens=n_tok,
-                                    n_bags=n_bags,
+                                    n_timesteps=TIME_SEQ,
+                                    vocab_size=N_VOCAB,
                                     batch_size=BATCH_SIZE)
     tuner = tuners.Hyperband(
         hyper_model,
         objective="accuracy",
         max_epochs=5,
         project_name="hyperparameter-tuning",
+        # NOTE: This could be in output as well if we don't want to track/version it
         directory="data/model_checkpoints/",
         distribution_strategy=tf.distribute.MirroredStrategy())
 
@@ -81,25 +76,32 @@ if HYPER_TUNING:
     # Get results
     tuner.results_summary()
 else:
+
+    # Normal model, no hyperparameter tuning nonsense
     input_layer = keras.Input(
-        shape=(time_seq, n_bags),
+        shape=(TIME_SEQ, None),
         batch_size=BATCH_SIZE,
     )
-    # NOTE: Not sure if we need to mask ragged or not, but if so, there should
-    # be a masking layer here and the embedding layer should be set to ignore
-    # 0 as a mask and input_dim=n_tok+1 accordingly
-    emb_layer = keras.layers.Embedding(n_tok,
-                                       output_dim=1,
-                                       input_length=time_seq)(input_layer)
+    # Feature Embeddings
+    emb1 = keras.layers.Embedding(N_VOCAB,
+                                  output_dim=512,
+                                  name="Feature_Embeddings")(input_layer)
+    # Average weights of embedding
+    emb2 = keras.layers.Embedding(N_VOCAB,
+                                  output_dim=1,
+                                  name="Average_Embeddings")(input_layer)
 
-    # BUG: I think this is it? Maybe I need to look at the math again
-    reshape = keras.layers.Reshape((time_seq, n_bags))(emb_layer)
+    # Multiply and average
+    mult = keras.layers.Multiply(name="Embeddings_by_Average")([emb1, emb2])
+    avg = keras.backend.mean(mult, axis=2)
 
-    lstm_layer = keras.layers.LSTM(
-        n_lstm, dropout=lstm_dropout,
-        recurrent_dropout=lstm_recurrent_dropout)(reshape)
+    lstm_layer = keras.layers.LSTM(N_LSTM,
+                                   dropout=LSTM_DROPOUT,
+                                   recurrent_dropout=LSTM_RECURRENT_DROPOUT,
+                                   name="Recurrent")(avg)
 
-    output_dim = keras.layers.Dense(1, activation="softmax")(lstm_layer)
+    output_dim = keras.layers.Dense(1, activation="sigmoid",
+                                    name="Output")(lstm_layer)
 
     model = keras.Model(input_layer, output_dim)
 
@@ -109,4 +111,6 @@ else:
 
     # %% Train
     # NOTE: Multiprocessing is superfluous here with epochs=1, but we could use it
-    model.fit(dat_generator, use_multiprocessing=True, workers=4)
+    model.fit(dat_generator)
+
+# %%
