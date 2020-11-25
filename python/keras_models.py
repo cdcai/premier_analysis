@@ -12,24 +12,24 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.keras as keras
 
-import tools.keras as tk
+from tools import keras as tk
 
 # %% Globals
 SAMPLE_N = 10000
 TIME_SEQ = 225
-LSTM_DROPOUT = 0.2
+LSTM_DROPOUT = 0.1
 LSTM_RECURRENT_DROPOUT = 0.2
 N_LSTM = 128
 HYPER_TUNING = False
 BATCH_SIZE = 32
 
 # %% Load in Data
-output_dir = os.path.abspath("../output/") + "/"
-data_dir = os.path.abspath("../data/data/") + "/"
+output_dir = os.path.abspath("output/") + "/"
+data_dir = os.path.abspath("data/data/") + "/"
 pkl_dir = output_dir + "pkl/"
 
-with open(pkl_dir + "int_seqs.pkl", "rb") as f:
-    X_ = pkl.load(f)
+with open(pkl_dir + "trimmed_seqs.pkl", "rb") as f:
+    inputs = pkl.load(f)
 
 with open(pkl_dir + "pat_data.pkl", "rb") as f:
     y_ = pkl.load(f)
@@ -39,14 +39,9 @@ with open(pkl_dir + "all_ftrs_dict.pkl", "rb") as f:
 
 # %% Determining number of vocab entries
 N_VOCAB = len(vocab)
-# %% HACK: Sampling only a few to prototype:
-X = random.choices(X_, k=SAMPLE_N)
-
-# HACK: Randomly generating labels to prototype, remove before moving on
-y = np.random.randint(low=0, high=2, size=len(X))
 
 # %% Create data generator for On-the-fly batch generation
-dat_generator = tk.DataGenerator(inputs = X, labels = y,
+dat_generator = tk.DataGenerator(inputs,
                                  max_time=TIME_SEQ,
                                  batch_size=BATCH_SIZE)
 
@@ -112,5 +107,3 @@ else:
     # %% Train
     # NOTE: Multiprocessing is superfluous here with epochs=1, but we could use it
     model.fit(dat_generator)
-
-# %%
