@@ -56,7 +56,7 @@ all_features.sort_values(['medrec_key', 'pat_key', "dfi"], inplace=True)
 #   COVID visit and trim back from there.
 
 # Filter to only the pat_key where MIS-A took place
-# and compute the max F/O time for that visit, indexing on
+# and compute the max F/U time for that visit, indexing on
 # medrec key
 misa_latest = all_features.merge(
     misa_data,
@@ -69,7 +69,7 @@ misa_latest = all_features.merge(
 non_misa_ids = set(all_features.medrec_key).difference(misa_latest.index)
 
 # Pull the latest COVID visit from Non-MIS-A medrec keys
-# and find max F/O time
+# and find max F/U time
 non_misa_latest = all_features.loc[
     all_features.medrec_key.isin(non_misa_ids) & all_features["covid_visit"] ==
     1].groupby("medrec_key")[TIME_UNIT].agg(max).rename("max_time")
@@ -83,7 +83,7 @@ assert latest_covid.size == n_medrec
 # Join into main dataset
 trimmed_seq = all_features.merge(latest_covid, on="medrec_key")
 
-# Trim sequences from the last F/O time we allow
+# Trim sequences from the last F/U time we allow
 # to the earliest we want to pass to the recurrent model
 # then drop the max_time col
 trimmed_seq = trimmed_seq.loc[(trimmed_seq[TIME_UNIT] <= trimmed_seq.max_time)
