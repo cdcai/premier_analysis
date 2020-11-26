@@ -28,7 +28,7 @@ BATCH_SIZE = 32
 TEST_SPLIT = 0.2
 VAL_SPLIT = 0.25
 RAND = 2020
-TB_UPDATE_FREQ = 1000
+TB_UPDATE_FREQ = 100
 # %% Load in Data
 output_dir = os.path.abspath("output/") + "/"
 data_dir = os.path.abspath("data/data/") + "/"
@@ -89,7 +89,11 @@ if HYPER_TUNING:
     tuner.search_space_summary()
 
     # And search the space
-    tuner.search(dat_generator, epochs=5)
+    tuner.search(
+        train_gen,
+        validation_data=validation_gen,
+        epochs=5,
+    )
 
     # Get results
     tuner.results_summary()
@@ -132,15 +136,16 @@ else:
     # Create Tensorboard callback
     tb_callback = TensorBoard(log_dir=output_dir + "tensorboard" +
                               datetime.now().strftime("%Y%m%d-%H%M%S") + "/",
-                              histogram_freq=TB_UPDATE_FREQ,
+                              histogram_freq=1,
                               update_freq=TB_UPDATE_FREQ,
-                              embeddings_freq=TB_UPDATE_FREQ,
+                              embeddings_freq=1,
                               embeddings_metadata=output_dir +
                               'emb_metadata.tsv')
     # %% Train
     # NOTE: Multiprocessing is superfluous here with epochs=1, but we could use it
     fitting = model.fit(train_gen,
                         validation_data=validation_gen,
+                        epochs=5,
                         callbacks=[tb_callback])
 
     test_loss, test_acc = model.evaluate(test_gen)
