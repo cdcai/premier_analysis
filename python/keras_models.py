@@ -38,7 +38,7 @@ with open(pkl_dir + "all_ftrs_dict.pkl", "rb") as f:
     vocab = pkl.load(f)
 
 # %% Determining number of vocab entries
-N_VOCAB = len(vocab)
+N_VOCAB = len(vocab) + 1
 
 # %% Create data generator for On-the-fly batch generation
 dat_generator = tk.DataGenerator(inputs,
@@ -80,10 +80,12 @@ else:
     # Feature Embeddings
     emb1 = keras.layers.Embedding(N_VOCAB,
                                   output_dim=512,
+                                  mask_zero=True,
                                   name="Feature_Embeddings")(input_layer)
     # Average weights of embedding
     emb2 = keras.layers.Embedding(N_VOCAB,
                                   output_dim=1,
+                                  mask_zero=True,
                                   name="Average_Embeddings")(input_layer)
 
     # Multiply and average
