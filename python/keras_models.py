@@ -13,7 +13,7 @@ import kerastuner.tuners as tuners
 import numpy as np
 import tensorflow as tf
 import tensorflow.keras as keras
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, roc_auc_score
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.callbacks import TensorBoard
 
@@ -22,7 +22,7 @@ from tools import keras as tk
 # %% Globals
 TIME_SEQ = 225
 LSTM_DROPOUT = 0.1
-LSTM_RECURRENT_DROPOUT = 0.2
+LSTM_RECURRENT_DROPOUT = 0.4
 N_LSTM = 128
 HYPER_TUNING = False
 BATCH_SIZE = 32
@@ -181,7 +181,7 @@ else:
     # %% Train
     fitting = model.fit(train_gen,
                         validation_data=validation_gen,
-                        epochs=5,
+                        epochs=20,
                         callbacks=[
                             tb_callback, model_checkpoint_callback,
                             stopping_checkpoint
@@ -206,3 +206,4 @@ else:
                                    target_names=["Non MIS-A", "MIS-A"])
 
     print(output)
+    print('ROC-AUC: {}'.format(roc_auc_score(y_true, y_pred)))
