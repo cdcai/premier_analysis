@@ -1,8 +1,8 @@
 """
 Starter Keras model
 """
-import csv
 # %%
+import csv
 import itertools
 import os
 import pickle as pkl
@@ -26,14 +26,16 @@ LSTM_RECURRENT_DROPOUT = 0.2
 N_LSTM = 128
 HYPER_TUNING = False
 BATCH_SIZE = 32
+SUBSAMPLE = True
+SAMPLE_FRAC = 0.1
 TEST_SPLIT = 0.2
-VAL_SPLIT = 0.25
+VAL_SPLIT = 0.1
 RAND = 2020
 TB_UPDATE_FREQ = 100
 # %% Load in Data
-output_dir = os.path.abspath("output/") + "/"
-tensorboard_dir = os.path.abspath("data/model_checkpoints/") + "/"
-data_dir = os.path.abspath("data/data/") + "/"
+output_dir = os.path.abspath("../output/") + "/"
+tensorboard_dir = os.path.abspath("../data/model_checkpoints/") + "/"
+data_dir = os.path.abspath("../data/data/") + "/"
 pkl_dir = output_dir + "pkl/"
 
 with open(pkl_dir + "trimmed_seqs.pkl", "rb") as f:
@@ -59,13 +61,24 @@ with open(output_dir + 'emb_metadata.tsv', 'w') as f:
 # %% Determining number of vocab entries
 N_VOCAB = len(vocab) + 1
 
+# %% Subsampling if desired
+if SUBSAMPLE:
+    _, inputs, _, _ = train_test_split(inputs, [labs for _, labs in inputs],
+                                       test_size=SAMPLE_FRAC,
+                                       random_state=RAND,
+                                       stratify=[labs for _, labs in inputs])
 # %% Split into test/train
-train, test = train_test_split(inputs, test_size=TEST_SPLIT, random_state=RAND)
+train, test, _, _ = train_test_split(inputs, [labs for _, labs in inputs],
+                                     test_size=TEST_SPLIT,
+                                     random_state=RAND,
+                                     stratify=[labs for _, labs in inputs])
 
 # Further split into train/validation
-train, validation = train_test_split(train,
-                                     test_size=VAL_SPLIT,
-                                     random_state=RAND)
+train, validation, _, _ = train_test_split(
+    train, [labs for _, labs in train],
+    test_size=VAL_SPLIT,
+    random_state=RAND,
+    stratify=[labs for _, labs in train])
 # %% Create data generator for On-the-fly batch generation
 train_gen = tk.DataGenerator(train, max_time=TIME_SEQ, batch_size=BATCH_SIZE)
 
@@ -180,8 +193,16 @@ else:
     print('Test Loss: {}'.format(test_loss))
     print('Test Accuracy: {}'.format(test_acc))
 
-    # F1, etc
-    y_pred = model.predict(test_gen)
+    # %% F1, etc
+    pred = model.predict(test_gen)
+    y_pred = np.argmax(pred, axis=1)
     y_true = [lab for _, lab in test]
 
-    classification_report(y_true, y_pred, target_names=["Non MIS-A", "MIS-A"])
+    # Resizing for output which is divisible by BATCH_SIZE
+    y_true = y_true[0:y_pred.shape[0]]
+
+    output = classification_report(y_true,
+                                   y_pred,
+                                   target_names=["Non MIS-A", "MIS-A"])
+
+    print(output)
