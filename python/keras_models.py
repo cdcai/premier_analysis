@@ -1,10 +1,10 @@
 """
 Starter Keras model
 """
+import csv
 # %%
 import itertools
 import os
-import csv
 import pickle as pkl
 import random
 from datetime import datetime
@@ -13,8 +13,9 @@ import kerastuner.tuners as tuners
 import numpy as np
 import tensorflow as tf
 import tensorflow.keras as keras
-from tensorflow.keras.callbacks import TensorBoard
+from sklearn.metrics import classification_report
 from sklearn.model_selection import train_test_split
+from tensorflow.keras.callbacks import TensorBoard
 
 from tools import keras as tk
 
@@ -24,13 +25,14 @@ LSTM_DROPOUT = 0.1
 LSTM_RECURRENT_DROPOUT = 0.2
 N_LSTM = 128
 HYPER_TUNING = False
-BATCH_SIZE = 32
+BATCH_SIZE = 128
 TEST_SPLIT = 0.2
 VAL_SPLIT = 0.25
 RAND = 2020
 TB_UPDATE_FREQ = 100
 # %% Load in Data
 output_dir = os.path.abspath("output/") + "/"
+tensorboard_dir = os.path.abspath("data/model_checkpoints/") + "/"
 data_dir = os.path.abspath("data/data/") + "/"
 pkl_dir = output_dir + "pkl/"
 
@@ -43,13 +45,17 @@ with open(pkl_dir + "pat_data.pkl", "rb") as f:
 with open(pkl_dir + "all_ftrs_dict.pkl", "rb") as f:
     vocab = pkl.load(f)
 
+with open(pkl_dir + "feature_lookup.pkl", "rb") as f:
+    all_feats = pkl.load(f)
+
 # %% Save Embedding metadata
+# We can use this with tensorboard to visualize the embeddings
 with open(output_dir + 'emb_metadata.tsv', 'w') as f:
     writer = csv.writer(f, delimiter='\t')
-    writer.writerows(zip(['id'], ['word']))
-    writer.writerows(zip([0], ['OOV']))
+    writer.writerows(zip(['id'], ['word'], ["desc"]))
+    writer.writerows(zip([0], ['OOV'], ["Padding/OOV"]))
     for key, value in vocab.items():
-        writer.writerow([value, key])
+        writer.writerow([value, key, all_feats[key]])
 # %% Determining number of vocab entries
 N_VOCAB = len(vocab) + 1
 
@@ -134,21 +140,48 @@ else:
     model.summary()
 
     # Create Tensorboard callback
-    tb_callback = TensorBoard(log_dir=output_dir + "tensorboard" +
+    tb_callback = TensorBoard(log_dir=tensorboard_dir +
                               datetime.now().strftime("%Y%m%d-%H%M%S") + "/",
                               histogram_freq=1,
                               update_freq=TB_UPDATE_FREQ,
                               embeddings_freq=1,
                               embeddings_metadata=output_dir +
                               'emb_metadata.tsv')
+
+    # Create model checkpoint callback
+    model_checkpoint_callback = keras.callbacks.ModelCheckpoint(
+        filepath=tensorboard_dir + datetime.now().strftime("%Y%m%d-%H%M%S") +
+        "-weights.{epoch:02d}-{val_loss:.2f}.hdf5",
+        save_weights_only=True,
+        monitor='val_acc',
+        mode='max',
+        save_best_only=True)
+
+    # Create early stopping callback
+    stopping_checkpoint = keras.callbacks.EarlyStopping(
+        monitor='val_loss',
+        min_delta=0,
+        patience=1,
+        mode='auto',
+        restore_best_weights=True)
+
     # %% Train
-    # NOTE: Multiprocessing is superfluous here with epochs=1, but we could use it
     fitting = model.fit(train_gen,
                         validation_data=validation_gen,
                         epochs=5,
-                        callbacks=[tb_callback])
+                        callbacks=[
+                            tb_callback, model_checkpoint_callback,
+                            stopping_checkpoint
+                        ])
 
+    # Test
     test_loss, test_acc = model.evaluate(test_gen)
 
     print('Test Loss: {}'.format(test_loss))
     print('Test Accuracy: {}'.format(test_acc))
+
+    # F1, etc
+    y_pred = model.predict(test_gen)
+    y_true = [lab for _, lab in test]
+
+    classification_report(y_true, y_pred, target_names=["Non MIS-A", "MIS-A"])
