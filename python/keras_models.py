@@ -15,6 +15,7 @@ import tensorflow as tf
 import tensorflow.keras as keras
 from sklearn.metrics import classification_report, roc_auc_score
 from sklearn.model_selection import train_test_split
+from sklearn.utils import compute_class_weight
 from tensorflow.keras.callbacks import TensorBoard
 
 from tools import keras as tk
@@ -27,7 +28,7 @@ N_LSTM = 128
 HYPER_TUNING = False
 BATCH_SIZE = 32
 SUBSAMPLE = True
-SAMPLE_FRAC = 0.1
+SAMPLE_FRAC = 0.001
 TEST_SPLIT = 0.2
 VAL_SPLIT = 0.1
 RAND = 2020
@@ -79,6 +80,13 @@ train, validation, _, _ = train_test_split(
     test_size=VAL_SPLIT,
     random_state=RAND,
     stratify=[labs for _, labs in train])
+
+# %% Compute class weights
+class_weights = compute_class_weight('balanced',
+                                     np.unique([labs for _, labs in train]),
+                                     [labs for _, labs in train])
+
+class_weights = dict(zip([0, 1], class_weights))
 # %% Create data generator for On-the-fly batch generation
 train_gen = tk.DataGenerator(train, max_time=TIME_SEQ, batch_size=BATCH_SIZE)
 
@@ -174,7 +182,7 @@ else:
     stopping_checkpoint = keras.callbacks.EarlyStopping(
         monitor='val_loss',
         min_delta=0,
-        patience=1,
+        patience=2,
         mode='auto',
         restore_best_weights=True)
 
@@ -182,6 +190,7 @@ else:
     fitting = model.fit(train_gen,
                         validation_data=validation_gen,
                         epochs=20,
+                        class_weight=class_weights,
                         callbacks=[
                             tb_callback, model_checkpoint_callback,
                             stopping_checkpoint
@@ -207,3 +216,5 @@ else:
 
     print(output)
     print('ROC-AUC: {}'.format(roc_auc_score(y_true, y_pred)))
+
+# %%
