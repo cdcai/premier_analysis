@@ -23,6 +23,7 @@ from tools import keras as tk
 
 # %% Globals
 TIME_SEQ = 225
+TARGET = "misa_pt"
 LSTM_DROPOUT = 0.2
 # NOTE: Recurrent dropout is advisable, but it also means
 # you forgoe CuDNN-optimization for the LSTM, so it will train
@@ -58,7 +59,7 @@ with open(pkl_dir + "feature_lookup.pkl", "rb") as f:
 
 # %% Save Embedding metadata
 # We can use this with tensorboard to visualize the embeddings
-with open(output_dir + "emb_metadata.tsv", "w") as f:
+with open(tensorboard_dir + "emb_metadata.tsv", "w") as f:
     writer = csv.writer(f, delimiter="\t")
     writer.writerows(zip(["id"], ["word"], ["desc"]))
     writer.writerows(zip([0], ["OOV"], ["Padding/OOV"]))
@@ -179,7 +180,12 @@ else:
 
     # Create Tensorboard callback
     tb_callback = TensorBoard(
-        log_dir=tensorboard_dir + datetime.now().strftime("%Y%m%d-%H%M%S") + "/",
+        log_dir=tensorboard_dir
+        + "/"
+        + TARGET
+        + "/"
+        + datetime.now().strftime("%Y%m%d-%H%M%S")
+        + "/",
         histogram_freq=1,
         update_freq=TB_UPDATE_FREQ,
         embeddings_freq=1,
@@ -188,7 +194,11 @@ else:
 
     # Create model checkpoint callback
     model_checkpoint_callback = keras.callbacks.ModelCheckpoint(
-        filepath=tensorboard_dir + "-weights.{epoch:02d}-{val_loss:.2f}.hdf5",
+        filepath=tensorboard_dir
+        + "/"
+        + TARGET
+        + "/"
+        + "weights.{epoch:02d}-{val_loss:.2f}.hdf5",
         save_weights_only=True,
         monitor="val_acc",
         mode="max",
@@ -231,5 +241,3 @@ else:
 
     print(output)
     print("ROC-AUC: {}".format(roc_auc_score(y_true, y_pred)))
-
-# %%
