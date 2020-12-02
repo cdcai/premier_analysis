@@ -106,7 +106,7 @@ class_weights = dict(zip([0, 1], class_weights))
 train_gen = tk.DataGenerator(
     train,
     max_time=TIME_SEQ,
-    # resampler=RandomOverSampler(sampling_strategy="minority"),
+    resampler=RandomOverSampler(sampling_strategy="minority"),
     batch_size=BATCH_SIZE,
 )
 # %%
@@ -188,9 +188,7 @@ else:
 
     # Create model checkpoint callback
     model_checkpoint_callback = keras.callbacks.ModelCheckpoint(
-        filepath=tensorboard_dir
-        + datetime.now().strftime("%Y%m%d-%H%M%S")
-        + "-weights.{epoch:02d}-{val_loss:.2f}.hdf5",
+        filepath=tensorboard_dir + "-weights.{epoch:02d}-{val_loss:.2f}.hdf5",
         save_weights_only=True,
         monitor="val_acc",
         mode="max",
