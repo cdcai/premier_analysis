@@ -5,6 +5,7 @@ import pickle as pkl
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+import kerastuner
 from kerastuner import HyperModel
 from sklearn.utils import _safe_indexing
 from tensorflow import keras as keras
@@ -19,7 +20,6 @@ class DataGenerator(keras.utils.Sequence):
     Code jacked from here:
     https://stanford.edu/~shervine/blog/keras-how-to-generate-data-on-the-fly
     """
-
     def __init__(
         self,
         inputs,
@@ -55,7 +55,8 @@ class DataGenerator(keras.utils.Sequence):
             inputs = [tup[0] for tup in inputs]
 
         # NOTE: Assert that the user is not a clown
-        assert len(inputs) == len(labels), "Inputs and labels are not of equal length"
+        assert len(inputs) == len(
+            labels), "Inputs and labels are not of equal length"
 
         self.inputs = inputs
         self.labels = labels
@@ -73,7 +74,8 @@ class DataGenerator(keras.utils.Sequence):
     def __getitem__(self, index):
         """Fetches a batch of X, y pairs given a batch number"""
         # Generate idx of the batch
-        idx = self.indices_[index * self.batch_size : (index + 1) * self.batch_size]
+        idx = self.indices_[index * self.batch_size:(index + 1) *
+                            self.batch_size]
 
         # Generate data for the batch
         X, y = self.__data_generation(idx)
@@ -86,11 +88,11 @@ class DataGenerator(keras.utils.Sequence):
             self.indices_ = np.arange(len(self.inputs))
         else:
             # NOTE: Shamelessly jacked from imblearn
-            self.sampler.fit_resample(np.array(self.inputs).reshape(-1, 1), self.labels)
+            self.sampler.fit_resample(
+                np.array(self.inputs).reshape(-1, 1), self.labels)
             if not hasattr(self.sampler, "sample_indices_"):
-                raise ValueError(
-                    "'sampler' needs to have an attribute " "'sample_indices_'."
-                )
+                raise ValueError("'sampler' needs to have an attribute "
+                                 "'sample_indices_'.")
 
             self.indices_ = self.sampler.sample_indices_
         if self.shuffle == True:
@@ -109,7 +111,9 @@ class DataGenerator(keras.utils.Sequence):
             biggest_bag = np.max([[len(bag) for bag in seq] for seq in X])
 
         # Padding the feature bags in each visit to V
-        padded_bags = [pad_sequences(seq, biggest_bag, padding="post") for seq in X]
+        padded_bags = [
+            pad_sequences(seq, biggest_bag, padding="post") for seq in X
+        ]
 
         # Padding each visit sequence to MAX_TIME
         padded_seqs = pad_sequences(padded_bags, self.max_time, value=[[0]])
@@ -135,15 +139,15 @@ class LSTMHyperModel(HyperModel):
         vocab_size (int): Vocabulary size for embedding layer
         batch_size (int): Training batch size
     """
-
-    def __init__(self, ragged, n_timesteps, vocab_size, batch_size):
+    def __init__(self, ragged: bool, n_timesteps: int, vocab_size: int,
+                 batch_size: int):
         # Capture model parameters at init
         self.ragged = ragged
         self.n_timesteps = n_timesteps
         self.vocab_size = vocab_size
         self.batch_size = batch_size
 
-    def build(self, hp):
+    def build(self, hp: kerastuner.HyperParameters) -> keras.Model:
         """Build LSTM model
 
         Notes:
@@ -163,22 +167,65 @@ class LSTMHyperModel(HyperModel):
         )
         emb1 = Embedding(
             input_dim=self.vocab_size,
-            output_dim=hp.Int(
-                "Embedding Dimension", min_value=64, max_value=1024, step=64
-            ),
+            mask_zero=True,
+            embeddings_regularizer=keras.regularizers.l1_l2(
+                l1=hp.Float("Feature Embedding L1",
+                            min_value=0.0,
+                            max_value=0.2,
+                            step=0.05),
+                l2=hp.Float("Feature Embedding L2",
+                            min_value=0.0,
+                            max_value=0.2,
+                            step=0.05)),
+            output_dim=hp.Int("Embedding Dimension",
+                              min_value=64,
+                              max_value=1024,
+                              step=64),
             name="Feature_Embeddings",
         )(inp)
-        emb2 = Embedding(
-            input_dim=self.vocab_size, output_dim=1, name="Average_Embeddings"
-        )(inp)
+        emb2 = Embedding(input_dim=self.vocab_size,
+                         output_dim=1,
+                         mask_zero=True,
+                         embeddings_regularizer=keras.regularizers.l1_l2(
+                             l1=hp.Float("Average Embedding L1",
+                                         min_value=0.0,
+                                         max_value=0.2,
+                                         step=0.05),
+                             l2=hp.Float("Average Embedding L2",
+                                         min_value=0.0,
+                                         max_value=0.2,
+                                         step=0.05)),
+                         name="Average_Embeddings")(inp)
         mult = Multiply(name="Embeddings_by_Average")([emb1, emb2])
         avg = K.mean(mult, axis=2)
         lstm = LSTM(
             units=hp.Int("LSTM Units", min_value=32, max_value=512, step=32),
-            dropout=hp.Float("LSTM Dropout", min_value=0.0, max_value=0.9, step=0.05),
-            recurrent_dropout=hp.Float(
-                "LSTM Recurrent Dropout", min_value=0.0, max_value=0.9, step=0.05
-            ),
+            dropout=hp.Float("LSTM Dropout",
+                             min_value=0.0,
+                             max_value=0.9,
+                             step=0.05),
+            recurrent_dropout=hp.Float("LSTM Recurrent Dropout",
+                                       min_value=0.0,
+                                       max_value=0.9,
+                                       step=0.05),
+            activity_regularizer=keras.regularizers.l1_l2(
+                l1=hp.Float("LSTM Activation L1",
+                            min_value=0.0,
+                            max_value=0.2,
+                            step=0.05),
+                l2=hp.Float("LSTM Activation L2",
+                            min_value=0.0,
+                            max_value=0.2,
+                            step=0.05)),
+            kernel_regularizer=keras.regularizers.l1_l2(
+                l1=hp.Float("LSTM weights L1",
+                            min_value=0.0,
+                            max_value=0.2,
+                            step=0.05),
+                l2=hp.Float("LSTM weights L2",
+                            min_value=0.0,
+                            max_value=0.2,
+                            step=0.05)),
             name="Recurrent",
         )(avg)
         output = Dense(1, activation="sigmoid", name="Output")(lstm)
@@ -189,8 +236,8 @@ class LSTMHyperModel(HyperModel):
             optimizer=keras.optimizers.Adam(
                 # NOTE: we could also use a LR adjustment callback on train
                 # instead. We could also use any optimizer here
-                learning_rate=hp.Choice("Learning Rate", values=[1e-2, 1e-3, 1e-4])
-            ),
+                learning_rate=hp.Choice("Learning Rate",
+                                        values=[1e-2, 1e-3, 1e-4])),
             # NOTE: Assuming binary classification task, but we could change.
             loss="binary_crossentropy",
             metrics=["accuracy"],
