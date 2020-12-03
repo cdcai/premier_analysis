@@ -21,14 +21,12 @@ TIME_UNIT = "dfi"
 
 # Whether to write the full trimmed sequence file to disk as pqruet
 WRITE_PARQUET = False
-
-# Setting the directories
-output_dir = os.path.abspath('output/') + '/'
-data_dir = os.path.abspath('data/data/') + '/'
-targets_dir = os.path.abspath("data/targets") + "/"
-pkl_dir = output_dir + 'pkl/'
-ftr_cols = ['vitals', 'bill', 'genlab', 'lab_res', 'proc', 'diag']
-final_cols = ['covid_visit', 'ftrs']
+# %% Setting the directories
+output_dir = os.path.abspath("output/") + "/"
+data_dir = os.path.abspath("data/data/") + "/"
+pkl_dir = output_dir + "pkl/"
+ftr_cols = ["vitals", "bill", "genlab", "lab_res", "proc", "diag"]
+final_cols = ["covid_visit", "ftrs"]
 
 # %% Read in the pat and ID tables
 pat_df = pd.read_parquet(data_dir + "vw_covid_pat_all/")
