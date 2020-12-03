@@ -17,9 +17,10 @@ out_dir = "output/"
 parq_dir = out_dir + "parquet/"
 pkl_dir = out_dir + "pkl/"
 
-if __name__ == "__main__":
+_ = [os.makedirs(dirs, exist_ok=True) for dirs in [parq_dir, pkl_dir]]
 
-    _ = [os.makedirs(dirs, exist_ok=True) for dirs in [parq_dir, pkl_dir]]
+
+def main():
     # %% Lazily Importing the parquet files
     print("")
     print("Loading the parquet files...")
@@ -128,3 +129,7 @@ if __name__ == "__main__":
         t2 = time.time()
 
         print("Time total: {}".format(t2 - t1))
+
+
+if __name__ == "__main__":
+    main()

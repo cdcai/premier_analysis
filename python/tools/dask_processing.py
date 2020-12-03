@@ -1,3 +1,4 @@
+import math
 import pickle
 from functools import reduce
 from itertools import product
@@ -78,15 +79,15 @@ class parquets_dask(object):
 
         # Specifying some columns to pull
         genlab_cols = [
+            "pat_key",
             "collection_day_number",
             "collection_time_of_day",
-            "lab_test_loinc_desc",
             "numeric_value",
         ]
         vital_cols = [
+            "pat_key",
             "observation_day_number",
             "observation_time_of_day",
-            "lab_test",
             "test_result_numeric_value",
         ]
         bill_cols = ["std_chg_desc", "serv_day"]
@@ -103,10 +104,14 @@ class parquets_dask(object):
 
         # Pulling the lab and vitals
         genlab = dd.read_parquet(
-            data_dir + "vw_covid_genlab/", columns=genlab_cols, index="pat_key"
+            data_dir + "vw_covid_genlab/",
+            columns=genlab_cols,
+            index="lab_test_loinc_desc",
         )
         hx_genlab = dd.read_parquet(
-            data_dir + "vw_covid_hx_genlab/", columns=genlab_cols, index="pat_key"
+            data_dir + "vw_covid_hx_genlab/",
+            columns=genlab_cols,
+            index="lab_test_loinc_desc",
         )
         lab_res = dd.read_parquet(
             data_dir + "vw_covid_lab_res/", columns=lab_res_cols, index="pat_key"
@@ -116,10 +121,10 @@ class parquets_dask(object):
             data_dir + "vw_covid_hx_lab_res/", columns=lab_res_cols, index="pat_key"
         )
         vitals = dd.read_parquet(
-            data_dir + "vw_covid_vitals/", columns=vital_cols, index="pat_key"
+            data_dir + "vw_covid_vitals/", columns=vital_cols, index="lab_test"
         )
         hx_vitals = dd.read_parquet(
-            data_dir + "vw_covid_hx_vitals/", columns=vital_cols, index="pat_key"
+            data_dir + "vw_covid_hx_vitals/", columns=vital_cols, index="lab_test"
         )
 
         # Concatenating the current and historical labs and vitals
@@ -319,9 +324,9 @@ class parquets_dask(object):
 
     def df_to_features(
         self,
-        df,
-        text_col,
-        feature_prefix,
+        df: dd.DataFrame,
+        text_col: str,
+        feature_prefix: str,
         num_col=None,
         time_cols=None,
         buckets=5,
@@ -329,26 +334,22 @@ class parquets_dask(object):
     ):
         """Transform raw text and numeric features to token feature columns"""
 
-        # Pulling out the text
-        df[text_col] = df[text_col].astype(str)
-
         # Optionally quantizing the numeric column
         if num_col is not None:
-            # BUG: Transform triggers a shuffle which is very
-            # computationally intensive. If there were a faster
-            # way to have the data indexed by the text col first and
-            # then reindex by pat_key, that would be ideal.
-            # any operation where groupby uses a non-index is costly
-            df["q"] = (
-                df.groupby(text_col)[num_col]
-                .transform(
-                    pd.qcut, q=buckets, labels=False, duplicates="drop", meta=("q", "f")
+
+            df = df.map_partitions(
+                lambda x: x.assign(
+                    q=pd.qcut(x[num_col], q=buckets, labels=False, duplicates="drop")
                 )
-                .reset_index(drop=True)
             )
+            # NOTE: Vitals and genlab come in indexed by text_col, but we need to reindex by pat_key
+            df = df.reset_index(drop=False).set_index("pat_key").persist()
+
+            df[text_col] = df[text_col].astype(str)
 
             df[text_col] += " q" + df["q"].astype(str)
-
+        else:
+            df[text_col] = df[text_col].astype(str)
         # Return full set (as pandas DF)
         if not slim:
             return df
