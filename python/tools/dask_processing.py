@@ -70,7 +70,7 @@ class parquets_dask(object):
 
     df_arg_names = ["df", "text_col", "feature_prefix", "num_col", "time_cols"]
 
-    def __init__(self, dask_client, data_dir="data/data/", agg_lvl="dfi"):
+    def __init__(self, dask_client: distributed.Client, data_dir="data/data/", agg_lvl="dfi"):
 
         # Start Dask client
         self.client = dask_client
@@ -280,7 +280,7 @@ class parquets_dask(object):
         # until it's absolutely necessary to read in
         return dict(zip(self.final_names, out)), ftr_dict
 
-    def condense_features(self, df, text_col="text", code_dict=None):
+    def condense_features(self, df: dd.DataFrame, text_col="text", code_dict=None):
         """Map long-named features to condensed names"""
         df["ftr"] = df[text_col].map({k: v for v, k in code_dict.items()})
 
@@ -288,7 +288,7 @@ class parquets_dask(object):
 
         return self.client.persist(df)
 
-    def col_to_features(self, text, feature_prefix):
+    def col_to_features(self, text: dd.Series, feature_prefix: str) -> dict:
         """Create dictionary of feature token names"""
         unique_codes = self.client.compute(text.unique(), sync=True)
         n_codes = len(unique_codes)
@@ -334,21 +334,21 @@ class parquets_dask(object):
 
         # Optionally quantizing the numeric column
         if num_col is not None:
-            # BUG: Transform triggers a shuffle which is very
-            # computationally intensive. If there were a faster
-            # way to have the data indexed by the text col first and
-            # then reindex by pat_key, that would be ideal.
-            # any operation where groupby uses a non-index is costly
-            df["q"] = (
-                df.groupby(text_col)[num_col]
-                .transform(
-                    pd.qcut, q=buckets, labels=False, duplicates="drop", meta=("q", "f")
-                )
-                .reset_index(drop=True)
-            )
+            # BUG: Fails computing qcut using Dask.
+            # no idea how to do it correctly.
+            # this is costly, but I see no way around it.
+            df_copy = df.compute()
 
-            df[text_col] += " q" + df["q"].astype(str)
+            df_copy['q'] = df_copy.groupby(text_col)[num_col].transform(
+                     lambda x: pd.qcut(x, 
+                                       buckets,
+                                       labels=False, 
+                                       duplicates='drop')
+                     )
 
+            df_copy[text_col] += " q" + df_copy["q"].astype(str)
+
+            df = dd.from_pandas(df_copy, chunksize=int(1e6))
         # Return full set (as pandas DF)
         if not slim:
             return df
@@ -366,7 +366,7 @@ class parquets_dask(object):
 
         return self.client.persist(out)
 
-    def get_visit_timing(self, id_table, day_col="days_from_index"):
+    def get_visit_timing(self, id_table: dd.DataFrame, day_col="days_from_index"):
         """Convert starting visit times to appropriate time units"""
         out = id_table[day_col].to_frame()
 
