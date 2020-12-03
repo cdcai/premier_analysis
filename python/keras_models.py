@@ -20,6 +20,7 @@ from sklearn.utils import compute_class_weight
 from tensorflow.keras.callbacks import TensorBoard
 
 from tools import keras as tk
+from tools.analysis import grid_metrics
 
 # %% Globals
 TIME_SEQ = 225
@@ -32,7 +33,7 @@ LSTM_RECURRENT_DROPOUT = 0.4
 N_LSTM = 128
 HYPER_TUNING = False
 # NOTE: I maxed out my GPU running 32, 20 ran ~7.8GB on GPU
-BATCH_SIZE = 20
+BATCH_SIZE = 32
 SUBSAMPLE = True
 SAMPLE_FRAC = 0.2
 TEST_SPLIT = 0.2
@@ -111,16 +112,19 @@ train_gen = tk.DataGenerator(
     batch_size=BATCH_SIZE,
 )
 # %%
-validation_gen = tk.DataGenerator(validation, max_time=TIME_SEQ, batch_size=BATCH_SIZE)
+validation_gen = tk.DataGenerator(validation,
+                                  max_time=TIME_SEQ,
+                                  batch_size=BATCH_SIZE)
 
 test_gen = tk.DataGenerator(test, max_time=TIME_SEQ, batch_size=BATCH_SIZE)
 # %% Model
 
 if HYPER_TUNING:
     # Generate Hyperparameter model
-    hyper_model = tk.LSTMHyperModel(
-        ragged=False, n_timesteps=TIME_SEQ, vocab_size=N_VOCAB, batch_size=BATCH_SIZE
-    )
+    hyper_model = tk.LSTMHyperModel(ragged=False,
+                                    n_timesteps=TIME_SEQ,
+                                    vocab_size=N_VOCAB,
+                                    batch_size=BATCH_SIZE)
     tuner = tuners.Hyperband(
         hyper_model,
         objective="accuracy",
@@ -128,7 +132,6 @@ if HYPER_TUNING:
         project_name="hyperparameter-tuning",
         # NOTE: This could be in output as well if we don't want to track/version it
         directory="data/model_checkpoints/",
-        distribution_strategy=tf.distribute.MirroredStrategy(),
     )
 
     # Announce the search space
@@ -151,13 +154,15 @@ else:
         batch_size=BATCH_SIZE,
     )
     # Feature Embeddings
-    emb1 = keras.layers.Embedding(
-        N_VOCAB, output_dim=512, mask_zero=True, name="Feature_Embeddings"
-    )(input_layer)
+    emb1 = keras.layers.Embedding(N_VOCAB,
+                                  output_dim=512,
+                                  mask_zero=True,
+                                  name="Feature_Embeddings")(input_layer)
     # Average weights of embedding
-    emb2 = keras.layers.Embedding(
-        N_VOCAB, output_dim=1, mask_zero=True, name="Average_Embeddings"
-    )(input_layer)
+    emb2 = keras.layers.Embedding(N_VOCAB,
+                                  output_dim=1,
+                                  mask_zero=True,
+                                  name="Average_Embeddings")(input_layer)
 
     # Multiply and average
     mult = keras.layers.Multiply(name="Embeddings_by_Average")([emb1, emb2])
@@ -170,7 +175,8 @@ else:
         name="Recurrent",
     )(avg)
 
-    output_dim = keras.layers.Dense(1, activation="sigmoid", name="Output")(lstm_layer)
+    output_dim = keras.layers.Dense(1, activation="sigmoid",
+                                    name="Output")(lstm_layer)
 
     model = keras.Model(input_layer, output_dim)
 
@@ -180,25 +186,18 @@ else:
 
     # Create Tensorboard callback
     tb_callback = TensorBoard(
-        log_dir=tensorboard_dir
-        + "/"
-        + TARGET
-        + "/"
-        + datetime.now().strftime("%Y%m%d-%H%M%S")
-        + "/",
+        log_dir=tensorboard_dir + "/" + TARGET + "/" +
+        datetime.now().strftime("%Y%m%d-%H%M%S") + "/",
         histogram_freq=1,
         update_freq=TB_UPDATE_FREQ,
-        embeddings_freq=1,
-        embeddings_metadata=output_dir + "emb_metadata.tsv",
+        # embeddings_freq=1,
+        # embeddings_metadata=output_dir + "emb_metadata.tsv",
     )
 
     # Create model checkpoint callback
     model_checkpoint_callback = keras.callbacks.ModelCheckpoint(
-        filepath=tensorboard_dir
-        + "/"
-        + TARGET
-        + "/"
-        + "weights.{epoch:02d}-{val_loss:.2f}.hdf5",
+        filepath=tensorboard_dir + "/" + TARGET + "/" +
+        "weights.{epoch:02d}-{val_loss:.2f}.hdf5",
         save_weights_only=True,
         monitor="val_acc",
         mode="max",
@@ -220,7 +219,9 @@ else:
         validation_data=validation_gen,
         epochs=20,
         class_weight=class_weights,
-        callbacks=[tb_callback, model_checkpoint_callback, stopping_checkpoint],
+        callbacks=[
+            tb_callback, model_checkpoint_callback, stopping_checkpoint
+        ],
     )
 
     # Test
@@ -230,14 +231,15 @@ else:
     print("Test Accuracy: {}".format(test_acc))
 
     # %% F1, etc
-    pred = model.predict(test_gen)
-    y_pred = (pred >= 0.5).astype(int)
+    y_pred = model.predict(test_gen)
+    # y_pred = (pred >= 0.5).astype(int)
     y_true = [lab for _, lab in test]
 
     # Resizing for output which is divisible by BATCH_SIZE
-    y_true = y_true[0 : y_pred.shape[0]]
-
-    output = classification_report(y_true, y_pred, target_names=["Non MIS-A", "MIS-A"])
+    y_true = y_true[0:y_pred.shape[0]]
+    output = grid_metrics(y_true, y_pred)
+    print(output)
+    # output = classification_report(y_true, y_pred, target_names=["Non MIS-A", "MIS-A"])
 
     print(output)
     print("ROC-AUC: {}".format(roc_auc_score(y_true, y_pred)))
