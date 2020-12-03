@@ -297,6 +297,26 @@ class parquets_dask(object):
 
         return code_dict
 
+    @staticmethod
+    def _compute_approx_quantiles(
+        df: dd.DataFrame,
+        text_col: str,
+        num_col: str,
+        time_col: str,
+        cuts=[0, 0.25, 0.5, 0.75, 1],
+    ) -> dict:
+        """
+        Compute t-digest streaming approximate quantiles on large data
+        in order to bin them
+        """
+        pivoted = df.categorize(text_col).pivot_table(
+            index=time_col, columns=text_col, values=num_col
+        )
+
+        out = pivoted.quantile(q=cuts, method="tdigest").compute()
+
+        return out.to_dict("list")
+
     def df_to_features(
         self,
         df,
