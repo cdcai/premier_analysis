@@ -67,9 +67,7 @@ class parquets_dask(object):
         "icd_code",
         "text",
     ]
-    num_col = [
-        "test_result_numeric_value", None, "numeric_value", None, None, None
-    ]
+    num_col = ["test_result_numeric_value", None, "numeric_value", None, None, None]
 
     df_arg_names = ["df", "text_col", "feature_prefix", "num_col", "time_cols"]
 
@@ -115,44 +113,44 @@ class parquets_dask(object):
             columns=genlab_cols,
             index="lab_test_loinc_desc",
         )
-        lab_res = dd.read_parquet(data_dir + "vw_covid_lab_res/",
-                                  columns=lab_res_cols,
-                                  index="pat_key")
+        lab_res = dd.read_parquet(
+            data_dir + "vw_covid_lab_res/", columns=lab_res_cols, index="pat_key"
+        )
 
-        hx_lab_res = dd.read_parquet(data_dir + "vw_covid_hx_lab_res/",
-                                     columns=lab_res_cols,
-                                     index="pat_key")
-        vitals = dd.read_parquet(data_dir + "vw_covid_vitals/",
-                                 columns=vital_cols,
-                                 index="lab_test")
-        hx_vitals = dd.read_parquet(data_dir + "vw_covid_hx_vitals/",
-                                    columns=vital_cols,
-                                    index="lab_test")
+        hx_lab_res = dd.read_parquet(
+            data_dir + "vw_covid_hx_lab_res/", columns=lab_res_cols, index="pat_key"
+        )
+        vitals = dd.read_parquet(
+            data_dir + "vw_covid_vitals/", columns=vital_cols, index="lab_test"
+        )
+        hx_vitals = dd.read_parquet(
+            data_dir + "vw_covid_hx_vitals/", columns=vital_cols, index="lab_test"
+        )
 
         # Concatenating the current and historical labs and vitals
-        self._genlab = dd.concat([genlab, hx_genlab],
-                                 axis=0,
-                                 interleave_partitions=True)
-        self._vitals = dd.concat([vitals, hx_vitals],
-                                 axis=0,
-                                 interleave_partitions=True)
-        self._lab_res = dd.concat([lab_res, hx_lab_res],
-                                  axis=0,
-                                  interleave_partitions=True)
+        self._genlab = dd.concat(
+            [genlab, hx_genlab], axis=0, interleave_partitions=True
+        )
+        self._vitals = dd.concat(
+            [vitals, hx_vitals], axis=0, interleave_partitions=True
+        )
+        self._lab_res = dd.concat(
+            [lab_res, hx_lab_res], axis=0, interleave_partitions=True
+        )
 
         # Pulling in the billing tables
-        bill_lab = dd.read_parquet(data_dir + "vw_covid_bill_lab/",
-                                   columns=bill_cols,
-                                   index="pat_key")
-        bill_pharm = dd.read_parquet(data_dir + "vw_covid_bill_pharm/",
-                                     columns=bill_cols,
-                                     index="pat_key")
-        bill_oth = dd.read_parquet(data_dir + "vw_covid_bill_oth/",
-                                   columns=bill_cols,
-                                   index="pat_key")
-        hx_bill = dd.read_parquet(data_dir + "vw_covid_hx_bill/",
-                                  columns=bill_cols,
-                                  index="pat_key")
+        bill_lab = dd.read_parquet(
+            data_dir + "vw_covid_bill_lab/", columns=bill_cols, index="pat_key"
+        )
+        bill_pharm = dd.read_parquet(
+            data_dir + "vw_covid_bill_pharm/", columns=bill_cols, index="pat_key"
+        )
+        bill_oth = dd.read_parquet(
+            data_dir + "vw_covid_bill_oth/", columns=bill_cols, index="pat_key"
+        )
+        hx_bill = dd.read_parquet(
+            data_dir + "vw_covid_hx_bill/", columns=bill_cols, index="pat_key"
+        )
         self._bill = dd.concat(
             [bill_lab, bill_pharm, bill_oth, hx_bill],
             axis=0,
@@ -160,29 +158,26 @@ class parquets_dask(object):
         )
 
         # Pulling in the additional diagnosis and procedure tables
-        pat_diag = dd.read_parquet(data_dir + "vw_covid_paticd_diag/",
-                                   index="pat_key")
-        pat_proc = dd.read_parquet(data_dir + "vw_covid_paticd_proc/",
-                                   index="pat_key")
-        add_diag = dd.read_parquet(data_dir + "vw_covid_additional_paticd_" +
-                                   "diag/",
-                                   index="pat_key")
-        add_proc = dd.read_parquet(data_dir + "vw_covid_additional_paticd_" +
-                                   "proc/",
-                                   index="pat_key")
-        self._diag = dd.concat([pat_diag, add_diag],
-                               axis=0,
-                               interleave_partitions=True)
-        self._proc = dd.concat([pat_proc, add_proc],
-                               axis=0,
-                               interleave_partitions=True)
+        pat_diag = dd.read_parquet(data_dir + "vw_covid_paticd_diag/", index="pat_key")
+        pat_proc = dd.read_parquet(data_dir + "vw_covid_paticd_proc/", index="pat_key")
+        add_diag = dd.read_parquet(
+            data_dir + "vw_covid_additional_paticd_" + "diag/", index="pat_key"
+        )
+        add_proc = dd.read_parquet(
+            data_dir + "vw_covid_additional_paticd_" + "proc/", index="pat_key"
+        )
+        self._diag = dd.concat([pat_diag, add_diag], axis=0, interleave_partitions=True)
+        self._proc = dd.concat([pat_proc, add_proc], axis=0, interleave_partitions=True)
 
         # And any extras
         self.icd = dd.read_parquet(data_dir + "icdcode/")
 
         # Fixing lab_res
-        self._lab_res["text"] = (self._lab_res["test"].astype(str) + " " +
-                                 self._lab_res["observation"].astype(str))
+        self._lab_res["text"] = (
+            self._lab_res["test"].astype(str)
+            + " "
+            + self._lab_res["observation"].astype(str)
+        )
 
         # Compute all the needed arguments for df_to_feature
         self.df_kwargs = self.compute_kwargs()
@@ -222,7 +217,8 @@ class parquets_dask(object):
 
     def compute_kwargs(self):
         out = [
-            dict(zip(self.df_arg_names, a)) for a in zip(
+            dict(zip(self.df_arg_names, a))
+            for a in zip(
                 [
                     self._vitals,
                     self._bill,
@@ -268,17 +264,15 @@ class parquets_dask(object):
         ]
 
         # Convert long feature name to condensed value computed in code dict
-        out = [
-            self.condense_features(a, "text", b)
-            for a, b in zip(out, code_dicts)
-        ]
+        out = [self.condense_features(a, "text", b) for a, b in zip(out, code_dicts)]
 
         # Combining the feature dicts and saving to disk
         ftr_dict = dict(
             zip(
                 tp.flatten([d.keys() for d in code_dicts]),
                 tp.flatten([d.values() for d in code_dicts]),
-            ))
+            )
+        )
 
         # Write all dictionaries to pickle
         if pkl_file is not None:
@@ -320,9 +314,9 @@ class parquets_dask(object):
         Compute t-digest streaming approximate quantiles on large data
         in order to bin them
         """
-        pivoted = df.categorize(text_col).pivot_table(index=time_col,
-                                                      columns=text_col,
-                                                      values=num_col)
+        pivoted = df.categorize(text_col).pivot_table(
+            index=time_col, columns=text_col, values=num_col
+        )
 
         out = pivoted.quantile(q=cuts, method="tdigest").compute()
 
@@ -343,11 +337,13 @@ class parquets_dask(object):
         # Optionally quantizing the numeric column
         if num_col is not None:
 
-            df["q"] = (df.groupby(text_col)[num_col].apply(lambda x: pd.qcut(
-                x, q=buckets, labels=False, duplicates="drop")).reset_index(
-                    drop=True))
+            df = df.map_partitions(
+                lambda x: x.assign(
+                    q=pd.qcut(x[num_col], q=buckets, labels=False, duplicates="drop")
+                )
+            )
             # NOTE: Vitals and genlab come in indexed by text_col, but we need to reindex by pat_key
-            df = df.reset_index().set_index("pat_key").persist()
+            df = df.reset_index(drop=False).set_index("pat_key").persist()
 
             df[text_col] = df[text_col].astype(str)
 
@@ -361,7 +357,7 @@ class parquets_dask(object):
         # Rename text_col to "text" for further downstream processing
         df = df.rename(columns={text_col: "text"})
 
-        out_cols = ["text", "q"]
+        out_cols = ["text"]
 
         if time_cols is not None:
             out_cols += time_cols
@@ -381,12 +377,9 @@ class parquets_dask(object):
 
         return out
 
-    def get_timing(self,
-                   df,
-                   day_col=None,
-                   end_of_visit=False,
-                   time_col=None,
-                   ftr_col="ftr"):
+    def get_timing(
+        self, df, day_col=None, end_of_visit=False, time_col=None, ftr_col="ftr"
+    ):
         """Compute timing for each feature based on the granularity specified.
 
         Arguments:
@@ -408,9 +401,7 @@ class parquets_dask(object):
         """
 
         # Compute which cols we will have
-        out_cols = [
-            col for col in [ftr_col, day_col, time_col] if col is not None
-        ]
+        out_cols = [col for col in [ftr_col, day_col, time_col] if col is not None]
 
         # Merge in timing for visit which was already computed
         # make sure to index by pat_key so we can keep this efficient.
@@ -421,9 +412,7 @@ class parquets_dask(object):
         # If we want this to occur at the end of the visit, add visit LOS to our timing
         # that was computed in get_visit_timing
         if end_of_visit:
-            out = out.join(self.id.result()["los"].to_frame(),
-                           how="left",
-                           on="pat_key")
+            out = out.join(self.id.result()["los"].to_frame(), how="left", on="pat_key")
 
             out[self.agg_level] += out["los"] * self.from_days[self.agg_level]
             out = out.drop("los", axis=1)
@@ -444,8 +433,9 @@ class parquets_dask(object):
             # map HMS strings to dict to convert to seconds
             # then aggregate to appropriate agg_level
 
-            out[self.agg_level] += (out[time_col].map(self.time_dict) /
-                                    self.from_seconds[self.agg_level])
+            out[self.agg_level] += (
+                out[time_col].map(self.time_dict) / self.from_seconds[self.agg_level]
+            )
 
             # Done with the time col
             out = out.drop(time_col, axis=1)
@@ -485,8 +475,7 @@ class parquets_dask(object):
             out_col (`str`): Name of resulting column (default: "ftrs")
         """
 
-        grouped = df[[self.agg_level,
-                      ftr_col]].groupby([self.agg_level, df.index])
+        grouped = df[[self.agg_level, ftr_col]].groupby([self.agg_level, df.index])
         agged = grouped.agg(list).rename(columns={ftr_col: out_col})
 
         # We might want to keep as list-of-lists instead of concatenating
