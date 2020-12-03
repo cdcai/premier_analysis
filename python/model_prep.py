@@ -21,7 +21,7 @@ CUT_METHOD = 'first'
 HORIZON = 1
 
 # Pat-level outcome to use as the label
-OUTCOME = 'death'
+OUTCOME = 'misa_pt'
 
 # Setting the directories
 output_dir = os.path.abspath('output/') + '/'

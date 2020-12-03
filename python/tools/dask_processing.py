@@ -1,15 +1,19 @@
+import pickle
 from functools import reduce
 from itertools import product
 
 import dask.dataframe as dd
 import dask.distributed as distributed
+import pandas as pd
+
+import tools.preprocessing as tp
 
 
 def dask_merge_all(df_list, **kwargs):
-"""
-A generalized reduced-join function for dask.dataframes (or pandas)
+    """
+    A generalized reduced-join function for dask.dataframes (or pandas)
 
-"""
+    """
     out = reduce(lambda x, y: x.join(y, **kwargs), df_list)
     return out
 
@@ -32,7 +36,7 @@ class parquets_dask(object):
 
         dask_client (`obj`:`distributed.client`): A Dask distributed client instance
 
-        data_dir (str): relative or absolute path to EHR parquet data. 
+        data_dir (str): relative or absolute path to EHR parquet data.
         Currently this is in a submodule of the main repository so shouldn't need to be changed. (default: "data/data/")
 
         agg_lvl (str): Time aggregation level from index case.
@@ -66,12 +70,7 @@ class parquets_dask(object):
 
     df_arg_names = ["df", "text_col", "feature_prefix", "num_col", "time_cols"]
 
-    def __init__(
-        self,
-        dask_client,
-        data_dir="data/data/",
-        agg_lvl="dfi"
-    ):
+    def __init__(self, dask_client: distributed.Client, data_dir="data/data/", agg_lvl="dfi"):
 
         # Start Dask client
         self.client = dask_client
@@ -215,7 +214,14 @@ class parquets_dask(object):
         out = [
             dict(zip(self.df_arg_names, a))
             for a in zip(
-                [self._vitals, self._bill, self._genlab, self._proc, self._diag, self._lab_res],
+                [
+                    self._vitals,
+                    self._bill,
+                    self._genlab,
+                    self._proc,
+                    self._diag,
+                    self._lab_res,
+                ],
                 self.text_cols,
                 self.feat_prefix,
                 self.num_col,
@@ -247,9 +253,12 @@ class parquets_dask(object):
         out = [self.df_to_features(**kw) for kw in self.df_kwargs]
 
         # Compute all feature values for each table for lookup table
-        code_dicts = [self.col_to_features(a["text"], b["feature_prefix"]) for a, b in zip(out, self.df_kwargs)]
-       
-       # Convert long feature name to condensed value computed in code dict
+        code_dicts = [
+            self.col_to_features(a["text"], b["feature_prefix"])
+            for a, b in zip(out, self.df_kwargs)
+        ]
+
+        # Convert long feature name to condensed value computed in code dict
         out = [self.condense_features(a, "text", b) for a, b in zip(out, code_dicts)]
 
         # Combining the feature dicts and saving to disk
@@ -271,7 +280,7 @@ class parquets_dask(object):
         # until it's absolutely necessary to read in
         return dict(zip(self.final_names, out)), ftr_dict
 
-    def condense_features(self, df, text_col = "text", code_dict = None):
+    def condense_features(self, df: dd.DataFrame, text_col="text", code_dict=None):
         """Map long-named features to condensed names"""
         df["ftr"] = df[text_col].map({k: v for v, k in code_dict.items()})
 
@@ -279,7 +288,7 @@ class parquets_dask(object):
 
         return self.client.persist(df)
 
-    def col_to_features(self, text, feature_prefix):
+    def col_to_features(self, text: dd.Series, feature_prefix: str) -> dict:
         """Create dictionary of feature token names"""
         unique_codes = self.client.compute(text.unique(), sync=True)
         n_codes = len(unique_codes)
@@ -287,6 +296,26 @@ class parquets_dask(object):
         code_dict = dict(zip(ftr_codes, unique_codes))
 
         return code_dict
+
+    @staticmethod
+    def _compute_approx_quantiles(
+        df: dd.DataFrame,
+        text_col: str,
+        num_col: str,
+        time_col: str,
+        cuts=[0, 0.25, 0.5, 0.75, 1],
+    ) -> dict:
+        """
+        Compute t-digest streaming approximate quantiles on large data
+        in order to bin them
+        """
+        pivoted = df.categorize(text_col).pivot_table(
+            index=time_col, columns=text_col, values=num_col
+        )
+
+        out = pivoted.quantile(q=cuts, method="tdigest").compute()
+
+        return out.to_dict("list")
 
     def df_to_features(
         self,
@@ -298,28 +327,28 @@ class parquets_dask(object):
         buckets=5,
         slim=True,
     ):
-    """Transform raw text and numeric features to token feature columns"""
+        """Transform raw text and numeric features to token feature columns"""
 
         # Pulling out the text
         df[text_col] = df[text_col].astype(str)
 
         # Optionally quantizing the numeric column
         if num_col is not None:
-        # BUG: Transform triggers a shuffle which is very
-        # computationally intensive. If there were a faster
-        # way to have the data indexed by the text col first and
-        # then reindex by pat_key, that would be ideal.
-        # any operation where groupby uses a non-index is costly
-            df["q"] = (
-                df.groupby(text_col)[num_col]
-                .transform(
-                    pd.qcut, q=buckets, labels=False, duplicates="drop", meta=("q", "f")
-                )
-                .reset_index(drop=True)
-            )
+            # BUG: Fails computing qcut using Dask.
+            # no idea how to do it correctly.
+            # this is costly, but I see no way around it.
+            df_copy = df.compute()
 
-            df[text_col] += " q" + df["q"].astype(str)
+            df_copy['q'] = df_copy.groupby(text_col)[num_col].transform(
+                     lambda x: pd.qcut(x, 
+                                       buckets,
+                                       labels=False, 
+                                       duplicates='drop')
+                     )
 
+            df_copy[text_col] += " q" + df_copy["q"].astype(str)
+
+            df = dd.from_pandas(df_copy, chunksize=int(1e6))
         # Return full set (as pandas DF)
         if not slim:
             return df
@@ -337,7 +366,7 @@ class parquets_dask(object):
 
         return self.client.persist(out)
 
-    def get_visit_timing(self, id_table, day_col="days_from_index"):
+    def get_visit_timing(self, id_table: dd.DataFrame, day_col="days_from_index"):
         """Convert starting visit times to appropriate time units"""
         out = id_table[day_col].to_frame()
 
@@ -428,7 +457,7 @@ class parquets_dask(object):
     def agg_features(self, df, as_str=True, ftr_col="ftr", out_col="ftrs"):
         """
         Aggregate feature column to token columns by time step + id
-        
+
         Notes:
 
         This defaults to joining all tokens present at the given time step to a sting, but can also
@@ -442,7 +471,7 @@ class parquets_dask(object):
 
             ftr_col (`str`): Name of column where features to aggregate can be found (default: "ftr")
 
-            out_col (`str`): Name of resulting column (default: "ftrs")  
+            out_col (`str`): Name of resulting column (default: "ftrs")
         """
 
         grouped = df[[self.agg_level, ftr_col]].groupby([self.agg_level, df.index])
