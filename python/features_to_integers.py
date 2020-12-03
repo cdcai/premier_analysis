@@ -9,9 +9,7 @@ import pickle as pkl
 
 import numpy as np
 import pandas as pd
-import tensorflow as tf
 from sklearn.feature_extraction.text import CountVectorizer
-from tensorflow import strings as strings
 
 # Setting top-level parameters
 MIN_DF = 5
@@ -23,13 +21,12 @@ MAX_TIME = 225
 
 # Whether to write the full trimmed sequence file to disk as parquet
 WRITE_PARQUET = False
-
-# Setting the directories
-output_dir = os.path.abspath('../output/') + '/'
-data_dir = os.path.abspath('../data/data/') + '/'
-pkl_dir = output_dir + 'pkl/'
-ftr_cols = ['vitals', 'bill', 'genlab', 'lab_res', 'proc', 'diag']
-final_cols = ['covid_visit', 'ftrs']
+# %% Setting the directories
+output_dir = os.path.abspath("output/") + "/"
+data_dir = os.path.abspath("data/data/") + "/"
+pkl_dir = output_dir + "pkl/"
+ftr_cols = ["vitals", "bill", "genlab", "lab_res", "proc", "diag"]
+final_cols = ["covid_visit", "ftrs"]
 
 # %% Read in the pat and ID tables
 pat_df = pd.read_parquet(data_dir + "vw_covid_pat_all/")
@@ -55,12 +52,6 @@ if NO_VITALS:
 # %% Combining the separate feature columns into one
 trimmed_seq["ftrs"] = (trimmed_seq[ftr_cols].astype(str).replace(
     ["None", "nan"], "").agg(" ".join, axis=1))
-
-# %% Turn into ragged string tensors
-str_seqs = [df.values for _, df in trimmed_seq.groupby("medrec_key")["ftrs"]]
-
-str_seqs_ragged = [strings.split(strs) for strs in str_seqs]
-str_seqs_ragged = tf.stack(str_seqs_ragged)
 
 # %% Fitting the vectorizer to the features
 ftrs = [doc for doc in trimmed_seq.ftrs]
