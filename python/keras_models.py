@@ -236,10 +236,10 @@ else:
     y_true = [lab for _, lab in test]
 
     # Resizing for output which is divisible by BATCH_SIZE
-    y_true = y_true[0:y_pred.shape[0]]
+    y_true = np.array(y_true[0:y_pred.shape[0]])
     output = grid_metrics(y_true, y_pred)
     print(output)
-    # output = classification_report(y_true, y_pred, target_names=["Non MIS-A", "MIS-A"])
 
-    print(output)
+    output.to_csv(tensorboard_dir + "/" + TARGET + "/" + "grid_metrics.csv",
+                  index=False)
     print("ROC-AUC: {}".format(roc_auc_score(y_true, y_pred)))
