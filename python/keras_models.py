@@ -23,7 +23,7 @@ from tools import keras as tk
 from tools.analysis import grid_metrics
 
 # %% Globals
-TIME_SEQ = 225
+TIME_SEQ = 2358
 TARGET = "misa_pt"
 LSTM_DROPOUT = 0.2
 # NOTE: Recurrent dropout is advisable, but it also means

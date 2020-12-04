@@ -52,6 +52,9 @@ def main():
                       for i in range(n_patients)]
         trim_out = p.starmap(tp.trim_sequence, trim_input)
 
+    # output max time to use in keras model
+    print("Use TIME_SEQ:{}".format(max([len(x) for x, _ in trim_out])))
+
     # Saving the trimmed sequences to disk
     with open(pkl_dir + 'trimmed_seqs.pkl', 'wb') as f:
         pkl.dump(trim_out, f)
