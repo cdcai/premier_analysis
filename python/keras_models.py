@@ -25,6 +25,7 @@ from tools.analysis import grid_metrics
 # %% Globals
 TIME_SEQ = 2358
 TARGET = "misa_pt"
+RAGGED = True
 LSTM_DROPOUT = 0.2
 # NOTE: Recurrent dropout is advisable, but it also means
 # you forgoe CuDNN-optimization for the LSTM, so it will train
@@ -34,8 +35,9 @@ N_LSTM = 128
 HYPER_TUNING = False
 # NOTE: I maxed out my GPU running 32, 20 ran ~7.8GB on GPU
 BATCH_SIZE = 32
+EPOCHS = 20
 SUBSAMPLE = True
-SAMPLE_FRAC = 0.2
+SAMPLE_FRAC = 0.01
 TEST_SPLIT = 0.2
 VAL_SPLIT = 0.1
 RAND = 2020
@@ -104,21 +106,42 @@ class_weights = compute_class_weight(
 )
 
 class_weights = dict(zip([0, 1], class_weights))
-# %% Create data generator for On-the-fly batch generation
-train_gen = tk.DataGenerator(
-    train,
-    max_time=TIME_SEQ,
-    resampler=RandomOverSampler(sampling_strategy="minority"),
-    batch_size=BATCH_SIZE,
-)
+
 # %%
-validation_gen = tk.DataGenerator(validation,
+train_gen = tk.create_ragged_data(train,
                                   max_time=TIME_SEQ,
+                                  epochs=EPOCHS,
                                   batch_size=BATCH_SIZE)
 
-test_gen = tk.DataGenerator(test, max_time=TIME_SEQ, batch_size=BATCH_SIZE)
-# %% Model
+validation_gen = tk.create_ragged_data(validation,
+                                       max_time=TIME_SEQ,
+                                       epochs=EPOCHS,
+                                       batch_size=BATCH_SIZE)
 
+test_gen = tk.create_ragged_data(test,
+                                 max_time=TIME_SEQ,
+                                 epochs=1,
+                                 batch_size=BATCH_SIZE)
+# %% Create data generator for On-the-fly batch generation
+# train_gen = tk.DataGenerator(
+#     train,
+#     max_time=TIME_SEQ,
+#     ragged=RAGGED,
+#     resampler=RandomOverSampler(sampling_strategy="minority"),
+#     batch_size=BATCH_SIZE,
+# )
+# # %%
+# validation_gen = tk.DataGenerator(validation,
+#                                   max_time=TIME_SEQ,
+#                                   ragged=RAGGED,
+#                                   batch_size=BATCH_SIZE)
+
+# test_gen = tk.DataGenerator(test,
+#                             max_time=TIME_SEQ,
+#                             ragged=RAGGED,
+#                             batch_size=BATCH_SIZE)
+
+# %%
 if HYPER_TUNING:
     # Generate Hyperparameter model
     hyper_model = tk.LSTMHyperModel(ragged=False,
@@ -148,11 +171,9 @@ if HYPER_TUNING:
     tuner.results_summary()
 else:
 
-    # Normal model, no hyperparameter tuning nonsense
-    input_layer = keras.Input(
-        shape=(TIME_SEQ, None),
-        batch_size=BATCH_SIZE,
-    )
+    input_layer = keras.Input(shape=(TIME_SEQ, None),
+                              ragged=RAGGED,
+                              batch_size=BATCH_SIZE)
     # Feature Embeddings
     emb1 = keras.layers.Embedding(N_VOCAB,
                                   output_dim=512,
@@ -165,8 +186,17 @@ else:
                                   name="Average_Embeddings")(input_layer)
 
     # Multiply and average
-    mult = keras.layers.Multiply(name="Embeddings_by_Average")([emb1, emb2])
-    avg = keras.backend.mean(mult, axis=2)
+    if RAGGED:
+        # NOTE: I think these are the equivalent ragged-aware ops
+        # but that could be incorrect
+        mult = keras.layers.Lambda(lambda x: tf.math.multiply(x[0], x[1]),
+                                   name="Embeddings_by_Average")([emb1, emb2])
+        avg = keras.layers.Lambda(lambda x: tf.math.reduce_mean(x, axis=2),
+                                  name="Averaging")(mult)
+    else:
+        mult = keras.layers.Multiply(name="Embeddings_by_Average")(
+            [emb1, emb2])
+        avg = keras.backend.mean(mult, axis=2)
 
     lstm_layer = keras.layers.LSTM(
         N_LSTM,
@@ -243,3 +273,5 @@ else:
     output.to_csv(tensorboard_dir + "/" + TARGET + "/" + "grid_metrics.csv",
                   index=False)
     print("ROC-AUC: {}".format(roc_auc_score(y_true, y_pred)))
+
+# %%

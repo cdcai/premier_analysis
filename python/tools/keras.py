@@ -16,6 +16,65 @@ from tensorflow.keras.layers import (LSTM, Dense, Embedding, Input, Multiply,
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 
 
+def create_ragged_data(
+        inputs: tuple,
+        max_time: float,
+        epochs: int,
+        #    resample=False,
+        #    resample_dist=[0.9, 0.1],
+        batch_size=32,
+        random_seed=1234,
+        shuffle=True):
+
+    # Check that empty lists are converted to zeros
+    x = [[(lambda x: [0] if x == [] else x)(bags) for bags in seq]
+         for seq, _ in inputs]
+
+    # Pad sequences to maxtime
+    x_pad = [l + [[0]] * (max_time - len(l)) for l in x]
+
+    # Convert to ragged
+    # shape: (len(x), max_time, None)
+    X = tf.RaggedTensor.from_uniform_row_length(
+        tf.ragged.constant(list(itertools.chain.from_iterable(x_pad)),
+                           dtype=tf.int32), max_time)
+
+    # Sanity check
+    assert X.shape.as_list() == [len(x), max_time, None]
+
+    # Labs as stacked
+    y = np.array([tup[1] for tup in inputs])
+
+    # Make sure our data are equal
+    assert y.shape[0] == X.shape[0]
+
+    # Produce data generator
+    data_gen = tf.data.Dataset.from_tensor_slices((X, y))
+
+    # if resample:
+    #     input_dist = [1 - np.mean(y), np.mean(y)]
+
+    #     sampler = tf.data.experimental.rejection_resample(
+    #         class_func=lambda _, c: c,
+    #         target_dist=tf.constant(resample_dist,
+    #                                 dtype=tf.float32,
+    #                                 name="target_dist"),
+    #         initial_dist=input_dist,
+    #         seed=random_seed)
+    #     data_gen = data_gen.apply(sampler)
+
+    data_gen = data_gen.repeat(epochs)
+
+    if shuffle:
+        data_gen = data_gen.shuffle(buffer_size=len(x),
+                                    seed=random_seed,
+                                    reshuffle_each_iteration=True)
+
+    data_gen = data_gen.batch(batch_size)
+
+    return data_gen
+
+
 class DataGenerator(keras.utils.Sequence):
     """Generates data for Keras.
 
