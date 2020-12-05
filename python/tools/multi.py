@@ -33,12 +33,12 @@ def get_times(df, dict, day_col=None, time_col=None, ftr_col="ftr"):
     hfi = dfi * 24
     mfi = hfi * 60
     if time_col is not None:
-        p = Pool()
-        times = [t for t in df[time_col]]
-        hours = np.array(p.map(tp.time_to_hours, times), dtype=np.uint32)
-        mins = np.array(p.map(tp.time_to_minutes, times), dtype=np.uint32)
-        p.close()
-        p.join()
+        with Pool() as p:
+            times = [t for t in df[time_col]]
+            hours = np.array(p.map(tp.time_to_hours, times), dtype=np.uint32)
+            mins = np.array(p.map(tp.time_to_minutes, times), dtype=np.uint32)
+            p.close()
+            p.join()
         hfi += hours
         mfi += mins
 
