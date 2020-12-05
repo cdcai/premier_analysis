@@ -25,21 +25,20 @@ out_dir = 'output/'
 parq_dir = out_dir + 'parquet/'
 pkl_dir = out_dir + 'pkl/'
 
-
 def main():
     # Importing the parquet files
     print('')
     print('Loading the parquet files...')
-
+    
     pq = tp.load_parquets(prem_dir)
 
     # Making some lookup tables to use later
-    medrec_dict = dict(
-        zip(pq.id.pat_key.astype(int), pq.id.medrec_key.astype(int)))
+    medrec_dict = dict(zip(pq.id.pat_key.astype(int),
+                        pq.id.medrec_key.astype(int)))
     day_dict = dict(
         zip(pq.id.pat_key.astype(int), pq.id.days_from_index.astype(int)))
-    covid_dict = dict(
-        zip(pq.id.pat_key.astype(int), pq.id.covid_visit.astype(int)))
+    covid_dict = dict(zip(pq.id.pat_key.astype(int),
+                        pq.id.covid_visit.astype(int)))
 
     print('Converting the free-text fields to features...')
 
@@ -83,20 +82,18 @@ def main():
         time_cols=['spec_day_number', 'spec_time_of_day'])
 
     # Combining the feature dicts and saving to disk
-    dicts = [
-        v_dict, bill_dict, genlab_dict, proc_dict, diag_dict, lab_res_dict
-    ]
+    dicts = [v_dict, bill_dict, genlab_dict, proc_dict, diag_dict, lab_res_dict]
     ftr_dict = dict(
         zip(tp.flatten([d.keys() for d in dicts]),
             tp.flatten([d.values() for d in dicts])))
 
     # Calculating days and minutes from index for each observation
     vitals = tm.get_times(vitals, day_dict, 'observation_day_number',
-                          'observation_time_of_day')
+                        'observation_time_of_day')
     genlab = tm.get_times(genlab, day_dict, 'collection_day_number',
-                          'collection_time_of_day')
+                        'collection_time_of_day')
     lab_res = tm.get_times(lab_res, day_dict, 'spec_day_number',
-                           'spec_time_of_day')
+                        'spec_time_of_day')
     bill = tm.get_times(bill, day_dict, 'serv_day')
     proc = tm.get_times(proc, day_dict, 'proc_day')
     diag = tm.get_times(diag, day_dict)
@@ -173,11 +170,10 @@ def main():
     agg_samp.to_csv(out_dir + 'samples/agg_samp.csv', index=False)
 
     # Writing the flat feature file to disk
-    agg_all.to_parquet(parq_dir + 'flat_features.parquet', index=False)
+    agg_all.to_parquet(parq_dir + 'flat_features_2.parquet', index=False)
 
     # And saving the feature dict to disk
-    pickle.dump(ftr_dict, open(pkl_dir + 'feature_lookup.pkl', 'wb'))
-
+    pickle.dump(ftr_dict, open(pkl_dir + 'feature_lookup_2.pkl', 'wb'))
 
 if __name__ == "__main__":
     t1 = time.time()
