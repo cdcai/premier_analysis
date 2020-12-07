@@ -171,7 +171,7 @@ if HYPER_TUNING:
     tuner.results_summary()
 else:
 
-    input_layer = keras.Input(shape=(TIME_SEQ, None),
+    input_layer = keras.Input(shape=(None if RAGGED else TIME_SEQ, None),
                               ragged=RAGGED,
                               batch_size=BATCH_SIZE)
     # Feature Embeddings
@@ -269,7 +269,6 @@ else:
     y_true = y_true[0:y_pred.shape[0]]
     output = grid_metrics(y_true, y_pred)
     print(output)
-    # output = classification_report(y_true, y_pred, target_names=["Non MIS-A", "MIS-A"])
 
     print(output)
     print("ROC-AUC: {}".format(roc_auc_score(y_true, y_pred)))

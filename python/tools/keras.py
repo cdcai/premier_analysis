@@ -16,31 +16,27 @@ from tensorflow.keras.layers import (LSTM, Dense, Embedding, Input, Multiply,
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 
 
-def create_ragged_data(
-        inputs: tuple,
-        max_time: float,
-        epochs: int,
-        #    resample=False,
-        #    resample_dist=[0.9, 0.1],
-        batch_size=32,
-        random_seed=1234,
-        shuffle=True) -> tf.data.Dataset:
+def create_ragged_data(inputs: tuple,
+                       max_time: float,
+                       epochs: int,
+                       batch_size: int = 32,
+                       random_seed: int = 1234,
+                       ragged: bool = True,
+                       shuffle: bool = True) -> tf.data.Dataset:
 
     # Check that empty lists are converted to zeros
     x = [[(lambda x: [0] if x == [] else x)(bags) for bags in seq]
          for seq, _ in inputs]
 
-    # Pad sequences to maxtime
-    x_pad = [l + [[0]] * (max_time - len(l)) for l in x]
-
     # Convert to ragged
-    # shape: (len(x), max_time, None)
-    X = tf.RaggedTensor.from_uniform_row_length(
-        tf.ragged.constant(list(itertools.chain.from_iterable(x_pad))),
-        max_time)
+    # shape: (len(x), None, None)
+    X = tf.ragged.constant(x)
 
     # Sanity check
-    assert X.shape.as_list() == [len(x), max_time, None]
+    assert X.shape.as_list() == [len(x), None, None]
+
+    if not ragged:
+        X.to_tensor()
 
     # Labs as stacked
     y = np.array([tup[1] for tup in inputs])
@@ -51,17 +47,11 @@ def create_ragged_data(
     # Produce data generator
     data_gen = tf.data.Dataset.from_tensor_slices((X, y))
 
-    # if resample:
-    #     input_dist = [1 - np.mean(y), np.mean(y)]
-
-    #     sampler = tf.data.experimental.rejection_resample(
-    #         class_func=lambda _, c: c,
-    #         target_dist=tf.constant(resample_dist,
-    #                                 dtype=tf.float32,
-    #                                 name="target_dist"),
-    #         initial_dist=input_dist,
-    #         seed=random_seed)
-    #     data_gen = data_gen.apply(sampler)
+    # TODO: Fix resampling
+    # From examples, it looks like the easiest way is to
+    # create a positive and negative sample tf.dataset
+    # and then use the sample function to combine them with the
+    # appropriate sampling fractions
 
     data_gen = data_gen.repeat(epochs)
 
