@@ -189,8 +189,8 @@ else:
     if RAGGED:
         # NOTE: I think these are the equivalent ragged-aware ops
         # but that could be incorrect
-        mult = keras.layers.Lambda(lambda x: tf.math.multiply(x[0], x[1]),
-                                   name="Embeddings_by_Average")([emb1, emb2])
+        mult = keras.layers.Multiply(name="Embeddings_by_Average")(
+            [emb1, emb2])
         avg = keras.layers.Lambda(lambda x: tf.math.reduce_mean(x, axis=2),
                                   name="Averaging")(mult)
     else:

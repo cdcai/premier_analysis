@@ -24,7 +24,7 @@ def create_ragged_data(
         #    resample_dist=[0.9, 0.1],
         batch_size=32,
         random_seed=1234,
-        shuffle=True):
+        shuffle=True) -> tf.data.Dataset:
 
     # Check that empty lists are converted to zeros
     x = [[(lambda x: [0] if x == [] else x)(bags) for bags in seq]
@@ -36,8 +36,8 @@ def create_ragged_data(
     # Convert to ragged
     # shape: (len(x), max_time, None)
     X = tf.RaggedTensor.from_uniform_row_length(
-        tf.ragged.constant(list(itertools.chain.from_iterable(x_pad)),
-                           dtype=tf.int32), max_time)
+        tf.ragged.constant(list(itertools.chain.from_iterable(x_pad))),
+        max_time)
 
     # Sanity check
     assert X.shape.as_list() == [len(x), max_time, None]
