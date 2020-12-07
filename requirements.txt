@@ -29,9 +29,11 @@ google-auth-oauthlib==0.4.1
 google-pasta==0.2.0
 graphviz==0.14.2
 grpcio==1.33.1
+gviz-api==1.9.0
 h5py==2.10.0
 HeapDict==1.0.1
 idna==2.10
+imbalanced-learn==0.7.0
 ipykernel==5.3.4
 ipython==7.18.1
 ipython-genutils==0.2.0
@@ -50,6 +52,7 @@ jupyterlab-pygments==0.1.2
 Keras-Preprocessing==1.1.2
 keras-tuner==1.0.1
 lazy-object-proxy==1.4.3
+llvmlite==0.34.0
 locket==0.2.0
 Markdown==3.3.2
 MarkupSafe==1.1.1
@@ -63,6 +66,7 @@ nbconvert==6.0.7
 nbformat==5.0.7
 nest-asyncio==1.4.1
 notebook==6.1.4
+numba==0.51.2
 numpy==1.18.5
 oauthlib==3.1.0
 opt-einsum==3.3.0
@@ -110,14 +114,17 @@ sortedcontainers==2.2.2
 tabulate==0.8.7
 tblib==1.7.0
 tensorboard==2.3.0
+tensorboard-plugin-profile==2.3.0
 tensorboard-plugin-wit==1.7.0
 tensorflow==2.3.1
+tensorflow-addons==0.11.2
 tensorflow-estimator==2.3.0
 termcolor==1.1.0
 terminado==0.9.1
 terminaltables==3.1.0
 testpath==0.4.4
 threadpoolctl==2.1.0
+thrift==0.13.0
 tokenizers==0.8.1
 toml==0.10.1
 toolz==0.11.1
@@ -126,6 +133,7 @@ tqdm==4.50.1
 traitlets==5.0.4
 transformers==3.3.1
 typed-ast==1.4.1
+typeguard==2.10.0
 typing-extensions==3.7.4.3
 urllib3==1.25.11
 wcwidth==0.2.5
