@@ -22,8 +22,9 @@ def create_ragged_data(inputs: tuple,
                        batch_size: int = 32,
                        random_seed: int = 1234,
                        ragged: bool = True,
+                       label_int: bool = False,
                        shuffle: bool = True) -> tf.data.Dataset:
-
+"""A tf.dataset generator which handles both ragged and dense data accordingly"""
     # Check that empty lists are converted to zeros
     x = [[(lambda x: [0] if x == [] else x)(bags) for bags in seq]
          for seq, _ in inputs]
@@ -39,7 +40,8 @@ def create_ragged_data(inputs: tuple,
         X.to_tensor()
 
     # Labs as stacked
-    y = np.array([tup[1] for tup in inputs])
+    # NOTE: some loss functions require this to be float
+    y = np.array([tup[1] for tup in inputs], dtype= np.int32 if label_int else np.float)
 
     # Make sure our data are equal
     assert y.shape[0] == X.shape[0]
@@ -310,14 +312,16 @@ class LSTMHyperModel(HyperModel):
         model = keras.Model(inp, output, name="LSTM-Hyper")
 
         model.compile(
-            optimizer=keras.optimizers.Adam(
-                # NOTE: we could also use a LR adjustment callback on train
-                # instead. We could also use any optimizer here
-                learning_rate=hp.Choice("Learning Rate",
-                                        values=[1e-2, 1e-3, 1e-4])),
+            optimizer=keras.optimizers.SGD(
+                            learning_rate=hp.Choice("Learning Rate",
+                                    values=[1e-2, 1e-3, 1e-4])
+            ),
+            #keras.optimizers.Adam(),
+            # NOTE: we could also use a LR adjustment callback on train
+            # instead. We could also use any optimizer here
+
             # NOTE: Assuming binary classification task, but we could change.
             loss="binary_crossentropy",
-            metrics=["accuracy"],
-        )
+            metrics=["accuracy"])
 
         return model
