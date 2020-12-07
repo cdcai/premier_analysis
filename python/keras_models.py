@@ -18,19 +18,19 @@ from sklearn.metrics import classification_report, roc_auc_score
 from sklearn.model_selection import train_test_split
 from sklearn.utils import compute_class_weight
 from tensorflow.keras.callbacks import TensorBoard
-
+import tensorflow_addons as tfa
 from tools import keras as tk
 from tools.analysis import grid_metrics
 
 # %% Globals
-TIME_SEQ = 2358
+TIME_SEQ = 213
 TARGET = "misa_pt"
 RAGGED = True
-LSTM_DROPOUT = 0.2
+LSTM_DROPOUT = 0.0
 # NOTE: Recurrent dropout is advisable, but it also means
 # you forgoe CuDNN-optimization for the LSTM, so it will train
 # about 1/3 slower on GPU
-LSTM_RECURRENT_DROPOUT = 0.4
+LSTM_RECURRENT_DROPOUT = 0.0
 N_LSTM = 128
 HYPER_TUNING = False
 # NOTE: I maxed out my GPU running 32, 20 ran ~7.8GB on GPU
@@ -210,7 +210,7 @@ else:
 
     model = keras.Model(input_layer, output_dim)
 
-    model.compile(optimizer="adam", loss="binary_crossentropy", metrics="acc")
+    model.compile(optimizer="adam", loss=tfa.losses.SigmoidFocalCrossEntropy(), metrics=[tfa.metrics.CohenKappa(num_classes=2), keras.metrics.AUC(name="AUROC")])
 
     model.summary()
 
@@ -247,10 +247,11 @@ else:
     fitting = model.fit(
         train_gen,
         validation_data=validation_gen,
-        epochs=20,
+        epochs=EPOCHS,
         class_weight=class_weights,
         callbacks=[
-            tb_callback, model_checkpoint_callback, stopping_checkpoint
+            tb_callback,
+            model_checkpoint_callback  #, stopping_checkpoint
         ],
     )
 
