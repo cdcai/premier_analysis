@@ -171,7 +171,7 @@ if HYPER_TUNING:
     tuner.results_summary()
 else:
 
-    input_layer = keras.Input(shape=(TIME_SEQ, None),
+    input_layer = keras.Input(shape=(None if RAGGED else TIME_SEQ, None),
                               ragged=RAGGED,
                               batch_size=BATCH_SIZE)
     # Feature Embeddings
