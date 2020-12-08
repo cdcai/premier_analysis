@@ -13,10 +13,6 @@ from sklearn.feature_extraction.text import CountVectorizer
 # Setting top-level parameters
 MIN_DF = 5
 NO_VITALS = True
-PAD_BAGS = False
-PAD_SEQS = False
-PAD_VAL = 0
-MAX_TIME = 225
 TIME_UNIT = "dfi"
 
 # Whether to write the full trimmed sequence file to disk as pqruet
@@ -34,60 +30,15 @@ id_df = pd.read_parquet(data_dir + "vw_covid_id/")
 misa_data = pd.read_csv(targets_dir + 'targets.csv', ";")
 
 # Read in the flat feature file
-all_features = pd.read_parquet(output_dir + "parquet/flat_features/")
+trimmed_seq = pd.read_parquet(output_dir + "parquet/flat_features/")
 
 # Determine unique medrec_keys
-n_medrec = all_features['medrec_key'].nunique()
+n_medrec = trimmed_seq["medrec_key"].nunique()
 
 # Ensure we're sorted
-all_features.sort_values(['medrec_key', 'pat_key', "dfi"], inplace=True)
+trimmed_seq.sort_values(["medrec_key", "pat_key", "dfi"], inplace=True)
 
 # %% Trim the sequences
-# NOTE: This needs to be a little more complex
-# to work with the MIS-A targets.
-# - IF MIS-A:
-#   MIS-A visits are always the first COVID visit
-#   which matches, so we take the max follow up
-#   from that visit and trim backwards from there
-# - If non-MIS-A
-#   We take the max follow up time from the most recent
-#   COVID visit and trim back from there.
-
-# Filter to only the pat_key where MIS-A took place
-# and compute the max F/U time for that visit, indexing on
-# medrec key
-misa_latest = all_features.merge(
-    misa_data,
-    how="inner",
-    left_on=["medrec_key", "pat_key"],
-    right_on=["medrec_key", "first_misa_patkey"
-              ]).groupby("medrec_key")[TIME_UNIT].agg(max).rename("max_time")
-
-# Find which medrec_keys are Non-MIS-A where we will take the latest visit of COVID
-non_misa_ids = set(all_features.medrec_key).difference(misa_latest.index)
-
-# Pull the latest COVID visit from Non-MIS-A medrec keys
-# and find max F/U time
-non_misa_latest = all_features.loc[
-    all_features.medrec_key.isin(non_misa_ids) & all_features["covid_visit"] ==
-    1].groupby("medrec_key")[TIME_UNIT].agg(max).rename("max_time")
-
-# Combine both into lookup dataframe
-latest_covid = pd.concat([misa_latest, non_misa_latest], axis=0)
-
-# Sanity check
-assert latest_covid.size == n_medrec
-
-# Join into main dataset
-trimmed_seq = all_features.merge(latest_covid, on="medrec_key")
-
-# Trim sequences from the last F/U time we allow
-# to the earliest we want to pass to the recurrent model
-# then drop the max_time col
-trimmed_seq = trimmed_seq.loc[(trimmed_seq[TIME_UNIT] <= trimmed_seq.max_time)
-                              & (trimmed_seq[TIME_UNIT] >=
-                                 (trimmed_seq.max_time - MAX_TIME))].drop(
-                                     "max_time", axis=1)
 
 # Optionally drops vitals and genlab from the features
 if NO_VITALS:
@@ -125,10 +76,6 @@ int_seqs = [
 
 # Converting to a nested list to keep things clean
 seq_gen = [[seq for seq in medrec] for medrec in int_seqs]
-
-# Optionally padding the sequence of visits
-if PAD_SEQS:
-    seq_gen = [l + [[PAD_VAL]]*(MAX_TIME - len(l)) for l in seq_gen]
 
 # Starting to construct the labels part 1: figuring out which visit
 # were covid visits, and which patients have no covid visits (post-trim)
