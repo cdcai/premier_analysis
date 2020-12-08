@@ -1,0 +1,169 @@
+"""
+Hyperparameter tuning Keras models with kerastuner
+"""
+import csv
+import os
+import pickle as pkl
+from datetime import datetime
+
+import kerastuner
+import kerastuner.tuners as tuners
+import numpy as np
+import tensorflow as tf
+import tensorflow.keras as keras
+import tensorflow_addons as tfa
+
+from sklearn.metrics import classification_report, roc_auc_score
+from sklearn.model_selection import train_test_split
+from sklearn.utils import compute_class_weight
+
+from tools import keras as tk
+from tools.analysis import grid_metrics
+
+# === Globals
+TIME_SEQ = 213
+TARGET = "hp_tuned"
+RAGGED = True
+BATCH_SIZE = 32
+# NOTE: Max epochs for HP tuning, and 1/2 fit epochs for best model
+EPOCHS = 5
+# NOTE: Take only a small sample of the data to fit?
+SUBSAMPLE = True
+SAMPLE_FRAC = 0.1
+TEST_SPLIT = 0.2
+VAL_SPLIT = 0.1
+RAND = 2020
+TB_UPDATE_FREQ = 100
+
+# === Paths
+output_dir = os.path.abspath("output/") + "/"
+tensorboard_dir = os.path.abspath("data/model_checkpoints/") + "/"
+data_dir = os.path.abspath("data/data/") + "/"
+pkl_dir = output_dir + "pkl/"
+
+# === Load in data
+with open(pkl_dir + "trimmed_seqs.pkl", "rb") as f:
+    inputs = pkl.load(f)
+
+with open(pkl_dir + "all_ftrs_dict.pkl", "rb") as f:
+    vocab = pkl.load(f)
+
+with open(pkl_dir + "feature_lookup.pkl", "rb") as f:
+    all_feats = pkl.load(f)
+
+# %% Save Embedding metadata
+# We can use this with tensorboard to visualize the embeddings
+with open(tensorboard_dir + "emb_metadata.tsv", "w") as f:
+    writer = csv.writer(f, delimiter="\t")
+    writer.writerows(zip(["id"], ["word"], ["desc"]))
+    writer.writerows(zip([0], ["OOV"], ["Padding/OOV"]))
+    for key, value in vocab.items():
+        writer.writerow([value, key, all_feats[key]])
+# %% Determining number of vocab entries
+N_VOCAB = len(vocab) + 1
+
+# %% Subsampling if desired
+if SUBSAMPLE:
+    _, inputs, _, _ = train_test_split(
+        inputs,
+        [labs for _, labs in inputs],
+        test_size=SAMPLE_FRAC,
+        random_state=RAND,
+        stratify=[labs for _, labs in inputs],
+    )
+# %% Split into test/train
+train, test, _, _ = train_test_split(
+    inputs,
+    [labs for _, labs in inputs],
+    test_size=TEST_SPLIT,
+    random_state=RAND,
+    stratify=[labs for _, labs in inputs],
+)
+
+# Further split into train/validation
+train, validation, _, _ = train_test_split(
+    train,
+    [labs for _, labs in train],
+    test_size=VAL_SPLIT,
+    random_state=RAND,
+    stratify=[labs for _, labs in train],
+)
+
+# Generate Hyperparameter model
+hyper_model = tk.LSTMHyperModel(ragged=RAGGED,
+                                n_timesteps=TIME_SEQ,
+                                vocab_size=N_VOCAB,
+                                batch_size=BATCH_SIZE)
+
+tuner = tuners.Hyperband(
+    hyper_model,
+    objective=kerastuner.Objective("val_AUROC", direction="max"),
+    max_epochs=EPOCHS,
+    project_name="hyperparameter-tuning",
+    # NOTE: This could be in output as well if we don't want to track/version it
+    directory="data/model_checkpoints/",
+)
+
+# Announce the search space
+tuner.search_space_summary()
+
+# And search the space
+tuner.search(
+    train_gen,
+    validation_data=validation_gen,
+    epochs=EPOCHS,
+)
+
+# Get results
+tuner.results_summary()
+
+# === Create model with best Hyperparameters
+best_hp = tuner.get_best_hyperparameters()[0]
+
+best_model = tuner.hypermodel.build(best_hp)
+
+best_model.summary()
+
+# === Callbacks
+# Create Tensorboard callback
+tb_callback = TensorBoard(
+    log_dir=tensorboard_dir + "/" + TARGET + "/" +
+    datetime.now().strftime("%Y%m%d-%H%M%S") + "/",
+    histogram_freq=1,
+    update_freq=TB_UPDATE_FREQ,
+    embeddings_freq=1,
+    embeddings_metadata=output_dir + "emb_metadata.tsv",
+)
+
+# Create model checkpoint callback
+model_checkpoint_callback = keras.callbacks.ModelCheckpoint(
+    filepath=tensorboard_dir + "/" + TARGET + "/" +
+    "weights.{epoch:02d}-{val_AUROC:.2f}.hdf5",
+    save_weights_only=True,
+    monitor="val_AUROC",
+    mode="max",
+    save_best_only=True)
+
+# === Fit model
+best_model.fit(train_gen,
+               validation_data=validation_gen,
+               epochs=EPOCHS * 2,
+               class_weight=class_weights,
+               callbacks=[tb_callback, model_checkpoint_callback])
+
+# Test
+print(model.evaluate(test_gen))
+
+# %% F1, etc
+y_pred = model.predict(test_gen)
+
+y_true = [lab for _, lab in test]
+
+# Resizing for output which is divisible by BATCH_SIZE
+y_true = np.array(y_true[0:y_pred.shape[0]])
+output = grid_metrics(y_true, y_pred)
+print(output)
+
+output.to_csv(tensorboard_dir + "/" + TARGET + "/" + "grid_metrics.csv",
+              index=False)
+print("ROC-AUC: {}".format(roc_auc_score(y_true, y_pred)))
