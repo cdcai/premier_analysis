@@ -22,9 +22,11 @@ def create_ragged_data(inputs: tuple,
                        batch_size: int = 32,
                        random_seed: int = 1234,
                        ragged: bool = True,
+                       resample: bool = False,
+                       resample_frac=[0.9, 0.1],
                        label_int: bool = False,
                        shuffle: bool = True) -> tf.data.Dataset:
-"""A tf.dataset generator which handles both ragged and dense data accordingly"""
+    """A tf.dataset generator which handles both ragged and dense data accordingly"""
     # Check that empty lists are converted to zeros
     x = [[(lambda x: [0] if x == [] else x)(bags) for bags in seq]
          for seq, _ in inputs]
@@ -41,26 +43,36 @@ def create_ragged_data(inputs: tuple,
 
     # Labs as stacked
     # NOTE: some loss functions require this to be float
-    y = np.array([tup[1] for tup in inputs], dtype= np.int32 if label_int else np.float)
+    y = np.array([tup[1] for tup in inputs],
+                 dtype=np.int32 if label_int else np.float)
 
     # Make sure our data are equal
     assert y.shape[0] == X.shape[0]
 
     # Produce data generator
-    data_gen = tf.data.Dataset.from_tensor_slices((X, y))
+    if resample:
+        pos_idx = np.where(y == 1)[0]
+        neg_idx = np.where(y == 0)[0]
 
-    # TODO: Fix resampling
-    # From examples, it looks like the easiest way is to
-    # create a positive and negative sample tf.dataset
-    # and then use the sample function to combine them with the
-    # appropriate sampling fractions
+        pos_data = tf.data.Dataset.from_tensor_slices(
+            (tf.gather(X, pos_idx), y[pos_idx]))
+        neg_data = tf.data.Dataset.from_tensor_slices(
+            (tf.gather(X, neg_idx), y[neg_idx]))
 
-    data_gen = data_gen.repeat(epochs)
+        data_gen = tf.data.experimental.sample_from_datasets(
+            datasets=[neg_data, pos_data],
+            weights=resample_frac,
+            seed=random_seed)
+
+    else:
+        data_gen = tf.data.Dataset.from_tensor_slices((X, y))
 
     if shuffle:
         data_gen = data_gen.shuffle(buffer_size=len(x),
                                     seed=random_seed,
                                     reshuffle_each_iteration=True)
+
+    data_gen = data_gen.repeat(epochs)
 
     data_gen = data_gen.batch(batch_size)
 
