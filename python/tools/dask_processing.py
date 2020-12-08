@@ -1,6 +1,7 @@
 import pickle
 from functools import reduce
 from itertools import product
+import itertools as it
 
 import dask.dataframe as dd
 import dask.distributed as distributed
@@ -286,7 +287,7 @@ class parquets_dask(object):
 
         df = df.drop(text_col, axis=1)
 
-        return self.client.persist(df)
+        return df
 
     def col_to_features(self, text: dd.Series, feature_prefix: str) -> dict:
         """Create dictionary of feature token names"""
@@ -364,7 +365,7 @@ class parquets_dask(object):
         # Return as a dask lazy Df and a persistent dict with the features
         out = df[out_cols]
 
-        return self.client.persist(out)
+        return out
 
     def get_visit_timing(self, id_table: dd.DataFrame, day_col="days_from_index"):
         """Convert starting visit times to appropriate time units"""
@@ -413,7 +414,7 @@ class parquets_dask(object):
         if end_of_visit:
             out = out.join(self.id.result()["los"].to_frame(), how="left", on="pat_key")
 
-            out[self.agg_level] += out["los"] * self.from_days[self.agg_level]
+            out[self.agg_level] += (out["los"] + 1) * self.from_days[self.agg_level]
             out = out.drop("los", axis=1)
 
         # If we have no other timing information, the visit timing is
@@ -454,7 +455,7 @@ class parquets_dask(object):
 
         return None
 
-    def agg_features(self, df, as_str=True, ftr_col="ftr", out_col="ftrs"):
+    def agg_features(self, df: dd.DataFrame, as_str=False, ftr_col="ftr", out_col="ftrs"):
         """
         Aggregate feature column to token columns by time step + id
 
@@ -474,11 +475,22 @@ class parquets_dask(object):
             out_col (`str`): Name of resulting column (default: "ftrs")
         """
 
+        # round the time off
+        df = df.dropna(subset=[self.agg_level])
+        df[self.agg_level] = df[self.agg_level].astype(int)
+        
         grouped = df[[self.agg_level, ftr_col]].groupby([self.agg_level, df.index])
-        agged = grouped.agg(list).rename(columns={ftr_col: out_col})
-
+        
+        # Custom dask aggregation
+        str_join = dd.Aggregation('String concat', lambda s1: " ".join(str(s1)), lambda s2: " ".join(str(s2))
+            # chunk=lambda s1: s1.apply(list),
+            # agg=lambda   s2: s2.apply(lambda chunks: list(it.chain.from_iterable(chunks))),
+            # finalize=lambda s3: s3.apply(lambda xx: " ".join(xx)
+        )
         # We might want to keep as list-of-lists instead of concatenating
         if as_str:
-            agged[out_col] = agged[out_col].map(lambda x: " ".join(x))
+            agged = grouped.agg(str_join).rename(columns={ftr_col: out_col})
+        else:
+            agged = grouped.agg(list).rename(columns={ftr_col: out_col})
 
-        return self.client.persist(agged)
+        return agged
