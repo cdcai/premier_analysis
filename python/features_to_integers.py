@@ -30,15 +30,13 @@ id_df = pd.read_parquet(data_dir + "vw_covid_id/")
 misa_data = pd.read_csv(targets_dir + 'targets.csv', ";")
 
 # Read in the flat feature file
-trimmed_seq = pd.read_parquet(output_dir + "parquet/flat_features/")
+trimmed_seq = pd.read_parquet(output_dir + "parquet/flat_features.parquet")
 
 # Determine unique medrec_keys
 n_medrec = trimmed_seq["medrec_key"].nunique()
 
 # Ensure we're sorted
 trimmed_seq.sort_values(["medrec_key", "pat_key", "dfi"], inplace=True)
-
-# %% Trim the sequences
 
 # Optionally drops vitals and genlab from the features
 if NO_VITALS:
