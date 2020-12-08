@@ -34,12 +34,13 @@ LSTM_DROPOUT = 0.0
 # about 1/3 slower on GPU
 LSTM_RECURRENT_DROPOUT = 0.0
 N_LSTM = 128
-HYPER_TUNING = False
+HYPER_TUNING = True
 # NOTE: I maxed out my GPU running 32, 20 ran ~7.8GB on GPU
 BATCH_SIZE = 32
-EPOCHS = 20
+EPOCHS = 10
+# NOTE: Take only a small sample of the data to fit?
 SUBSAMPLE = True
-SAMPLE_FRAC = 0.01
+SAMPLE_FRAC = 0.1
 TEST_SPLIT = 0.2
 VAL_SPLIT = 0.1
 RAND = 2020
@@ -106,6 +107,10 @@ class_weights = compute_class_weight(
 
 class_weights = dict(zip([0, 1], class_weights))
 
+# %% Compute initial output bias
+neg, pos = np.bincount([lab for _, lab in train])
+
+out_bias = np.log([pos / neg])
 # %%
 train_gen = tk.create_ragged_data(train,
                                   max_time=TIME_SEQ,
@@ -192,8 +197,11 @@ else:
         name="Recurrent",
     )(avg)
 
-    output_dim = keras.layers.Dense(1, activation="sigmoid",
-                                    name="Output")(lstm_layer)
+    output_dim = keras.layers.Dense(
+        1,
+        activation="sigmoid",
+        bias_initializer=tf.keras.initializers.Constant(out_bias),
+        name="Output")(lstm_layer)
 
     model = keras.Model(input_layer, output_dim)
 
