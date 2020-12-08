@@ -14,6 +14,7 @@ from tensorflow.keras import backend as K
 from tensorflow.keras.layers import (LSTM, Dense, Embedding, Input, Multiply,
                                      Reshape)
 from tensorflow.keras.preprocessing.sequence import pad_sequences
+import tensorflow_addons as tfa
 
 
 def create_ragged_data(inputs: tuple,
@@ -251,7 +252,7 @@ class LSTMHyperModel(HyperModel):
         """
 
         inp = Input(
-            shape=(self.n_timesteps, None),
+            shape=(None if self.ragged else self.n_timesteps, None),
             ragged=self.ragged,
             batch_size=self.batch_size,
             name="Input",
@@ -287,8 +288,14 @@ class LSTMHyperModel(HyperModel):
                                          max_value=0.2,
                                          step=0.05)),
                          name="Average_Embeddings")(inp)
-        mult = Multiply(name="Embeddings_by_Average")([emb1, emb2])
-        avg = K.mean(mult, axis=2)
+        if self.ragged:
+            mult = keras.layers.Multiply(name="Embeddings_by_Average")(
+                [emb1, emb2])
+            avg = keras.layers.Lambda(lambda x: tf.math.reduce_mean(x, axis=2),
+                                      name="Averaging")(mult)
+        else:
+            mult = Multiply(name="Embeddings_by_Average")([emb1, emb2])
+            avg = K.mean(mult, axis=2)
         lstm = LSTM(
             units=hp.Int("LSTM Units", min_value=32, max_value=512, step=32),
             dropout=hp.Float("LSTM Dropout",
@@ -324,16 +331,10 @@ class LSTMHyperModel(HyperModel):
         model = keras.Model(inp, output, name="LSTM-Hyper")
 
         model.compile(
-            optimizer=keras.optimizers.SGD(
-                            learning_rate=hp.Choice("Learning Rate",
-                                    values=[1e-2, 1e-3, 1e-4])
-            ),
-            #keras.optimizers.Adam(),
-            # NOTE: we could also use a LR adjustment callback on train
-            # instead. We could also use any optimizer here
-
-            # NOTE: Assuming binary classification task, but we could change.
+            optimizer=keras.optimizers.SGD(learning_rate=hp.Choice(
+                "Learning Rate", values=[1e-2, 1e-3, 1e-4])),
             loss="binary_crossentropy",
-            metrics=["accuracy"])
+            # loss=tfa.losses.SigmoidFocalCrossEntropy(),
+            metrics=[keras.metrics.AUC(num_thresholds=int(1e5), name="AUROC")])
 
         return model
