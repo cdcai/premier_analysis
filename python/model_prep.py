@@ -2,7 +2,7 @@
 modeling, e.g., by cutting them to specific lengths and specifying their
 labels.
 '''
-
+# %%
 import numpy as np
 import pandas as pd
 import pickle as pkl
@@ -19,16 +19,18 @@ CUT_METHOD = 'first'
 
 # Time in days to the prediction horizon from the start of the final visit
 HORIZON = 1
-
+# Maximum length of lookback period
+MAX_SEQ = 225
 # Pat-level outcome to use as the label
 OUTCOME = 'misa_pt'
 
-# Setting the directories
-output_dir = os.path.abspath('output/') + '/'
-data_dir = os.path.abspath('data/data/') + '/'
+# %% Setting the directories
+output_dir = os.path.abspath('../output/') + '/'
+data_dir = os.path.abspath('../data/data/') + '/'
 pkl_dir = output_dir + 'pkl/'
 
 
+# %%
 def main():
 
     # Reading in the full dataset
@@ -44,7 +46,7 @@ def main():
     # Finding the cut points for the day sequences
     with Pool() as p:
         find_input = [(pat_data['covid'][i], pat_data['length'][i], HORIZON,
-                       CUT_METHOD) for i in range(n_patients)]
+                       MAX_SEQ, CUT_METHOD) for i in range(n_patients)]
         cut_points = p.starmap(tp.find_cutpoints, find_input)
 
         # Trimming the inputs and outputs to the right length
@@ -60,5 +62,6 @@ def main():
         pkl.dump(trim_out, f)
 
 
+# %%
 if __name__ == "__main__":
     main()
