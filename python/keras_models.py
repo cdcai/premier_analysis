@@ -9,16 +9,18 @@ import pickle as pkl
 import random
 from datetime import datetime
 
+import kerastuner
 import kerastuner.tuners as tuners
 import numpy as np
 import tensorflow as tf
 import tensorflow.keras as keras
+import tensorflow_addons as tfa
 from imblearn.over_sampling import RandomOverSampler
 from sklearn.metrics import classification_report, roc_auc_score
 from sklearn.model_selection import train_test_split
 from sklearn.utils import compute_class_weight
 from tensorflow.keras.callbacks import TensorBoard
-import tensorflow_addons as tfa
+
 from tools import keras as tk
 from tools.analysis import grid_metrics
 
@@ -50,9 +52,6 @@ pkl_dir = output_dir + "pkl/"
 
 with open(pkl_dir + "trimmed_seqs.pkl", "rb") as f:
     inputs = pkl.load(f)
-
-with open(pkl_dir + "pat_data.pkl", "rb") as f:
-    y_ = pkl.load(f)
 
 with open(pkl_dir + "all_ftrs_dict.pkl", "rb") as f:
     vocab = pkl.load(f)
@@ -111,46 +110,34 @@ class_weights = dict(zip([0, 1], class_weights))
 train_gen = tk.create_ragged_data(train,
                                   max_time=TIME_SEQ,
                                   epochs=EPOCHS,
+                                  random_seed=RAND,
+                                  resample=False,
+                                  resample_frac=[0.9, 0.1],
                                   batch_size=BATCH_SIZE)
 
 validation_gen = tk.create_ragged_data(validation,
                                        max_time=TIME_SEQ,
                                        epochs=EPOCHS,
+                                       random_seed=RAND,
                                        batch_size=BATCH_SIZE)
 
 test_gen = tk.create_ragged_data(test,
                                  max_time=TIME_SEQ,
                                  epochs=1,
+                                 random_seed=RAND,
                                  batch_size=BATCH_SIZE)
-# %% Create data generator for On-the-fly batch generation
-# train_gen = tk.DataGenerator(
-#     train,
-#     max_time=TIME_SEQ,
-#     ragged=RAGGED,
-#     resampler=RandomOverSampler(sampling_strategy="minority"),
-#     batch_size=BATCH_SIZE,
-# )
-# # %%
-# validation_gen = tk.DataGenerator(validation,
-#                                   max_time=TIME_SEQ,
-#                                   ragged=RAGGED,
-#                                   batch_size=BATCH_SIZE)
-
-# test_gen = tk.DataGenerator(test,
-#                             max_time=TIME_SEQ,
-#                             ragged=RAGGED,
-#                             batch_size=BATCH_SIZE)
 
 # %%
 if HYPER_TUNING:
     # Generate Hyperparameter model
-    hyper_model = tk.LSTMHyperModel(ragged=False,
+    hyper_model = tk.LSTMHyperModel(ragged=RAGGED,
                                     n_timesteps=TIME_SEQ,
                                     vocab_size=N_VOCAB,
                                     batch_size=BATCH_SIZE)
+
     tuner = tuners.Hyperband(
         hyper_model,
-        objective="accuracy",
+        objective=kerastuner.Objective("val_AUROC", direction="max"),
         max_epochs=5,
         project_name="hyperparameter-tuning",
         # NOTE: This could be in output as well if we don't want to track/version it
@@ -210,7 +197,12 @@ else:
 
     model = keras.Model(input_layer, output_dim)
 
-    model.compile(optimizer="adam", loss=tfa.losses.SigmoidFocalCrossEntropy(), metrics=[tfa.metrics.CohenKappa(num_classes=2), keras.metrics.AUC(name="AUROC")])
+    model.compile(optimizer="adam",
+                  loss=tfa.losses.SigmoidFocalCrossEntropy(),
+                  metrics=[
+                      tfa.metrics.CohenKappa(num_classes=2),
+                      keras.metrics.AUC(num_thresholds=int(1e5), name="AUROC")
+                  ])
 
     model.summary()
 
@@ -227,9 +219,9 @@ else:
     # Create model checkpoint callback
     model_checkpoint_callback = keras.callbacks.ModelCheckpoint(
         filepath=tensorboard_dir + "/" + TARGET + "/" +
-        "weights.{epoch:02d}-{val_loss:.2f}.hdf5",
+        "weights.{epoch:02d}-{val_AUROC:.2f}.hdf5",
         save_weights_only=True,
-        monitor="val_acc",
+        monitor="val_AUROC",
         mode="max",
         save_best_only=True,
     )
@@ -250,8 +242,7 @@ else:
         epochs=EPOCHS,
         class_weight=class_weights,
         callbacks=[
-            tb_callback,
-            model_checkpoint_callback  #, stopping_checkpoint
+            tb_callback, model_checkpoint_callback  #, stopping_checkpoint
         ],
     )
 
@@ -263,7 +254,7 @@ else:
 
     # %% F1, etc
     y_pred = model.predict(test_gen)
-    # y_pred = (pred >= 0.5).astype(int)
+
     y_true = [lab for _, lab in test]
 
     # Resizing for output which is divisible by BATCH_SIZE
@@ -274,5 +265,3 @@ else:
     output.to_csv(tensorboard_dir + "/" + TARGET + "/" + "grid_metrics.csv",
                   index=False)
     print("ROC-AUC: {}".format(roc_auc_score(y_true, y_pred)))
-
-# %%
