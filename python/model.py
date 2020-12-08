@@ -3,19 +3,14 @@ Starter Keras model
 """
 # %%
 import csv
-import itertools
 import os
 import pickle as pkl
-import random
 from datetime import datetime
 
-import kerastuner
-import kerastuner.tuners as tuners
 import numpy as np
 import tensorflow as tf
 import tensorflow.keras as keras
 import tensorflow_addons as tfa
-from imblearn.over_sampling import RandomOverSampler
 from sklearn.metrics import classification_report, roc_auc_score
 from sklearn.model_selection import train_test_split
 from sklearn.utils import compute_class_weight
@@ -34,7 +29,6 @@ LSTM_DROPOUT = 0.0
 # about 1/3 slower on GPU
 LSTM_RECURRENT_DROPOUT = 0.0
 N_LSTM = 128
-HYPER_TUNING = True
 # NOTE: I maxed out my GPU running 32, 20 ran ~7.8GB on GPU
 BATCH_SIZE = 32
 EPOCHS = 10
@@ -133,143 +127,110 @@ test_gen = tk.create_ragged_data(test,
                                  batch_size=BATCH_SIZE)
 
 # %%
-if HYPER_TUNING:
-    # Generate Hyperparameter model
-    hyper_model = tk.LSTMHyperModel(ragged=RAGGED,
-                                    n_timesteps=TIME_SEQ,
-                                    vocab_size=N_VOCAB,
-                                    batch_size=BATCH_SIZE)
 
-    tuner = tuners.Hyperband(
-        hyper_model,
-        objective=kerastuner.Objective("val_AUROC", direction="max"),
-        max_epochs=5,
-        project_name="hyperparameter-tuning",
-        # NOTE: This could be in output as well if we don't want to track/version it
-        directory="data/model_checkpoints/",
-    )
+input_layer = keras.Input(shape=(None if RAGGED else TIME_SEQ, None),
+                          ragged=RAGGED,
+                          batch_size=BATCH_SIZE)
+# Feature Embeddings
+emb1 = keras.layers.Embedding(N_VOCAB,
+                              output_dim=512,
+                              mask_zero=True,
+                              name="Feature_Embeddings")(input_layer)
+# Average weights of embedding
+emb2 = keras.layers.Embedding(N_VOCAB,
+                              output_dim=1,
+                              mask_zero=True,
+                              name="Average_Embeddings")(input_layer)
 
-    # Announce the search space
-    tuner.search_space_summary()
-
-    # And search the space
-    tuner.search(
-        train_gen,
-        validation_data=validation_gen,
-        epochs=5,
-    )
-
-    # Get results
-    tuner.results_summary()
+# Multiply and average
+if RAGGED:
+    # NOTE: I think these are the equivalent ragged-aware ops
+    # but that could be incorrect
+    mult = keras.layers.Multiply(name="Embeddings_by_Average")([emb1, emb2])
+    avg = keras.layers.Lambda(lambda x: tf.math.reduce_mean(x, axis=2),
+                              name="Averaging")(mult)
 else:
+    mult = keras.layers.Multiply(name="Embeddings_by_Average")([emb1, emb2])
+    avg = keras.backend.mean(mult, axis=2)
 
-    input_layer = keras.Input(shape=(None if RAGGED else TIME_SEQ, None),
-                              ragged=RAGGED,
-                              batch_size=BATCH_SIZE)
-    # Feature Embeddings
-    emb1 = keras.layers.Embedding(N_VOCAB,
-                                  output_dim=512,
-                                  mask_zero=True,
-                                  name="Feature_Embeddings")(input_layer)
-    # Average weights of embedding
-    emb2 = keras.layers.Embedding(N_VOCAB,
-                                  output_dim=1,
-                                  mask_zero=True,
-                                  name="Average_Embeddings")(input_layer)
+lstm_layer = keras.layers.LSTM(
+    N_LSTM,
+    dropout=LSTM_DROPOUT,
+    recurrent_dropout=LSTM_RECURRENT_DROPOUT,
+    name="Recurrent",
+)(avg)
 
-    # Multiply and average
-    if RAGGED:
-        # NOTE: I think these are the equivalent ragged-aware ops
-        # but that could be incorrect
-        mult = keras.layers.Multiply(name="Embeddings_by_Average")(
-            [emb1, emb2])
-        avg = keras.layers.Lambda(lambda x: tf.math.reduce_mean(x, axis=2),
-                                  name="Averaging")(mult)
-    else:
-        mult = keras.layers.Multiply(name="Embeddings_by_Average")(
-            [emb1, emb2])
-        avg = keras.backend.mean(mult, axis=2)
+output_dim = keras.layers.Dense(
+    1,
+    activation="sigmoid",
+    bias_initializer=tf.keras.initializers.Constant(out_bias),
+    name="Output")(lstm_layer)
 
-    lstm_layer = keras.layers.LSTM(
-        N_LSTM,
-        dropout=LSTM_DROPOUT,
-        recurrent_dropout=LSTM_RECURRENT_DROPOUT,
-        name="Recurrent",
-    )(avg)
+model = keras.Model(input_layer, output_dim)
 
-    output_dim = keras.layers.Dense(
-        1,
-        activation="sigmoid",
-        bias_initializer=tf.keras.initializers.Constant(out_bias),
-        name="Output")(lstm_layer)
+model.compile(optimizer="adam",
+              loss=tfa.losses.SigmoidFocalCrossEntropy(),
+              metrics=[
+                  tfa.metrics.CohenKappa(num_classes=2),
+                  keras.metrics.AUC(num_thresholds=int(1e5), name="AUROC")
+              ])
 
-    model = keras.Model(input_layer, output_dim)
+model.summary()
 
-    model.compile(optimizer="adam",
-                  loss=tfa.losses.SigmoidFocalCrossEntropy(),
-                  metrics=[
-                      tfa.metrics.CohenKappa(num_classes=2),
-                      keras.metrics.AUC(num_thresholds=int(1e5), name="AUROC")
-                  ])
+# Create Tensorboard callback
+tb_callback = TensorBoard(
+    log_dir=tensorboard_dir + "/" + TARGET + "/" +
+    datetime.now().strftime("%Y%m%d-%H%M%S") + "/",
+    histogram_freq=1,
+    update_freq=TB_UPDATE_FREQ,
+    # embeddings_freq=1,
+    # embeddings_metadata=output_dir + "emb_metadata.tsv",
+)
 
-    model.summary()
+# Create model checkpoint callback
+model_checkpoint_callback = keras.callbacks.ModelCheckpoint(
+    filepath=tensorboard_dir + "/" + TARGET + "/" +
+    "weights.{epoch:02d}-{val_AUROC:.2f}.hdf5",
+    save_weights_only=True,
+    monitor="val_AUROC",
+    mode="max",
+    save_best_only=True,
+)
 
-    # Create Tensorboard callback
-    tb_callback = TensorBoard(
-        log_dir=tensorboard_dir + "/" + TARGET + "/" +
-        datetime.now().strftime("%Y%m%d-%H%M%S") + "/",
-        histogram_freq=1,
-        update_freq=TB_UPDATE_FREQ,
-        # embeddings_freq=1,
-        # embeddings_metadata=output_dir + "emb_metadata.tsv",
-    )
+# Create early stopping callback
+stopping_checkpoint = keras.callbacks.EarlyStopping(
+    monitor="val_loss",
+    min_delta=0,
+    patience=2,
+    mode="auto",
+    restore_best_weights=True,
+)
 
-    # Create model checkpoint callback
-    model_checkpoint_callback = keras.callbacks.ModelCheckpoint(
-        filepath=tensorboard_dir + "/" + TARGET + "/" +
-        "weights.{epoch:02d}-{val_AUROC:.2f}.hdf5",
-        save_weights_only=True,
-        monitor="val_AUROC",
-        mode="max",
-        save_best_only=True,
-    )
+# %% Train
+fitting = model.fit(
+    train_gen,
+    validation_data=validation_gen,
+    epochs=EPOCHS,
+    class_weight=class_weights,
+    callbacks=[
+        tb_callback, model_checkpoint_callback
+        #, stopping_checkpoint
+    ],
+)
 
-    # Create early stopping callback
-    stopping_checkpoint = keras.callbacks.EarlyStopping(
-        monitor="val_loss",
-        min_delta=0,
-        patience=2,
-        mode="auto",
-        restore_best_weights=True,
-    )
+# Test
+print(model.evaluate(test_gen))
 
-    # %% Train
-    fitting = model.fit(
-        train_gen,
-        validation_data=validation_gen,
-        epochs=EPOCHS,
-        class_weight=class_weights,
-        callbacks=[
-            tb_callback, model_checkpoint_callback  #, stopping_checkpoint
-        ],
-    )
+# %% F1, etc
+y_pred = model.predict(test_gen)
 
-    # Test
-    test_loss, test_acc = model.evaluate(test_gen)
+y_true = [lab for _, lab in test]
 
-    print("Test Loss: {}".format(test_loss))
-    print("Test Accuracy: {}".format(test_acc))
+# Resizing for output which is divisible by BATCH_SIZE
+y_true = np.array(y_true[0:y_pred.shape[0]])
+output = grid_metrics(y_true, y_pred)
+print(output)
 
-    # %% F1, etc
-    y_pred = model.predict(test_gen)
-
-    y_true = [lab for _, lab in test]
-
-    # Resizing for output which is divisible by BATCH_SIZE
-    y_true = np.array(y_true[0:y_pred.shape[0]])
-    output = grid_metrics(y_true, y_pred)
-    print(output)
-
-    output.to_csv(tensorboard_dir + "/" + TARGET + "/" + "grid_metrics.csv",
-                  index=False)
-    print("ROC-AUC: {}".format(roc_auc_score(y_true, y_pred)))
+output.to_csv(tensorboard_dir + "/" + TARGET + "/" + "grid_metrics.csv",
+              index=False)
+print("ROC-AUC: {}".format(roc_auc_score(y_true, y_pred)))
