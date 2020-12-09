@@ -25,8 +25,8 @@ MAX_SEQ = 225
 OUTCOME = 'misa_pt'
 
 # %% Setting the directories
-output_dir = os.path.abspath('../output/') + '/'
-data_dir = os.path.abspath('../data/data/') + '/'
+output_dir = os.path.abspath('output/') + '/'
+data_dir = os.path.abspath('data/data/') + '/'
 pkl_dir = output_dir + 'pkl/'
 
 
