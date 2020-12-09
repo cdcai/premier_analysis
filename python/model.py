@@ -20,21 +20,21 @@ from tools import keras as tk
 from tools.analysis import grid_metrics
 
 # %% Globals
-TIME_SEQ = 213
+TIME_SEQ = 225
 TARGET = "misa_pt"
 RAGGED = True
-LSTM_DROPOUT = 0.0
+LSTM_DROPOUT = 0.2
 # NOTE: Recurrent dropout is advisable, but it also means
 # you forgoe CuDNN-optimization for the LSTM, so it will train
 # about 1/3 slower on GPU
-LSTM_RECURRENT_DROPOUT = 0.0
+LSTM_RECURRENT_DROPOUT = 0.2
 N_LSTM = 128
 # NOTE: I maxed out my GPU running 32, 20 ran ~7.8GB on GPU
 BATCH_SIZE = 32
 EPOCHS = 10
 # NOTE: Take only a small sample of the data to fit?
 SUBSAMPLE = True
-SAMPLE_FRAC = 0.1
+SAMPLE_FRAC = 0.05
 TEST_SPLIT = 0.2
 VAL_SPLIT = 0.1
 RAND = 2020
@@ -120,9 +120,11 @@ validation_gen = tk.create_ragged_data(validation,
                                        random_seed=RAND,
                                        batch_size=BATCH_SIZE)
 
+# NOTE: don't shuffle test data
 test_gen = tk.create_ragged_data(test,
                                  max_time=TIME_SEQ,
                                  epochs=1,
+                                 shuffle=False,
                                  random_seed=RAND,
                                  batch_size=BATCH_SIZE)
 
@@ -183,8 +185,8 @@ tb_callback = TensorBoard(
     datetime.now().strftime("%Y%m%d-%H%M%S") + "/",
     histogram_freq=1,
     update_freq=TB_UPDATE_FREQ,
-    # embeddings_freq=1,
-    # embeddings_metadata=output_dir + "emb_metadata.tsv",
+    embeddings_freq=5,
+    embeddings_metadata=output_dir + "emb_metadata.tsv",
 )
 
 # Create model checkpoint callback
