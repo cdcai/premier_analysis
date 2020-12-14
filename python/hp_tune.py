@@ -26,9 +26,9 @@ TARGET = "hp_tuned"
 RAGGED = True
 BATCH_SIZE = 32
 # NOTE: Max epochs for HP tuning, and 1/2 fit epochs for best model
-EPOCHS = 5
+EPOCHS = 10
 # NOTE: Take only a small sample of the data to fit?
-SUBSAMPLE = True
+SUBSAMPLE = False
 SAMPLE_FRAC = 0.1
 TEST_SPLIT = 0.2
 VAL_SPLIT = 0.1
@@ -89,16 +89,48 @@ train, validation, _, _ = train_test_split(
     stratify=[labs for _, labs in train],
 )
 
-# Generate Hyperparameter model
+# %% Compute class weights
+class_weights = compute_class_weight(
+    class_weight="balanced",
+    classes=np.unique([labs for _, labs in train]),
+    y=[labs for _, labs in train],
+)
+
+class_weights = dict(zip([0, 1], class_weights))
+# %%
+train_gen = tk.create_ragged_data(train,
+                                  max_time=TIME_SEQ,
+                                  epochs=EPOCHS,
+                                  random_seed=RAND,
+                                  batch_size=BATCH_SIZE)
+
+validation_gen = tk.create_ragged_data(validation,
+                                       max_time=TIME_SEQ,
+                                       epochs=EPOCHS,
+                                       random_seed=RAND,
+                                       batch_size=BATCH_SIZE)
+
+# NOTE: don't shuffle test data
+test_gen = tk.create_ragged_data(test,
+                                 max_time=TIME_SEQ,
+                                 epochs=1,
+                                 shuffle=False,
+                                 random_seed=RAND,
+                                 batch_size=BATCH_SIZE)
+
+# %% Generate Hyperparameter model
 hyper_model = tk.LSTMHyperModel(ragged=RAGGED,
                                 n_timesteps=TIME_SEQ,
                                 vocab_size=N_VOCAB,
                                 batch_size=BATCH_SIZE)
 
+# %%
 tuner = tuners.Hyperband(
     hyper_model,
     objective=kerastuner.Objective("val_AUROC", direction="max"),
     max_epochs=EPOCHS,
+    hyperband_iterations=5,
+    # loss=tfa.losses.SigmoidFocalCrossEntropy(),  # BUG: Does not run with kerastuner for some reason
     project_name="hyperparameter-tuning",
     # NOTE: This could be in output as well if we don't want to track/version it
     directory="data/model_checkpoints/",
@@ -108,11 +140,15 @@ tuner = tuners.Hyperband(
 tuner.search_space_summary()
 
 # And search the space
-tuner.search(
-    train_gen,
-    validation_data=validation_gen,
-    epochs=EPOCHS,
-)
+tuner.search(train_gen,
+             validation_data=validation_gen,
+             epochs=EPOCHS,
+             callbacks=[
+                 keras.callbacks.EarlyStopping("val_AUROC",
+                                               patience=1,
+                                               mode="max")
+             ],
+             class_weight=class_weights)
 
 # Get results
 tuner.results_summary()
@@ -147,7 +183,7 @@ model_checkpoint_callback = keras.callbacks.ModelCheckpoint(
 # === Fit model
 best_model.fit(train_gen,
                validation_data=validation_gen,
-               epochs=EPOCHS * 2,
+               epochs=EPOCHS,
                class_weight=class_weights,
                callbacks=[tb_callback, model_checkpoint_callback])
 
