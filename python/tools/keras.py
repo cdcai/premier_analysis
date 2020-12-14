@@ -2,6 +2,7 @@
 
 import itertools
 import pickle as pkl
+from focal_loss import BinaryFocalLoss
 
 import kerastuner
 import numpy as np
@@ -23,6 +24,7 @@ def create_ragged_data(inputs: tuple,
                        batch_size: int = 32,
                        random_seed: int = 1234,
                        ragged: bool = True,
+                       pad_shape=None,
                        resample: bool = False,
                        resample_frac=[0.9, 0.1],
                        label_int: bool = False,
@@ -38,9 +40,6 @@ def create_ragged_data(inputs: tuple,
 
     # Sanity check
     assert X.shape.as_list() == [len(x), None, None]
-
-    if not ragged:
-        X.to_tensor()
 
     # Labs as stacked
     # NOTE: some loss functions require this to be float
@@ -75,7 +74,12 @@ def create_ragged_data(inputs: tuple,
 
     data_gen = data_gen.repeat(epochs)
 
-    data_gen = data_gen.batch(batch_size)
+    if ragged:
+        data_gen = data_gen.batch(batch_size)
+    else:
+        # For a NN, pad shape could be none to just pad batches to the same shape
+        # for a baseline model, these will probably all need to be the same
+        data_gen = data_gen.padded_batch(batch_size, padded_shapes=pad_shape)
 
     return data_gen
 
@@ -230,14 +234,20 @@ class LSTMHyperModel(HyperModel):
         n_timesteps (int): length of time sequence
         vocab_size (int): Vocabulary size for embedding layer
         batch_size (int): Training batch size
+        bias_init (float): Starting bias of the output layer (optional)
     """
-    def __init__(self, ragged: bool, n_timesteps: int, vocab_size: int,
-                 batch_size: int):
+    def __init__(self,
+                 ragged: bool,
+                 n_timesteps: int,
+                 vocab_size: int,
+                 batch_size: int,
+                 bias_init: float = None):
         # Capture model parameters at init
         self.ragged = ragged
         self.n_timesteps = n_timesteps
         self.vocab_size = vocab_size
         self.batch_size = batch_size
+        self.bias_init = bias_init
 
     def build(self, hp: kerastuner.HyperParameters) -> keras.Model:
         """Build LSTM model
@@ -272,6 +282,7 @@ class LSTMHyperModel(HyperModel):
             output_dim=hp.Int("Embedding Dimension",
                               min_value=64,
                               max_value=1024,
+                              default=512,
                               step=64),
             name="Feature_Embeddings",
         )(inp)
@@ -296,36 +307,39 @@ class LSTMHyperModel(HyperModel):
         else:
             mult = Multiply(name="Embeddings_by_Average")([emb1, emb2])
             avg = K.mean(mult, axis=2)
-        lstm = LSTM(
-            units=hp.Int("LSTM Units", min_value=32, max_value=512, step=32),
-            dropout=hp.Float("LSTM Dropout",
-                             min_value=0.0,
-                             max_value=0.9,
-                             step=0.05),
-            recurrent_dropout=hp.Float("LSTM Recurrent Dropout",
-                                       min_value=0.0,
-                                       max_value=0.9,
-                                       step=0.05),
-            activity_regularizer=keras.regularizers.l1_l2(
-                l1=hp.Float("LSTM Activation L1",
-                            min_value=0.0,
-                            max_value=0.2,
-                            step=0.05),
-                l2=hp.Float("LSTM Activation L2",
-                            min_value=0.0,
-                            max_value=0.2,
-                            step=0.05)),
-            kernel_regularizer=keras.regularizers.l1_l2(
-                l1=hp.Float("LSTM weights L1",
-                            min_value=0.0,
-                            max_value=0.2,
-                            step=0.05),
-                l2=hp.Float("LSTM weights L2",
-                            min_value=0.0,
-                            max_value=0.2,
-                            step=0.05)),
-            name="Recurrent",
-        )(avg)
+
+        lstm = LSTM(units=hp.Int("LSTM Units",
+                                 min_value=32,
+                                 max_value=512,
+                                 default=128,
+                                 step=32),
+                    dropout=hp.Float("LSTM Dropout",
+                                     min_value=0.0,
+                                     max_value=0.9,
+                                     step=0.05),
+                    recurrent_dropout=hp.Float("LSTM Recurrent Dropout",
+                                               min_value=0.0,
+                                               max_value=0.9,
+                                               step=0.05),
+                    activity_regularizer=keras.regularizers.l1_l2(
+                        l1=hp.Float("LSTM Activation L1",
+                                    min_value=0.0,
+                                    max_value=0.2,
+                                    step=0.05),
+                        l2=hp.Float("LSTM Activation L2",
+                                    min_value=0.0,
+                                    max_value=0.2,
+                                    step=0.05)),
+                    kernel_regularizer=keras.regularizers.l1_l2(
+                        l1=hp.Float("LSTM weights L1",
+                                    min_value=0.0,
+                                    max_value=0.2,
+                                    step=0.05),
+                        l2=hp.Float("LSTM weights L2",
+                                    min_value=0.0,
+                                    max_value=0.2,
+                                    step=0.05)),
+                    name="Recurrent")(avg)
         output = Dense(1, activation="sigmoid", name="Output")(lstm)
 
         model = keras.Model(inp, output, name="LSTM-Hyper")
@@ -333,8 +347,30 @@ class LSTMHyperModel(HyperModel):
         model.compile(
             optimizer=keras.optimizers.SGD(learning_rate=hp.Choice(
                 "Learning Rate", values=[1e-2, 1e-3, 1e-4])),
-            loss="binary_crossentropy",
-            # loss=tfa.losses.SigmoidFocalCrossEntropy(),
-            metrics=[keras.metrics.AUC(num_thresholds=int(1e5), name="AUROC")])
+            #   loss="binary_crossentropy",
+            # loss=tfa.losses.SigmoidFocalCrossEntropy(
+            #     alpha=hp.Float("Balancing Factor",
+            #                    min_value=0.25,
+            #                    max_value=0.74,
+            #                    step=0.25),
+            #     gamma=hp.Float("Modulating Factor",
+            #                    min_value=0.0,
+            #                    max_value=5.0,
+            #                    step=0.5,
+            #                    default=2.0)),
+            loss=BinaryFocalLoss(gamma=hp.Float("Modulating Factor",
+                                                min_value=0.0,
+                                                max_value=5.0,
+                                                step=0.5,
+                                                default=2.0),
+                                 pos_weight=hp.Float("Balancing Factor",
+                                                     min_value=0.25,
+                                                     max_value=0.75,
+                                                     step=0.25)),
+            metrics=[
+                keras.metrics.AUC(num_thresholds=int(1e5), name="AUROC"),
+                keras.metrics.Recall(),
+                keras.metrics.Precision()
+            ])
 
         return model
