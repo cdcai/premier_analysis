@@ -12,10 +12,10 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.keras as keras
 import tensorflow_addons as tfa
-
 from sklearn.metrics import classification_report, roc_auc_score
 from sklearn.model_selection import train_test_split
 from sklearn.utils import compute_class_weight
+from tensorflow.keras.callbacks import TensorBoard
 
 from tools import keras as tk
 from tools.analysis import grid_metrics
@@ -97,6 +97,16 @@ class_weights = compute_class_weight(
 )
 
 class_weights = dict(zip([0, 1], class_weights))
+
+# %% Compute steps-per-epoch
+# NOTE: Sometimes it can't determine this properly from tf.data
+STEPS_PER_EPOCH = len(train) // BATCH_SIZE
+VALID_STEPS_PER_EPOCH = len(validation) // BATCH_SIZE
+
+# %% Compute initial output bias
+neg, pos = np.bincount([lab for _, lab in train])
+
+out_bias = np.log([pos / neg])
 # %%
 train_gen = tk.create_ragged_data(train,
                                   max_time=TIME_SEQ,
@@ -122,7 +132,8 @@ test_gen = tk.create_ragged_data(test,
 hyper_model = tk.LSTMHyperModel(ragged=RAGGED,
                                 n_timesteps=TIME_SEQ,
                                 vocab_size=N_VOCAB,
-                                batch_size=BATCH_SIZE)
+                                batch_size=BATCH_SIZE,
+                                bias_init=out_bias)
 
 # %%
 tuner = tuners.Hyperband(
@@ -139,14 +150,21 @@ tuner = tuners.Hyperband(
 # Announce the search space
 tuner.search_space_summary()
 
+# NOTE: I think this works with HParams
+hparam_tb_callback = TensorBoard(log_dir=tensorboard_dir + "/hyperparameter-tuning/",
+                          histogram_freq=1,
+                          update_freq=1000)
+
 # And search the space
 tuner.search(train_gen,
              validation_data=validation_gen,
              epochs=EPOCHS,
+             steps_per_epoch=STEPS_PER_EPOCH,
+             validation_steps=VALID_STEPS_PER_EPOCH,
              callbacks=[
                  keras.callbacks.EarlyStopping("val_AUROC",
                                                patience=1,
-                                               mode="max")
+                                               mode="max"), hparam_tb_callback
              ],
              class_weight=class_weights)
 

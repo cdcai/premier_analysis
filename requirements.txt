@@ -21,6 +21,7 @@ defusedxml==0.6.0
 distributed==2.30.0
 entrypoints==0.3
 filelock==3.0.12
+focal-loss==0.0.6
 fsspec==0.8.3
 future==0.18.2
 gast==0.3.3
@@ -34,6 +35,7 @@ h5py==2.10.0
 HeapDict==1.0.1
 idna==2.10
 imbalanced-learn==0.7.0
+imblearn==0.0
 ipykernel==5.3.4
 ipython==7.18.1
 ipython-genutils==0.2.0
@@ -50,7 +52,7 @@ jupyter-console==6.2.0
 jupyter-core==4.6.3
 jupyterlab-pygments==0.1.2
 Keras-Preprocessing==1.1.2
-keras-tuner==1.0.1
+keras-tuner==1.0.2
 lazy-object-proxy==1.4.3
 llvmlite==0.34.0
 locket==0.2.0
