@@ -41,6 +41,11 @@ def create_ragged_data(inputs: tuple,
     # Sanity check
     assert X.shape.as_list() == [len(x), None, None]
 
+    if not ragged:
+        # This will be an expensive operation
+        # and will probably not work.
+        X = X.to_tensor()
+
     # Labs as stacked
     # NOTE: some loss functions require this to be float
     y = np.array([tup[1] for tup in inputs],
@@ -74,12 +79,7 @@ def create_ragged_data(inputs: tuple,
 
     data_gen = data_gen.repeat(epochs)
 
-    if ragged:
-        data_gen = data_gen.batch(batch_size)
-    else:
-        # For a NN, pad shape could be none to just pad batches to the same shape
-        # for a baseline model, these will probably all need to be the same
-        data_gen = data_gen.padded_batch(batch_size, padded_shapes=pad_shape)
+    data_gen = data_gen.batch(batch_size)
 
     return data_gen
 
@@ -247,7 +247,7 @@ class LSTMHyperModel(HyperModel):
         self.n_timesteps = n_timesteps
         self.vocab_size = vocab_size
         self.batch_size = batch_size
-        self.bias_init = bias_init
+        self.bias_init = bias_init if bias_init is not None else 0.0
 
     def build(self, hp: kerastuner.HyperParameters) -> keras.Model:
         """Build LSTM model
@@ -340,37 +340,39 @@ class LSTMHyperModel(HyperModel):
                                     max_value=0.2,
                                     step=0.05)),
                     name="Recurrent")(avg)
-        output = Dense(1, activation="sigmoid", name="Output")(lstm)
+        output = Dense(1,
+                       activation="sigmoid",
+                       name="Output",
+                       bias_initializer=tf.keras.initializers.Constant(
+                           hp.Choice(name="Output Bias Init",
+                                     values=[self.bias_init.item(), 0.0])))(lstm)
 
         model = keras.Model(inp, output, name="LSTM-Hyper")
-
         model.compile(
-            optimizer=keras.optimizers.SGD(learning_rate=hp.Choice(
-                "Learning Rate", values=[1e-2, 1e-3, 1e-4])),
-            #   loss="binary_crossentropy",
-            # loss=tfa.losses.SigmoidFocalCrossEntropy(
-            #     alpha=hp.Float("Balancing Factor",
-            #                    min_value=0.25,
-            #                    max_value=0.74,
-            #                    step=0.25),
-            #     gamma=hp.Float("Modulating Factor",
-            #                    min_value=0.0,
-            #                    max_value=5.0,
-            #                    step=0.5,
-            #                    default=2.0)),
+            optimizer=keras.optimizers.SGD(learning_rate=hp.Float(
+                "Learning Rate", min_value=1e-5, max_value=1e-2, sampling="log")),
+            # NOTE: TFA version won't run in kerastuner for some reason
+            # loss=tfa.losses.SigmoidFocalCrossEntropy(),
+            #     # alpha=hp.Float("Balancing Factor",
+            #     #                min_value=0.25,
+            #     #                max_value=0.74,
+            #     #                step=0.25),
+            #     # gamma=hp.Float("Modulating Factor",
+            #     #                min_value=0.0,
+            #     #                max_value=5.0,
+            #     #                step=0.5,
+            #     #                default=2.0)),
             loss=BinaryFocalLoss(gamma=hp.Float("Modulating Factor",
                                                 min_value=0.0,
                                                 max_value=5.0,
-                                                step=0.5,
                                                 default=2.0),
                                  pos_weight=hp.Float("Balancing Factor",
                                                      min_value=0.25,
-                                                     max_value=0.75,
-                                                     step=0.25)),
+                                                     max_value=0.75)),
             metrics=[
-                keras.metrics.AUC(num_thresholds=int(1e5), name="AUROC"),
-                keras.metrics.Recall(),
-                keras.metrics.Precision()
+                keras.metrics.AUC(num_thresholds=int(1e4), name="ROC-AUC"),
+                keras.metrics.AUC(num_thresholds=int(1e4), curve="PR", name="PR-AUC"),
+                tfa.metrics.CohenKappa(num_classes=2)
             ])
 
         return model
