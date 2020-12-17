@@ -21,19 +21,18 @@ from tools import keras as tk
 from tools.analysis import grid_metrics
 
 # === Globals
-TIME_SEQ = 213
+TIME_SEQ = 225
 TARGET = "hp_tuned"
 RAGGED = True
 BATCH_SIZE = 32
-# NOTE: Max epochs for HP tuning, and 1/2 fit epochs for best model
-EPOCHS = 10
+EPOCHS = 20
 # NOTE: Take only a small sample of the data to fit?
 SUBSAMPLE = False
 SAMPLE_FRAC = 0.1
 TEST_SPLIT = 0.2
 VAL_SPLIT = 0.1
 RAND = 2020
-TB_UPDATE_FREQ = 100
+TB_UPDATE_FREQ = 1000
 
 # === Paths
 output_dir = os.path.abspath("output/") + "/"
@@ -138,7 +137,7 @@ hyper_model = tk.LSTMHyperModel(ragged=RAGGED,
 # %%
 tuner = tuners.Hyperband(
     hyper_model,
-    objective=kerastuner.Objective("val_AUROC", direction="max"),
+    objective="val_loss",
     max_epochs=EPOCHS,
     hyperband_iterations=5,
     # loss=tfa.losses.SigmoidFocalCrossEntropy(),  # BUG: Does not run with kerastuner for some reason
@@ -151,9 +150,10 @@ tuner = tuners.Hyperband(
 tuner.search_space_summary()
 
 # NOTE: I think this works with HParams
-hparam_tb_callback = TensorBoard(log_dir=tensorboard_dir + "/hyperparameter-tuning/",
-                          histogram_freq=1,
-                          update_freq=1000)
+hparam_tb_callback = TensorBoard(log_dir=tensorboard_dir +
+                                 "/hyperparameter-tuning/",
+                                 histogram_freq=1,
+                                 update_freq=TB_UPDATE_FREQ)
 
 # And search the space
 tuner.search(train_gen,
@@ -162,9 +162,8 @@ tuner.search(train_gen,
              steps_per_epoch=STEPS_PER_EPOCH,
              validation_steps=VALID_STEPS_PER_EPOCH,
              callbacks=[
-                 keras.callbacks.EarlyStopping("val_AUROC",
-                                               patience=1,
-                                               mode="max"), hparam_tb_callback
+                 keras.callbacks.EarlyStopping("val_loss", patience=1),
+                 hparam_tb_callback
              ],
              class_weight=class_weights)
 
@@ -192,10 +191,9 @@ tb_callback = TensorBoard(
 # Create model checkpoint callback
 model_checkpoint_callback = keras.callbacks.ModelCheckpoint(
     filepath=tensorboard_dir + "/" + TARGET + "/" +
-    "weights.{epoch:02d}-{val_AUROC:.2f}.hdf5",
+    "weights.{epoch:02d}-{val_loss:.2f}.hdf5",
     save_weights_only=True,
-    monitor="val_AUROC",
-    mode="max",
+    monitor="val_loss",
     save_best_only=True)
 
 # === Fit model
