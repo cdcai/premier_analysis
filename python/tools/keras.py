@@ -371,8 +371,7 @@ class LSTMHyperModel(HyperModel):
                                                      max_value=0.75)),
             metrics=[
                 keras.metrics.AUC(num_thresholds=int(1e4), name="ROC-AUC"),
-                keras.metrics.AUC(num_thresholds=int(1e4), curve="PR", name="PR-AUC"),
-                tfa.metrics.CohenKappa(num_classes=2)
+                keras.metrics.AUC(num_thresholds=int(1e4), curve="PR", name="PR-AUC")
             ])
 
         return model
