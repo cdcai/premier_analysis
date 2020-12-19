@@ -1,7 +1,7 @@
 '''Runs some baseline prediction models on day-1 predictors'''
 import numpy as np
 import pandas as pd
-import pickle
+import pickle as pkl
 import scipy
 import os
 import sys
@@ -19,9 +19,9 @@ import tools.preprocessing as tp
 import tools.analysis as ta
 
 
-# Setting the directories
+# Setting the directories and importing the data
 output_dir = os.path.abspath("output/") + "/"
-data_dir = os.path.abspath("data/data/") + "/"
+data_dir = os.path.abspath("..data/data/") + "/"
 pkl_dir = output_dir + "pkl/"
 
 with open(pkl_dir + "trimmed_seqs.pkl", "rb") as f:
@@ -37,21 +37,48 @@ with open(pkl_dir + "feature_lookup.pkl", "rb") as f:
 features = [t[0] for t in inputs]
 labels = [t[1] for t in inputs]
 
-# Dropping anything with missing features
-good = np.where([len(doc) > 0 for doc in features])
+# Flattening the sequences
+flat_features = [tp.flatten(l) for l in features]
 
 # Converting the labels to an array
-y = np.array(labels, dtype=np.uint8)[good]
+y = np.array(labels, dtype=np.uint8)
 
 # Converting the features to a sparse matrix
 mat = lil_matrix((len(features), len(vocab.keys()) + 1))
-for row, cols in features:
+for row, cols in enumerate(flat_features):
     mat[row, cols] = 1
 
-X = mat[good]
+# Converting to csr because the internet said it would be faster
+X = mat.tocsr()
 
 # Splitting the data
 train, test = train_test_split(range(X.shape[0]),
                                test_size=0.25,
-                               stratify=y))
+                               stratify=y)
+
+train, val = train_test_split(train,
+                              test_size=1/3,
+                              stratify=y[train])
+
+# Trying a logistic regression
+lgr = SGDClassifier(loss='log')
+lgr.fit(X[train], y[train])
+val_probs = lgr.predict_proba(X[val])[:, 1]
+val_gm = ta.grid_metrics(y[val], val_probs)
+f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
+test_probs = lgr.predict_proba(X[test])[:, 1]
+
+lgr_roc = roc_curve(y[test], test_probs)
+lgr_auc = auc(lgr_roc[0], lgr_roc[1])
+lgr_pr = average_precision_score(y[test], test_probs)
+lgr_stats = ta.clf_metrics(y[test],
+                           ta.threshold(test_probs, f1_cut))
+
+top_coef = np.argsort(lgr.coef_[0])[::-1][0:30]
+top_ftrs = [vocab[code] for code in top_coef]
+top_codes = [all_feats[ftr] for ftr in top_ftrs]
+
+bottom_coef = np.argsort(lgr.coef_[0])[0:30]
+bottom_ftrs = [vocab[code] for code in bottom_coef]
+bottom_codes = [all_feats[ftr] for ftr in bottom_ftrs]
 
