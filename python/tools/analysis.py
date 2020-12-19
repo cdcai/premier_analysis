@@ -432,12 +432,32 @@ def unique_combo(c):
     else:
         return None
 
-def odds_ratio(y, by, flip=False):
-    g0 = np.where(by == 0)[0]
-    g1 = np.where(by == 1)[0]
-    num = np.sum(y[g0]) / (np.sum(g0) - np.sum(y[g0]))
-    denom = np.sum(y[g1]) / (np.sum(g1) - np.sum(y[g1]))
-    if flip:
-        return denom / num
+
+def prop_table(y, pred, axis=0, round=2):
+    tab = pd.crosstab(y, pred)
+    if axis == 1:
+        tab = tab.transpose()
+        out = tab / np.sum(tab, axis=0)
+        out = out.transpose()
     else:
-        return num / denom
+        out = tab / np.sum(tab, axis=0)
+    if round is not None:
+        out = np.round(out, round)
+    return out
+        
+
+def risk_ratio(y, pred, round=2):
+    props = np.array(prop_table(y, pred, round=None))
+    rr = props[1, 1] / props[1, 0]
+    if round is not None:
+        rr = np.round(rr, round)
+    return rr
+
+
+def odds_ratio(y, pred, round=2):
+    tab = np.array(pd.crosstab(y, pred))
+    OR = (tab[0, 0]*tab[1, 1]) / (tab[1, 0]*tab[0, 1])
+    if round is not None:
+        OR = np.round(OR, round)
+    return OR
+

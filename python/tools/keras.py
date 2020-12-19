@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 from kerastuner import HyperModel
-from sklearn.utils import _safe_indexing
+#from sklearn.utils import _safe_indexing
 from tensorflow import keras as keras
 from tensorflow.keras import backend as K
 from tensorflow.keras.layers import (LSTM, Dense, Embedding, Input, Multiply,
@@ -338,3 +338,56 @@ class LSTMHyperModel(HyperModel):
             metrics=[keras.metrics.AUC(num_thresholds=int(1e5), name="AUROC")])
 
         return model
+
+def LSTM(time_seq,
+         vocab_size,
+         emb_dim=64,
+         emb_dropout=0.2,
+         lstm_dim=32,
+         lstm_dropout=0.2,
+         recurrent_dropout=0.2,
+         n_classes=1,
+         output_bias=0.0,
+         batch_size=32,
+         ragged=True):
+    # Input layer
+    input_layer = keras.Input(shape=(None if ragged else time_seq, None),
+                              ragged=ragged,
+                              batch_size=batch_size)
+    # Feature Embeddings
+    emb1 = keras.layers.Embedding(vocab_size,
+                                  output_dim=emb_dim,
+                                  mask_zero=True,
+                                  name="Feature_Embeddings")(input_layer)
+    # Average weights of embedding
+    emb2 = keras.layers.Embedding(vocab_size,
+                                  output_dim=1,
+                                  mask_zero=True,
+                                  name="Average_Embeddings")(input_layer)
+    
+    # Multiply and average
+    if ragged:
+        # NOTE: I think these are the equivalent ragged-aware ops
+        # but that could be incorrect
+        mult = keras.layers.Multiply(name="Embeddings_by_Average")([emb1, emb2])
+        avg = keras.layers.Lambda(lambda x: tf.math.reduce_mean(x, axis=2),
+                                  name="Averaging")(mult)
+    else:
+        mult = keras.layers.Multiply(name="Embeddings_by_Average")([emb1, emb2])
+        avg = keras.backend.mean(mult, axis=2)
+    
+    lstm_layer = keras.layers.LSTM(
+        lstm_dim,
+        dropout=lstm_dropout,
+        recurrent_dropout=recurrent_dropout,
+        name="Recurrent",
+    )(avg)
+    
+    output_dim = keras.layers.Dense(
+        n_classes,
+        activation="sigmoid",
+        bias_initializer=tf.keras.initializers.Constant(output_bias),
+        name="Output")(lstm_layer)
+    
+    return keras.Model(input_layer, output_dim)
+    
