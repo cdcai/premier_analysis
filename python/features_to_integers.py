@@ -1,28 +1,28 @@
 """This script merges the feature columns and converts them to ints."""
 
-# %%
 import pandas as pd
 import numpy as np
 import pickle as pkl
 import os
-import pickle as pkl
 
 import numpy as np
 import pandas as pd
 from sklearn.feature_extraction.text import CountVectorizer
 
+
 # Setting top-level parameters
 MIN_DF = 5
 NO_VITALS = True
 TIME_UNIT = "dfi"
+REVERSE_VOCAB = True
 
 # Whether to write the full trimmed sequence file to disk as parquet
 WRITE_PARQUET = False
 
 # Setting the directories
 output_dir = os.path.abspath('output/') + '/'
-data_dir = os.path.abspath('data/data/') + '/'
-targets_dir = os.path.abspath("data/targets") + "/"
+data_dir = os.path.abspath('../data/data/') + '/'
+targets_dir = os.path.abspath('../data/targets/') + '/'
 pkl_dir = output_dir + 'pkl/'
 ftr_cols = ['vitals', 'bill', 'genlab', 'lab_res', 'proc', 'diag']
 final_cols = ['covid_visit', 'ftrs']
@@ -58,6 +58,10 @@ vocab = vec.vocabulary_
 # Saving the index 0 for padding
 for k in vocab.keys():
     vocab[k] += 1
+
+# Optionally reversing the vocab
+if REVERSE_VOCAB:
+    vocab = {v:k for k, v in vocab.items()}
 
 # %% Saving the updated vocab to disk
 with open(pkl_dir + "all_ftrs_dict.pkl", "wb") as f:
@@ -111,13 +115,6 @@ death_dict = dict(zip(pat_df.pat_key, died))
 pat_deaths = [[death_dict[id] for id in np.unique(df.values)]
               for _, df in trimmed_seq.groupby("medrec_key").pat_key]
 
-# %% Rolling things up into a dict for easier saving
-pat_dict = {
-    "cv_pats": cv_pats,
-    "pat_lengths": pat_lengths,
-    "pat_deaths": pat_deaths
-}
-
 # Part 4: Mixing in the MIS-A targets
 
 # Making a lookup for the first case definition
@@ -134,6 +131,7 @@ misa_resp_dict = dict(zip(pat_df.pat_key, [0] * len(pat_df.pat_key)))
 
 for pat in misa_resp_pats:
     misa_resp_dict.update({pat: 1})
+
 misa_resp = [[misa_resp_dict[id] for id in np.unique(df.values)]
              for _, df in trimmed_seq.groupby('medrec_key').pat_key]
 
