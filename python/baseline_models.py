@@ -73,6 +73,8 @@ lgr_auc = auc(lgr_roc[0], lgr_roc[1])
 lgr_pr = average_precision_score(y[test], test_probs)
 lgr_stats = ta.clf_metrics(y[test],
                            ta.threshold(test_probs, f1_cut))
+lgr_stats['auc'] = lgr_auc
+lgr_stats['ap'] = lgr_pr
 
 top_coef = np.argsort(lgr.coef_[0])[::-1][0:30]
 top_ftrs = [vocab[code] for code in top_coef]
