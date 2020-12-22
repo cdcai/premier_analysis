@@ -62,6 +62,7 @@ with open(tensorboard_dir + "emb_metadata.tsv", "w") as f:
     writer.writerows(zip([0], ["OOV"], ["Padding/OOV"]))
     for key, value in vocab.items():
         writer.writerow([value, key, all_feats[key]])
+
 # %% Determining number of vocab entries
 N_VOCAB = len(vocab) + 1
 
@@ -74,6 +75,7 @@ if SUBSAMPLE:
         random_state=RAND,
         stratify=[labs for _, labs in inputs],
     )
+
 # %% Split into test/train
 train, test, _, _ = train_test_split(
     inputs,
@@ -103,8 +105,8 @@ class_weights = dict(zip([0, 1], class_weights))
 
 # %% Compute initial output bias
 neg, pos = np.bincount([lab for _, lab in train])
-
 out_bias = np.log([pos / neg])
+
 # %%
 train_gen = tk.create_ragged_data(train,
                                   max_time=TIME_SEQ,
@@ -128,55 +130,16 @@ test_gen = tk.create_ragged_data(test,
                                  random_seed=RAND,
                                  batch_size=BATCH_SIZE)
 
-# %%
-
-input_layer = keras.Input(shape=(None if RAGGED else TIME_SEQ, None),
-                          ragged=RAGGED,
-                          batch_size=BATCH_SIZE)
-# Feature Embeddings
-emb1 = keras.layers.Embedding(N_VOCAB,
-                              output_dim=512,
-                              mask_zero=True,
-                              name="Feature_Embeddings")(input_layer)
-# Average weights of embedding
-emb2 = keras.layers.Embedding(N_VOCAB,
-                              output_dim=1,
-                              mask_zero=True,
-                              name="Average_Embeddings")(input_layer)
-
-# Multiply and average
-if RAGGED:
-    # NOTE: I think these are the equivalent ragged-aware ops
-    # but that could be incorrect
-    mult = keras.layers.Multiply(name="Embeddings_by_Average")([emb1, emb2])
-    avg = keras.layers.Lambda(lambda x: tf.math.reduce_mean(x, axis=2),
-                              name="Averaging")(mult)
-else:
-    mult = keras.layers.Multiply(name="Embeddings_by_Average")([emb1, emb2])
-    avg = keras.backend.mean(mult, axis=2)
-
-lstm_layer = keras.layers.LSTM(
-    N_LSTM,
-    dropout=LSTM_DROPOUT,
-    recurrent_dropout=LSTM_RECURRENT_DROPOUT,
-    name="Recurrent",
-)(avg)
-
-output_dim = keras.layers.Dense(
-    1,
-    activation="sigmoid",
-    bias_initializer=tf.keras.initializers.Constant(out_bias),
-    name="Output")(lstm_layer)
-
-model = keras.Model(input_layer, output_dim)
-
+# SEtting up the model
+model = tk.LSTM(time_seq=TIME_SEQ,
+                vocab_size=N_VOCAB,
+                ragged=RAGGED)
 model.compile(optimizer="adam",
               loss=tfa.losses.SigmoidFocalCrossEntropy(),
               metrics=[
                   tfa.metrics.CohenKappa(num_classes=2),
                   keras.metrics.AUC(num_thresholds=int(1e5), name="AUROC")
               ])
-
 model.summary()
 
 # Create Tensorboard callback

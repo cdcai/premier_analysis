@@ -13,6 +13,7 @@ import tools.preprocessing as tp
 import tools.multi as tm
 import time
 
+
 # Unit of time to use for aggregation
 TIME_UNIT = 'dfi'
 
@@ -20,7 +21,7 @@ TIME_UNIT = 'dfi'
 COVID_ONLY = True
 
 # Setting the file directories
-prem_dir = 'data/data/'
+prem_dir = '../data/data/'
 out_dir = 'output/'
 parq_dir = out_dir + 'parquet/'
 pkl_dir = out_dir + 'pkl/'
