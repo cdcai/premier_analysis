@@ -107,6 +107,12 @@ death_dict = dict(zip(pat_df.pat_key, died))
 pat_deaths = [[death_dict[id] for id in np.unique(df.values)]
               for _, df in trimmed_seq.groupby("medrec_key").pat_key]
 
+# Part 4: Adding the inpatient variable to the pat dict
+inpat = np.array(pat_df.pat_type == 8, dtype=np.uint8)
+inpat_dict = dict(zip(pat_df.pat_key, inpat))
+pat_inpat = [[inpat_dict[id] for id in np.unique(df.values)]
+             for _, df in trimmed_seq.groupby("medrec_key").pat_key]
+
 # Part 4: Mixing in the MIS-A targets
 # Making a lookup for the first case definition
 misa_pt_pats = misa_data[misa_data.misa_pt == 1].first_misa_patkey
@@ -131,6 +137,7 @@ misa_resp = [[misa_resp_dict[id] for id in np.unique(df.values)]
 pat_dict = {
     'covid': cv_pats,
     'length': pat_lengths,
+    'inpat': pat_inpat,
     'death': pat_deaths,
     'misa_pt': misa_pt,
     'misa_resp': misa_resp
