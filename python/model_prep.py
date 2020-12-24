@@ -53,7 +53,8 @@ def main():
         cut_points = p.starmap(tp.find_cutpoints, find_input)
         
         # Figuring out who doesn't have another day after the horizon
-        keepers = [len(int_seqs[i]) > cut_points[i][0][1]
+        keepers = [pat_data['length'][i][cut_points[i][1]] > 1 and 
+                   pat_data['inpat'][i][cut_points[i][1]] == 1
                    for i in range(n_patients)]
         
         # Trimming the inputs and outputs to the right length
