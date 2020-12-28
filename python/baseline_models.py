@@ -7,7 +7,7 @@ import os
 
 from importlib import reload
 from scipy.sparse import lil_matrix
-from sklearn.linear_model import SGDClassifier
+from sklearn.linear_model import SGDClassifier, LogisticRegression
 from sklearn.svm import LinearSVC
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
