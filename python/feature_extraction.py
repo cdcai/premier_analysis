@@ -60,6 +60,7 @@ def main():
         feature_prefix='genl',
         text_col='lab_test_loinc_desc',
         time_cols=['collection_day_number', 'collection_time_of_day'],
+        replace_col='lab_test_result',
         num_col='numeric_value')
     proc, proc_dict = tp.df_to_features(pq.proc,
                                         feature_prefix='proc',
