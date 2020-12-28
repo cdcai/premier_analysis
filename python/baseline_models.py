@@ -4,7 +4,6 @@ import pandas as pd
 import pickle as pkl
 import scipy
 import os
-import sys
 
 from importlib import reload
 from scipy.sparse import lil_matrix
@@ -54,11 +53,13 @@ X = mat.tocsr()
 # Splitting the data
 train, test = train_test_split(range(X.shape[0]),
                                test_size=0.25,
-                               stratify=y)
+                               stratify=y,
+                               random_state=2020)
 
 train, val = train_test_split(train,
                               test_size=1/3,
-                              stratify=y[train])
+                              stratify=y[train],
+                              random_state=2020)
 
 # Trying a logistic regression
 lgr = SGDClassifier(loss='log')
@@ -76,11 +77,17 @@ lgr_stats = ta.clf_metrics(y[test],
 lgr_stats['auc'] = lgr_auc
 lgr_stats['ap'] = lgr_pr
 
-top_coef = np.argsort(lgr.coef_[0])[::-1][0:30]
+exp_coefs = np.exp(lgr.coef_)[0]
+top_coef = np.argsort(exp_coefs)[::-1][0:30]
 top_ftrs = [vocab[code] for code in top_coef]
 top_codes = [all_feats[ftr] for ftr in top_ftrs]
 
-bottom_coef = np.argsort(lgr.coef_[0])[0:30]
+bottom_coef = np.argsort(exp_coefs)[0:30]
 bottom_ftrs = [vocab[code] for code in bottom_coef]
 bottom_codes = [all_feats[ftr] for ftr in bottom_ftrs]
 
+codes = top_codes + bottom_codes
+coefs = np.concatenate([exp_coefs[top_coef],
+                        exp_coefs[bottom_coef]])
+coef_df = pd.DataFrame([codes, coefs]).transpose()
+coef_df.to_csv(output_dir + 'lgr_coefs.csv', index=False)
