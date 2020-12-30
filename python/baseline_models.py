@@ -7,7 +7,7 @@ import os
 
 from importlib import reload
 from scipy.sparse import lil_matrix
-from sklearn.linear_model import SGDClassifier
+from sklearn.linear_model import SGDClassifier, LogisticRegression
 from sklearn.svm import LinearSVC
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
@@ -17,6 +17,9 @@ from sklearn.metrics import auc, average_precision_score
 import tools.preprocessing as tp
 import tools.analysis as ta
 
+
+# Globals
+DAY_ONE_ONLY = True
 
 # Setting the directories and importing the data
 output_dir = os.path.abspath("output/") + "/"
@@ -36,15 +39,19 @@ with open(pkl_dir + "feature_lookup.pkl", "rb") as f:
 features = [t[0] for t in inputs]
 labels = [t[1] for t in inputs]
 
-# Flattening the sequences
-flat_features = [tp.flatten(l) for l in features]
+# Optionally limiting the features to only those from the first day
+# of the actual COVID visit
+if DAY_ONE_ONLY:
+    features = [l[-1] for l in features]
+else:
+    features = [tp.flatten(l) for l in features]
 
 # Converting the labels to an array
 y = np.array(labels, dtype=np.uint8)
 
 # Converting the features to a sparse matrix
 mat = lil_matrix((len(features), len(vocab.keys()) + 1))
-for row, cols in enumerate(flat_features):
+for row, cols in enumerate(features):
     mat[row, cols] = 1
 
 # Converting to csr because the internet said it would be faster

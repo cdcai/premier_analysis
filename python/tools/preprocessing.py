@@ -22,7 +22,7 @@ class load_parquets:
         # Specifying some columns to pull
         genlab_cols = [
             'pat_key', 'collection_day_number', 'collection_time_of_day',
-            'lab_test_loinc_desc', 'numeric_value'
+            'lab_test_loinc_desc', 'lab_test_result', 'numeric_value'
         ]
         vital_cols = [
             'pat_key', 'observation_day_number', 'observation_time_of_day',
@@ -103,6 +103,7 @@ def df_to_features(df,
                    text_col,
                    feature_prefix,
                    num_col=None,
+                   replace_col=None,
                    time_cols=None,
                    buckets=5,
                    slim=True):
@@ -111,10 +112,31 @@ def df_to_features(df,
 
     # Optionally quantizing the numeric column
     if num_col is not None:
+        # Converting the numeric values to quantiles
         df['q'] = df.groupby(text_col)[num_col].transform(
-            lambda x: pd.qcut(x, buckets, labels=False, duplicates='drop'))
-        text += ' q' + df.q.astype(str)
-
+            lambda x: pd.qcut(x=x, 
+                              q=buckets, 
+                              labels=False, 
+                              duplicates='drop'))
+        
+        # Figuring out which tests have non-numeric results
+        missing_num = np.where(np.isnan(df.q))[0]
+        
+        # Converting the quantiles to strings
+        qstr = [doc for doc in ' q' + df.q.astype(str)]
+        
+        # Replacing missing numerics with the original test result
+        if replace_col is not None:
+            for i in missing_num:
+                rep = df[replace_col][i]
+                if rep is not None:
+                    qstr[i] = ' ' + rep
+                else:
+                    qstr[i] = ' none'
+        
+        # Adding the quantiles back to the text column
+        text += pd.Series(qstr)
+    
     # Making a lookup dict for the features
     ftr_dict, code_dict = col_to_features(text, feature_prefix)
 
