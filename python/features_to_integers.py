@@ -8,8 +8,6 @@ import os
 import numpy as np
 import pandas as pd
 from sklearn.feature_extraction.text import CountVectorizer
-from sklearn.preprocessing import OneHotEncoder
-import tools.preprocessing as tp
 
 # Setting top-level parameters
 MIN_DF = 5
