@@ -9,10 +9,10 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 from kerastuner import HyperModel
-#from sklearn.utils import _safe_indexing
+# from sklearn.utils import _safe_indexing
 from tensorflow import keras as keras
 from tensorflow.keras import backend as K
-from tensorflow.keras.layers import (LSTM, Dense, Embedding, Input, Multiply,
+from tensorflow.keras.layers import (Dense, Embedding, Input, Multiply,
                                      Reshape)
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 import tensorflow_addons as tfa
@@ -273,16 +273,16 @@ class LSTMHyperModel(HyperModel):
             embeddings_regularizer=keras.regularizers.l1_l2(
                 l1=hp.Float("Feature Embedding L1",
                             min_value=0.0,
-                            max_value=0.2,
-                            step=0.05),
+                            max_value=0.1,
+                            step=0.01),
                 l2=hp.Float("Feature Embedding L2",
                             min_value=0.0,
-                            max_value=0.2,
-                            step=0.05)),
+                            max_value=0.1,
+                            step=0.01)),
             output_dim=hp.Int("Embedding Dimension",
                               min_value=64,
-                              max_value=1024,
-                              default=512,
+                              max_value=512,
+                              default=64,
                               step=64),
             name="Feature_Embeddings",
         )(inp)
@@ -292,12 +292,12 @@ class LSTMHyperModel(HyperModel):
                          embeddings_regularizer=keras.regularizers.l1_l2(
                              l1=hp.Float("Average Embedding L1",
                                          min_value=0.0,
-                                         max_value=0.2,
-                                         step=0.05),
+                                         max_value=0.1,
+                                         step=0.01),
                              l2=hp.Float("Average Embedding L2",
                                          min_value=0.0,
-                                         max_value=0.2,
-                                         step=0.05)),
+                                         max_value=0.1,
+                                         step=0.01)),
                          name="Average_Embeddings")(inp)
         if self.ragged:
             mult = keras.layers.Multiply(name="Embeddings_by_Average")(
@@ -308,67 +308,74 @@ class LSTMHyperModel(HyperModel):
             mult = Multiply(name="Embeddings_by_Average")([emb1, emb2])
             avg = K.mean(mult, axis=2)
 
-        lstm = LSTM(units=hp.Int("LSTM Units",
+        lstm = keras.layers.LSTM(units=hp.Int("LSTM Units",
                                  min_value=32,
                                  max_value=512,
-                                 default=128,
+                                 default=32,
                                  step=32),
                     dropout=hp.Float("LSTM Dropout",
                                      min_value=0.0,
                                      max_value=0.9,
-                                     step=0.05),
+                                     default=0.4,
+                                     step=0.01),
                     recurrent_dropout=hp.Float("LSTM Recurrent Dropout",
                                                min_value=0.0,
                                                max_value=0.9,
-                                               step=0.05),
+                                               default=0.4,
+                                               step=0.01),
                     activity_regularizer=keras.regularizers.l1_l2(
                         l1=hp.Float("LSTM Activation L1",
                                     min_value=0.0,
-                                    max_value=0.2,
-                                    step=0.05),
+                                    max_value=0.1,
+                                    step=0.01),
                         l2=hp.Float("LSTM Activation L2",
                                     min_value=0.0,
-                                    max_value=0.2,
-                                    step=0.05)),
+                                    max_value=0.1,
+                                    step=0.01)),
                     kernel_regularizer=keras.regularizers.l1_l2(
                         l1=hp.Float("LSTM weights L1",
                                     min_value=0.0,
-                                    max_value=0.2,
-                                    step=0.05),
+                                    max_value=0.1,
+                                    step=0.01),
                         l2=hp.Float("LSTM weights L2",
                                     min_value=0.0,
-                                    max_value=0.2,
-                                    step=0.05)),
+                                    max_value=0.1,
+                                    step=0.01)),
                     name="Recurrent")(avg)
         output = Dense(1,
                        activation="sigmoid",
                        name="Output",
-                       bias_initializer=tf.keras.initializers.Constant(
-                           hp.Choice(name="Output Bias Init",
-                                     values=[self.bias_init.item(), 0.0])))(lstm)
+                       bias_initializer=tf.keras.initializers.Constant(self.bias_init.item()))(lstm)
 
         model = keras.Model(inp, output, name="LSTM-Hyper")
+
+        lr = hp.Choice("Learning Rate", [1e-2, 1e-3, 1e-4])
+        momentum = hp.Choice("Momentum", [0.0, 0.2, 0.4, 0.6, 0.8, 0.9])
+
         model.compile(
-            optimizer=keras.optimizers.SGD(learning_rate=hp.Float(
-                "Learning Rate", min_value=1e-5, max_value=1e-2, sampling="log")),
+            optimizer=keras.optimizers.SGD(learning_rate=lr, momentum=momentum),
             # NOTE: TFA version won't run in kerastuner for some reason
-            # loss=tfa.losses.SigmoidFocalCrossEntropy(),
-            #     # alpha=hp.Float("Balancing Factor",
-            #     #                min_value=0.25,
-            #     #                max_value=0.74,
-            #     #                step=0.25),
-            #     # gamma=hp.Float("Modulating Factor",
-            #     #                min_value=0.0,
-            #     #                max_value=5.0,
-            #     #                step=0.5,
-            #     #                default=2.0)),
+            # loss=tfa.losses.SigmoidFocalCrossEntropy()
+            #     alpha=hp.Float("Balancing Factor",
+            #                    min_value=0.25,
+            #                    max_value=0.74,
+            #                    step=0.25),
+            #     gamma=hp.Float("Modulating Factor",
+            #                    min_value=0.0,
+            #                    max_value=5.0,
+            #                    step=0.5,
+            #                    default=2.0)),
+            # NOTE: For gamma = 0 & alpha = 1, Focal loss = binary_crossentropy 
             loss=BinaryFocalLoss(gamma=hp.Float("Modulating Factor",
                                                 min_value=0.0,
                                                 max_value=5.0,
+                                                step=1.0,
                                                 default=2.0),
                                  pos_weight=hp.Float("Balancing Factor",
-                                                     min_value=0.25,
-                                                     max_value=0.75)),
+                                                     min_value=0.0,
+                                                     max_value=1.0,
+                                                     default=0.25,
+                                                     step=0.25)),
             metrics=[
                 keras.metrics.AUC(num_thresholds=int(1e4), name="ROC-AUC"),
                 keras.metrics.AUC(num_thresholds=int(1e4), curve="PR", name="PR-AUC")
@@ -403,14 +410,14 @@ def LSTM(time_seq,
                                   name="Average_Embeddings")(input_layer)
     
     # Multiply and average
+    mult = keras.layers.Multiply(name="Embeddings_by_Average")([emb1, emb2])
+
     if ragged:
         # NOTE: I think these are the equivalent ragged-aware ops
         # but that could be incorrect
-        mult = keras.layers.Multiply(name="Embeddings_by_Average")([emb1, emb2])
         avg = keras.layers.Lambda(lambda x: tf.math.reduce_mean(x, axis=2),
                                   name="Averaging")(mult)
     else:
-        mult = keras.layers.Multiply(name="Embeddings_by_Average")([emb1, emb2])
         avg = keras.backend.mean(mult, axis=2)
     
     lstm_layer = keras.layers.LSTM(
