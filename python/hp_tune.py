@@ -25,7 +25,7 @@ TIME_SEQ = 225
 TARGET = "hp_tuned"
 RAGGED = True
 BATCH_SIZE = 32
-EPOCHS = 20
+EPOCHS = 10
 # NOTE: Take only a small sample of the data to fit?
 SUBSAMPLE = False
 SAMPLE_FRAC = 0.1
@@ -57,7 +57,7 @@ with open(tensorboard_dir + "emb_metadata.tsv", "w") as f:
     writer.writerows(zip(["id"], ["word"], ["desc"]))
     writer.writerows(zip([0], ["OOV"], ["Padding/OOV"]))
     for key, value in vocab.items():
-        writer.writerow([value, key, all_feats[key]])
+        writer.writerow([key, value, all_feats[value]])
 # %% Determining number of vocab entries
 N_VOCAB = len(vocab) + 1
 
@@ -201,21 +201,53 @@ best_model.fit(train_gen,
                validation_data=validation_gen,
                epochs=EPOCHS,
                class_weight=class_weights,
-               callbacks=[tb_callback, model_checkpoint_callback])
+               callbacks=[
+                   tb_callback,
+                   model_checkpoint_callback,
+                   keras.callbacks.EarlyStopping("val_loss", patience=2),
+               ])
 
 # Test
 print(model.evaluate(test_gen))
 
-# %% F1, etc
-y_pred = model.predict(test_gen)
+# %% Validation F1 cut
+y_validation = [[(lambda x: [0] if x == [] else x)(bags) for bags in seq]
+                for seq, _ in validation]
 
-y_true = [lab for _, lab in test]
+y_validation = tf.ragged.constant(y_validation)
+
+y_pred_validation = model.predict(y_validation)
+
+y_true_validation = [lab for _, lab in validation]
 
 # Resizing for output which is divisible by BATCH_SIZE
+y_true_validation = np.array(y_true_validation[0:y_pred_validation.shape[0]])
+
+val_gm = ta.grid_metrics(y_true_validation,
+                         y_pred_validation,
+                         min=0.0,
+                         max=1.0,
+                         step=0.001)
+
+f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
+# %% Predicting on test data
+y_pred_test = model.predict(test_gen)
+
+y_true_test = np.asarray([lab for _, lab in test])
+
+# %% Print the stats when taking the cutpoint from the validation set (not cheating)
+lstm_stats = ta.clf_metrics(y_true_test, ta.threshold(y_pred_test, f1_cut))
+auc = roc_auc_score(y_true_test, y_pred_test)
+pr = average_precision_score(y_true_test, y_pred_test)
+lstm_stats['auc'] = auc
+lstm_stats['ap'] = pr
+
+print(lstm_stats)
+# %% Run grid metrics on test anyways just to see overall
 y_true = np.array(y_true[0:y_pred.shape[0]])
-output = grid_metrics(y_true, y_pred)
-print(output)
+output = grid_metrics(y_true_test, y_pred_test)
+print(output.sort_values("f1"))
 
 output.to_csv(tensorboard_dir + "/" + TARGET + "/" + "grid_metrics.csv",
               index=False)
-print("ROC-AUC: {}".format(roc_auc_score(y_true, y_pred)))
+print("ROC-AUC: {}".format(roc_auc_score(y_true_test, y_pred_test)))
