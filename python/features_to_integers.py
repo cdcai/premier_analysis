@@ -9,7 +9,6 @@ import numpy as np
 import pandas as pd
 from sklearn.feature_extraction.text import CountVectorizer
 
-
 # Setting top-level parameters
 MIN_DF = 5
 NO_VITALS = True
@@ -20,7 +19,7 @@ REVERSE_VOCAB = True
 WRITE_PARQUET = False
 
 # Setting the directories
-output_dir = os.path.abspath('output/') + '/'
+output_dir = os.path.abspath('../output/') + '/'
 data_dir = os.path.abspath('../data/data/') + '/'
 targets_dir = os.path.abspath('../data/targets/') + '/'
 pkl_dir = output_dir + 'pkl/'
@@ -34,6 +33,9 @@ misa_data = pd.read_csv(targets_dir + 'targets.csv', ";")
 
 # Read in the flat feature file
 trimmed_seq = pd.read_parquet(output_dir + "parquet/flat_features.parquet")
+
+# %% Filter Denom to those identified in MISA case def
+trimmed_seq = trimmed_seq[trimmed_seq.medrec_key.isin(misa_data.medrec_key)]
 
 # Determine unique medrec_keys
 n_medrec = trimmed_seq["medrec_key"].nunique()
@@ -150,7 +152,7 @@ with open(pkl_dir + "pat_data.pkl", "wb") as f:
 
 # Optionally reversing the vocab
 if REVERSE_VOCAB:
-    vocab = {v:k for k, v in vocab.items()}
+    vocab = {v: k for k, v in vocab.items()}
 
 # %% Saving the updated vocab to disk
 with open(pkl_dir + "all_ftrs_dict.pkl", "wb") as f:
