@@ -8,10 +8,13 @@ import os
 import numpy as np
 import pandas as pd
 from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.preprocessing import OneHotEncoder
+import tools.preprocessing as tp
 
 # Setting top-level parameters
 MIN_DF = 5
 NO_VITALS = True
+ADD_DEMOG = True
 TIME_UNIT = "dfi"
 REVERSE_VOCAB = True
 
@@ -74,7 +77,50 @@ int_seqs = [
 # Converting to a nested list to keep things clean
 seq_gen = [[seq for seq in medrec] for medrec in int_seqs]
 
-# Starting to construct the labels part 1: figuring out which visit
+# %% Optionally add demographics
+if ADD_DEMOG:
+    demog_vars = ["gender", "hispanic_ind", "race"]
+
+    # Append demog
+    trimmed_plus_demog = trimmed_seq.merge(pat_df[["medrec_key"] + demog_vars],
+                                           how="left").set_index("medrec_key")
+
+    # Take distinct by medrec
+    demog_map = map(lambda name: name + ":" + trimmed_plus_demog[name],
+                    demog_vars)
+
+    demog_labeled = pd.concat(demog_map, axis=1)
+
+    raw_demog = demog_labeled.reset_index().drop_duplicates()
+
+    just_demog = raw_demog.groupby("medrec_key").agg(
+        lambda x: " ".join(list(set(x))).lower())
+
+    # BUG: Note there are some medrecs with both hispanic=y and hispanic=N
+    just_demog["all_demog"] = just_demog[demog_vars].agg(" ".join, axis=1)
+
+    demog_list = [demog for demog in just_demog.all_demog]
+
+    assert just_demog.shape[0] == n_medrec, "No funny business"
+
+    demog_vec = CountVectorizer(binary=True, token_pattern=r"(?u)\b[\w:]+\b")
+
+    demog_vec.fit(demog_list)
+
+    demog_vocab = demog_vec.vocabulary_
+
+    demog_ints = [[
+        demog_vocab[k] for k in doc.split() if k in demog_vocab.keys()
+    ] for doc in demog_list]
+
+    # Zip with seq_gen to produce a list of tuples
+    seq_gen = [seq for seq in zip(seq_gen, demog_ints)]
+
+    # And saving vocab
+    with open(pkl_dir + "demog_dict.pkl", "wb") as f:
+        pkl.dump(demog_vocab, f)
+
+# %% Starting to construct the labels part 1: figuring out which visit
 # were covid visits, and which patients have no covid visits (post-trim)
 cv_dict = dict(zip(pat_df.pat_key, pat_df.covid_visit))
 cv_pats = [[cv_dict[pat_key] for pat_key in np.unique(seq.values)]
@@ -135,6 +181,7 @@ for pat in misa_resp_pats:
 misa_resp = [[misa_resp_dict[id] for id in np.unique(df.values)]
              for _, df in trimmed_seq.groupby('medrec_key').pat_key]
 
+#
 # Rolling things up into a dict for easier saving
 pat_dict = {
     'covid': cv_pats,
