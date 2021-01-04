@@ -54,7 +54,8 @@ def main():
         
         # Figuring out who doesn't have another day after the horizon
         keepers = [pat_data['length'][i][cut_points[i][1]] > 1 and 
-                   pat_data['inpat'][i][cut_points[i][1]] == 1
+                   pat_data['inpat'][i][cut_points[i][1]] == 1 and
+                   pat_data['age'][i][cut_points[i][1]] > 17
                    for i in range(n_patients)]
         
         # Trimming the inputs and outputs to the right length

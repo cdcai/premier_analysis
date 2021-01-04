@@ -68,22 +68,9 @@ train, val = train_test_split(train,
                               stratify=y[train],
                               random_state=2020)
 
-# Trying a logistic regression
-lgr = SGDClassifier(loss='log')
-lgr.fit(X[train], y[train])
-val_probs = lgr.predict_proba(X[val])[:, 1]
-val_gm = ta.grid_metrics(y[val], val_probs)
-f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
-test_probs = lgr.predict_proba(X[test])[:, 1]
-
-lgr_roc = roc_curve(y[test], test_probs)
-lgr_auc = auc(lgr_roc[0], lgr_roc[1])
-lgr_pr = average_precision_score(y[test], test_probs)
-lgr_stats = ta.clf_metrics(y[test],
-                           ta.threshold(test_probs, f1_cut))
-lgr_stats['auc'] = lgr_auc
-lgr_stats['ap'] = lgr_pr
-
+# Fitting a logistic regression to the whole dataset
+lgr = LogisticRegression(max_iter=5000)
+lgr.fit(X, y)
 exp_coefs = np.exp(lgr.coef_)[0]
 top_coef = np.argsort(exp_coefs)[::-1][0:30]
 top_ftrs = [vocab[code] for code in top_coef]
@@ -98,3 +85,21 @@ coefs = np.concatenate([exp_coefs[top_coef],
                         exp_coefs[bottom_coef]])
 coef_df = pd.DataFrame([codes, coefs]).transpose()
 coef_df.to_csv(output_dir + 'lgr_coefs.csv', index=False)
+
+# And then again to the training data to get predictive performance
+lgr = LogisticRegression(max_iter=5000)
+lgr.fit(X[train], y[train])
+val_probs = lgr.predict_proba(X[val])[:, 1]
+val_gm = ta.grid_metrics(y[val], val_probs)
+f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
+test_probs = lgr.predict_proba(X[test])[:, 1]
+
+lgr_roc = roc_curve(y[test], test_probs)
+lgr_auc = auc(lgr_roc[0], lgr_roc[1])
+lgr_pr = average_precision_score(y[test], test_probs)
+lgr_stats = ta.clf_metrics(y[test],
+                           ta.threshold(test_probs, f1_cut))
+lgr_stats['auc'] = lgr_auc
+lgr_stats['ap'] = lgr_pr
+
+lgr_stats.to_csv(output_dir + 'lgr_stats.csv', index=False)

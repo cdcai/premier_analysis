@@ -8,8 +8,6 @@ import os
 import numpy as np
 import pandas as pd
 from sklearn.feature_extraction.text import CountVectorizer
-from sklearn.preprocessing import OneHotEncoder
-import tools.preprocessing as tp
 
 # Setting top-level parameters
 MIN_DF = 5
@@ -17,6 +15,7 @@ NO_VITALS = True
 ADD_DEMOG = True
 TIME_UNIT = "dfi"
 REVERSE_VOCAB = True
+MISA_ONLY = True
 
 # Whether to write the full trimmed sequence file to disk as parquet
 WRITE_PARQUET = False
@@ -38,7 +37,9 @@ misa_data = pd.read_csv(targets_dir + 'targets.csv', ";")
 trimmed_seq = pd.read_parquet(output_dir + "parquet/flat_features.parquet")
 
 # %% Filter Denom to those identified in MISA case def
-trimmed_seq = trimmed_seq[trimmed_seq.medrec_key.isin(misa_data.medrec_key)]
+if MISA_ONLY:
+    trimmed_seq = trimmed_seq[trimmed_seq.medrec_key.isin(
+        misa_data.medrec_key)]
 
 # Determine unique medrec_keys
 n_medrec = trimmed_seq["medrec_key"].nunique()
@@ -161,6 +162,12 @@ inpat_dict = dict(zip(pat_df.pat_key, inpat))
 pat_inpat = [[inpat_dict[id] for id in np.unique(df.values)]
              for _, df in trimmed_seq.groupby("medrec_key").pat_key]
 
+# Adding age at each visit
+age = pat_df.age.values.astype(np.int16)
+age_dict = dict(zip(pat_df.pat_key, age))
+pat_age = [[age_dict[id] for id in np.unique(df.values)]
+           for _, df in trimmed_seq.groupby("medrec_key").pat_key]
+
 # Part 4: Mixing in the MIS-A targets
 # Making a lookup for the first case definition
 misa_pt_pats = misa_data[misa_data.misa_pt == 1].first_misa_patkey
@@ -184,6 +191,7 @@ misa_resp = [[misa_resp_dict[id] for id in np.unique(df.values)]
 #
 # Rolling things up into a dict for easier saving
 pat_dict = {
+    'age': pat_age,
     'covid': cv_pats,
     'length': pat_lengths,
     'inpat': pat_inpat,
