@@ -20,7 +20,9 @@ REVERSE_VOCAB = True
 WRITE_PARQUET = False
 
 # Setting the directories
-output_dir = os.path.abspath('../output/') + '/'
+#output_dir = os.path.abspath('../output/') + '/'
+output_dir = os.path.abspath('./output/') + '/'
+
 data_dir = os.path.abspath('../data/data/') + '/'
 targets_dir = os.path.abspath('../data/targets/') + '/'
 pkl_dir = output_dir + 'pkl/'
@@ -161,6 +163,12 @@ inpat_dict = dict(zip(pat_df.pat_key, inpat))
 pat_inpat = [[inpat_dict[id] for id in np.unique(df.values)]
              for _, df in trimmed_seq.groupby("medrec_key").pat_key]
 
+# Adding age at each visit
+age = pat_df.age.values.astype(np.int16)
+age_dict = dict(zip(pat_df.pat_key, age))
+pat_age = [[age_dict[id] for id in np.unique(df.values)]
+           for _, df in trimmed_seq.groupby("medrec_key").pat_key]
+
 # Part 4: Mixing in the MIS-A targets
 # Making a lookup for the first case definition
 misa_pt_pats = misa_data[misa_data.misa_pt == 1].first_misa_patkey
@@ -184,6 +192,7 @@ misa_resp = [[misa_resp_dict[id] for id in np.unique(df.values)]
 #
 # Rolling things up into a dict for easier saving
 pat_dict = {
+    'age': pat_age,
     'covid': cv_pats,
     'length': pat_lengths,
     'inpat': pat_inpat,
