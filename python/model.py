@@ -55,6 +55,9 @@ with open(pkl_dir + "all_ftrs_dict.pkl", "rb") as f:
 with open(pkl_dir + "feature_lookup.pkl", "rb") as f:
     all_feats = pkl.load(f)
 
+with open(pkl_dir + "demog_dict.pkl", "rb") as f:
+    demog_lookup = pkl.load(f)
+
 # %% Save Embedding metadata
 # We can use this with tensorboard to visualize the embeddings
 with open(tensorboard_dir + "emb_metadata.tsv", "w") as f:
@@ -66,12 +69,13 @@ with open(tensorboard_dir + "emb_metadata.tsv", "w") as f:
 
 # %% Determining number of vocab entries
 N_VOCAB = len(vocab) + 1
+N_DEMOG = len(demog_lookup)
 
 # %% Subsampling if desired
 if SUBSAMPLE:
     _, inputs, _, _ = train_test_split(
         inputs,
-        [labs for _, labs in inputs],
+        [labs for _, _, labs in inputs],
         test_size=SAMPLE_FRAC,
         random_state=RAND,
         stratify=[labs for _, _, labs in inputs],
@@ -80,7 +84,7 @@ if SUBSAMPLE:
 # %% Split into test/train
 train, test, _, _ = train_test_split(
     inputs,
-    [labs for _, labs in inputs],
+    [labs for _, _, labs in inputs],
     test_size=TEST_SPLIT,
     random_state=RAND,
     stratify=[labs for _, _, labs in inputs],
@@ -89,7 +93,7 @@ train, test, _, _ = train_test_split(
 # Further split into train/validation
 train, validation, _, _ = train_test_split(
     train,
-    [labs for _, labs in train],
+    [labs for _, _, labs in train],
     test_size=VAL_SPLIT,
     random_state=RAND,
     stratify=[labs for _, _, labs in train],
@@ -127,7 +131,7 @@ test_gen = tk.create_ragged_data(test,
                                  random_seed=RAND,
                                  batch_size=BATCH_SIZE)
 
-# SEtting up the model
+# %% Setting up the model
 model = tk.LSTM(time_seq=TIME_SEQ,
                 vocab_size=N_VOCAB,
                 ragged=RAGGED,
