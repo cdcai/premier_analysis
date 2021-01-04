@@ -14,7 +14,6 @@ from focal_loss import BinaryFocalLoss
 from sklearn.metrics import (average_precision_score, classification_report,
                              roc_auc_score)
 from sklearn.model_selection import train_test_split
-from sklearn.utils import compute_class_weight
 from tensorflow.keras.callbacks import TensorBoard
 
 import tools.analysis as ta
@@ -75,7 +74,7 @@ if SUBSAMPLE:
         [labs for _, labs in inputs],
         test_size=SAMPLE_FRAC,
         random_state=RAND,
-        stratify=[labs for _, labs in inputs],
+        stratify=[labs for _, _, labs in inputs],
     )
 
 # %% Split into test/train
@@ -84,7 +83,7 @@ train, test, _, _ = train_test_split(
     [labs for _, labs in inputs],
     test_size=TEST_SPLIT,
     random_state=RAND,
-    stratify=[labs for _, labs in inputs],
+    stratify=[labs for _, _, labs in inputs],
 )
 
 # Further split into train/validation
@@ -93,7 +92,7 @@ train, validation, _, _ = train_test_split(
     [labs for _, labs in train],
     test_size=VAL_SPLIT,
     random_state=RAND,
-    stratify=[labs for _, labs in train],
+    stratify=[labs for _, _, labs in train],
 )
 
 # %% Compute steps-per-epoch
@@ -101,17 +100,8 @@ train, validation, _, _ = train_test_split(
 STEPS_PER_EPOCH = len(train) // BATCH_SIZE
 VALID_STEPS_PER_EPOCH = len(validation) // BATCH_SIZE
 
-# %% Compute class weights
-class_weights = compute_class_weight(
-    class_weight="balanced",
-    classes=np.unique([labs for _, labs in train]),
-    y=[labs for _, labs in train],
-)
-
-class_weights = dict(zip([0, 1], class_weights))
-
 # %% Compute initial output bias
-neg, pos = np.bincount([lab for _, lab in train])
+neg, pos = np.bincount([lab for _, _, lab in train])
 out_bias = np.log([pos / neg])
 
 # %%
