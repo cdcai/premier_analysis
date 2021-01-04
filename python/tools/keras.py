@@ -39,7 +39,7 @@ def create_ragged_data(inputs: list,
     X = tf.ragged.constant(seq)
 
     # Sanity check
-    assert X.shape.as_list() == [len(Seq), None, None]
+    assert X.shape.as_list() == [len(seq), None, None]
 
     # Making demographics non-ragged
     demog = tf.ragged.constant([dem for dem, _, _ in inputs])
@@ -63,9 +63,9 @@ def create_ragged_data(inputs: list,
         neg_idx = np.where(y == 0)[0]
 
         pos_data = tf.data.Dataset.from_tensor_slices(
-            (tf.gather(X, pos_idx), y[pos_idx]))
+            (tf.gather(X, pos_idx), tf.gather(demog, pos_idx), y[pos_idx]))
         neg_data = tf.data.Dataset.from_tensor_slices(
-            (tf.gather(X, neg_idx), y[neg_idx]))
+            (tf.gather(X, neg_idx), tf.gather(demog, neg_idx), y[neg_idx]))
 
         data_gen = tf.data.experimental.sample_from_datasets(
             datasets=[neg_data, pos_data],
@@ -73,10 +73,10 @@ def create_ragged_data(inputs: list,
             seed=random_seed)
 
     else:
-        data_gen = tf.data.Dataset.from_tensor_slices((X, y))
+        data_gen = tf.data.Dataset.from_tensor_slices((X, demog, y))
 
     if shuffle:
-        data_gen = data_gen.shuffle(buffer_size=len(x),
+        data_gen = data_gen.shuffle(buffer_size=len(seq),
                                     seed=random_seed,
                                     reshuffle_each_iteration=True)
 

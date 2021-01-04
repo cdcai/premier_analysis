@@ -69,7 +69,7 @@ def main():
         trim_out = [trim_out[i] for i in range(n_patients) if keepers[i]]
 
     # output max time to use in keras model
-    print("Use TIME_SEQ:{}".format(max([len(x) for x, _ in trim_out])))
+    print("Use TIME_SEQ:{}".format(max([len(x) for x, _, _ in trim_out])))
 
     # Saving the trimmed sequences to disk
     with open(pkl_dir + 'trimmed_seqs.pkl', 'wb') as f:
