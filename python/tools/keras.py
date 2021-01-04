@@ -18,7 +18,7 @@ from tensorflow.keras.preprocessing.sequence import pad_sequences
 import tensorflow_addons as tfa
 
 
-def create_ragged_data(inputs: tuple,
+def create_ragged_data(inputs: list,
                        max_time: float,
                        epochs: int,
                        batch_size: int = 32,
@@ -31,15 +31,18 @@ def create_ragged_data(inputs: tuple,
                        shuffle: bool = True) -> tf.data.Dataset:
     """A tf.dataset generator which handles both ragged and dense data accordingly"""
     # Check that empty lists are converted to zeros
-    x = [[(lambda x: [0] if x == [] else x)(bags) for bags in seq]
-         for seq, _ in inputs]
+    seq = [[(lambda x: [0] if x == [] else x)(bags) for bags in seq]
+           for seq, _, _ in inputs]
 
     # Convert to ragged
     # shape: (len(x), None, None)
-    X = tf.ragged.constant(x)
+    X = tf.ragged.constant(seq)
 
     # Sanity check
-    assert X.shape.as_list() == [len(x), None, None]
+    assert X.shape.as_list() == [len(Seq), None, None]
+
+    # Making demographics non-ragged
+    demog = tf.ragged.constant([dem for dem, _, _ in inputs])
 
     if not ragged:
         # This will be an expensive operation
@@ -48,7 +51,7 @@ def create_ragged_data(inputs: tuple,
 
     # Labs as stacked
     # NOTE: some loss functions require this to be float
-    y = np.array([tup[1] for tup in inputs],
+    y = np.array([tup[2] for tup in inputs],
                  dtype=np.int32 if label_int else np.float)
 
     # Make sure our data are equal
@@ -309,43 +312,45 @@ class LSTMHyperModel(HyperModel):
             avg = K.mean(mult, axis=2)
 
         lstm = keras.layers.LSTM(units=hp.Int("LSTM Units",
-                                 min_value=32,
-                                 max_value=512,
-                                 default=32,
-                                 step=32),
-                    dropout=hp.Float("LSTM Dropout",
+                                              min_value=32,
+                                              max_value=512,
+                                              default=32,
+                                              step=32),
+                                 dropout=hp.Float("LSTM Dropout",
+                                                  min_value=0.0,
+                                                  max_value=0.9,
+                                                  default=0.4,
+                                                  step=0.01),
+                                 recurrent_dropout=hp.Float(
+                                     "LSTM Recurrent Dropout",
                                      min_value=0.0,
                                      max_value=0.9,
                                      default=0.4,
                                      step=0.01),
-                    recurrent_dropout=hp.Float("LSTM Recurrent Dropout",
-                                               min_value=0.0,
-                                               max_value=0.9,
-                                               default=0.4,
-                                               step=0.01),
-                    activity_regularizer=keras.regularizers.l1_l2(
-                        l1=hp.Float("LSTM Activation L1",
-                                    min_value=0.0,
-                                    max_value=0.1,
-                                    step=0.01),
-                        l2=hp.Float("LSTM Activation L2",
-                                    min_value=0.0,
-                                    max_value=0.1,
-                                    step=0.01)),
-                    kernel_regularizer=keras.regularizers.l1_l2(
-                        l1=hp.Float("LSTM weights L1",
-                                    min_value=0.0,
-                                    max_value=0.1,
-                                    step=0.01),
-                        l2=hp.Float("LSTM weights L2",
-                                    min_value=0.0,
-                                    max_value=0.1,
-                                    step=0.01)),
-                    name="Recurrent")(avg)
+                                 activity_regularizer=keras.regularizers.l1_l2(
+                                     l1=hp.Float("LSTM Activation L1",
+                                                 min_value=0.0,
+                                                 max_value=0.1,
+                                                 step=0.01),
+                                     l2=hp.Float("LSTM Activation L2",
+                                                 min_value=0.0,
+                                                 max_value=0.1,
+                                                 step=0.01)),
+                                 kernel_regularizer=keras.regularizers.l1_l2(
+                                     l1=hp.Float("LSTM weights L1",
+                                                 min_value=0.0,
+                                                 max_value=0.1,
+                                                 step=0.01),
+                                     l2=hp.Float("LSTM weights L2",
+                                                 min_value=0.0,
+                                                 max_value=0.1,
+                                                 step=0.01)),
+                                 name="Recurrent")(avg)
         output = Dense(1,
                        activation="sigmoid",
                        name="Output",
-                       bias_initializer=tf.keras.initializers.Constant(self.bias_init.item()))(lstm)
+                       bias_initializer=tf.keras.initializers.Constant(
+                           self.bias_init.item()))(lstm)
 
         model = keras.Model(inp, output, name="LSTM-Hyper")
 
@@ -353,7 +358,8 @@ class LSTMHyperModel(HyperModel):
         momentum = hp.Choice("Momentum", [0.0, 0.2, 0.4, 0.6, 0.8, 0.9])
 
         model.compile(
-            optimizer=keras.optimizers.SGD(learning_rate=lr, momentum=momentum),
+            optimizer=keras.optimizers.SGD(learning_rate=lr,
+                                           momentum=momentum),
             # NOTE: TFA version won't run in kerastuner for some reason
             # loss=tfa.losses.SigmoidFocalCrossEntropy()
             #     alpha=hp.Float("Balancing Factor",
@@ -365,7 +371,7 @@ class LSTMHyperModel(HyperModel):
             #                    max_value=5.0,
             #                    step=0.5,
             #                    default=2.0)),
-            # NOTE: For gamma = 0 & alpha = 1, Focal loss = binary_crossentropy 
+            # NOTE: For gamma = 0 & alpha = 1, Focal loss = binary_crossentropy
             loss=BinaryFocalLoss(gamma=hp.Float("Modulating Factor",
                                                 min_value=0.0,
                                                 max_value=5.0,
@@ -378,10 +384,13 @@ class LSTMHyperModel(HyperModel):
                                                      step=0.25)),
             metrics=[
                 keras.metrics.AUC(num_thresholds=int(1e4), name="ROC-AUC"),
-                keras.metrics.AUC(num_thresholds=int(1e4), curve="PR", name="PR-AUC")
+                keras.metrics.AUC(num_thresholds=int(1e4),
+                                  curve="PR",
+                                  name="PR-AUC")
             ])
 
         return model
+
 
 def LSTM(time_seq,
          vocab_size,
@@ -408,7 +417,7 @@ def LSTM(time_seq,
                                   output_dim=1,
                                   mask_zero=True,
                                   name="Average_Embeddings")(input_layer)
-    
+
     # Multiply and average
     mult = keras.layers.Multiply(name="Embeddings_by_Average")([emb1, emb2])
 
@@ -419,19 +428,18 @@ def LSTM(time_seq,
                                   name="Averaging")(mult)
     else:
         avg = keras.backend.mean(mult, axis=2)
-    
+
     lstm_layer = keras.layers.LSTM(
         lstm_dim,
         dropout=lstm_dropout,
         recurrent_dropout=recurrent_dropout,
         name="Recurrent",
     )(avg)
-    
+
     output_dim = keras.layers.Dense(
         n_classes,
         activation="sigmoid",
         bias_initializer=tf.keras.initializers.Constant(output_bias),
         name="Output")(lstm_layer)
-    
+
     return keras.Model(input_layer, output_dim)
-    

@@ -114,17 +114,14 @@ def df_to_features(df,
     if num_col is not None:
         # Converting the numeric values to quantiles
         df['q'] = df.groupby(text_col)[num_col].transform(
-            lambda x: pd.qcut(x=x, 
-                              q=buckets, 
-                              labels=False, 
-                              duplicates='drop'))
-        
+            lambda x: pd.qcut(x=x, q=buckets, labels=False, duplicates='drop'))
+
         # Figuring out which tests have non-numeric results
         missing_num = np.where(np.isnan(df.q))[0]
-        
+
         # Converting the quantiles to strings
         qstr = [doc for doc in ' q' + df.q.astype(str)]
-        
+
         # Replacing missing numerics with the original test result
         if replace_col is not None:
             for i in missing_num:
@@ -133,10 +130,10 @@ def df_to_features(df,
                     qstr[i] = ' ' + rep
                 else:
                     qstr[i] = ' none'
-        
+
         # Adding the quantiles back to the text column
         text += pd.Series(qstr)
-    
+
     # Making a lookup dict for the features
     ftr_dict, code_dict = col_to_features(text, feature_prefix)
 
@@ -269,6 +266,19 @@ def find_cutpoints(visit_type: list,
 
 
 def trim_sequence(inputs, labels, cuts):
+    """
+    Provided a list of input data, labels, and cutpoints,
+    trim sequences and append labels appropriately.
+
+    Args:
+
+        inputs (tuple): A tuple of length two where the first element is a list of sequences to be trimmed
+            and the second contains a list of sample-level sequences or features to be passed thru
+        labels (list): A list of visit-level labels which will be indexed by the final cut to determine
+            appropriate sample label 
+        cuts (list): A list of start and end indices for the list of sequences and label idx for the sample
+            to use. Computed in find_cutpoints
+    """
     in_start, in_end = cuts[0][0], cuts[0][1]
     label_id = cuts[1]
-    return inputs[in_start:in_end], labels[label_id]
+    return inputs[0][in_start:in_end], inputs[1], labels[label_id]
