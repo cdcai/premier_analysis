@@ -70,6 +70,7 @@ train, val = train_test_split(train,
 
 # Fitting a logistic regression to the whole dataset
 lgr = LogisticRegression(max_iter=5000)
+lgr.fit(X, y)
 exp_coefs = np.exp(lgr.coef_)[0]
 top_coef = np.argsort(exp_coefs)[::-1][0:30]
 top_ftrs = [vocab[code] for code in top_coef]
