@@ -15,6 +15,7 @@ NO_VITALS = True
 ADD_DEMOG = True
 TIME_UNIT = "dfi"
 REVERSE_VOCAB = True
+MISA_ONLY = True
 
 # Whether to write the full trimmed sequence file to disk as pqruet
 WRITE_PARQUET = False
@@ -38,7 +39,8 @@ misa_data = pd.read_csv(targets_dir + 'targets.csv', ";")
 trimmed_seq = pd.read_parquet(output_dir + "parquet/flat_features.parquet")
 
 # %% Filter Denom to those identified in MISA case def
-trimmed_seq = trimmed_seq[trimmed_seq.medrec_key.isin(misa_data.medrec_key)]
+if MISA_ONLY:
+    trimmed_seq = trimmed_seq[trimmed_seq.medrec_key.isin(misa_data.medrec_key)]
 
 # Determine unique medrec_keys
 n_medrec = trimmed_seq["medrec_key"].nunique()
