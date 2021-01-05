@@ -23,7 +23,7 @@ from tools.analysis import grid_metrics
 # %% Globals
 TIME_SEQ = 225
 TARGET = "misa_pt"
-RAGGED = True
+RAGGED = False
 LSTM_DROPOUT = 0.4
 # NOTE: Recurrent dropout is advisable, but it also means
 # you forgoe CuDNN-optimization for the LSTM, so it will train
@@ -115,6 +115,7 @@ train_gen = tk.create_ragged_data(train,
                                   max_demog=MAX_DEMOG,
                                   epochs=EPOCHS,
                                   random_seed=RAND,
+                                  ragged=RAGGED,
                                   resample=False,
                                   resample_frac=[0.9, 0.1],
                                   batch_size=BATCH_SIZE)
@@ -122,6 +123,7 @@ train_gen = tk.create_ragged_data(train,
 validation_gen = tk.create_ragged_data(validation,
                                        max_time=TIME_SEQ,
                                        max_demog=MAX_DEMOG,
+                                       ragged=RAGGED,
                                        epochs=EPOCHS,
                                        random_seed=RAND,
                                        batch_size=BATCH_SIZE)
@@ -130,22 +132,29 @@ validation_gen = tk.create_ragged_data(validation,
 test_gen = tk.create_ragged_data(test,
                                  max_time=TIME_SEQ,
                                  max_demog=MAX_DEMOG,
+                                 ragged=RAGGED,
                                  epochs=1,
                                  shuffle=False,
                                  random_seed=RAND,
                                  batch_size=BATCH_SIZE)
 
 # %% Setting up the model
-model = tk.LSTM(time_seq=TIME_SEQ,
-                vocab_size=N_VOCAB,
-                n_demog=N_DEMOG,
-                n_demog_bags=MAX_DEMOG,
-                ragged=RAGGED,
-                output_bias=out_bias,
-                lstm_dropout=LSTM_DROPOUT,
-                recurrent_dropout=LSTM_RECURRENT_DROPOUT,
-                batch_size=BATCH_SIZE)
-
+# model = tk.LSTM(time_seq=TIME_SEQ,
+#                 vocab_size=N_VOCAB,
+#                 n_demog=N_DEMOG,
+#                 n_demog_bags=MAX_DEMOG,
+#                 ragged=RAGGED,
+#                 output_bias=out_bias,
+#                 lstm_dropout=LSTM_DROPOUT,
+#                 recurrent_dropout=LSTM_RECURRENT_DROPOUT,
+#                 batch_size=BATCH_SIZE)
+model = tk.attention_model(time_seq=TIME_SEQ,
+                           vocab_size=N_VOCAB,
+                           n_demog=N_DEMOG,
+                           n_demog_bags=MAX_DEMOG,
+                           output_bias=out_bias,
+                           att_dropout=LSTM_DROPOUT,
+                           batch_size=BATCH_SIZE)
 model.compile(
     optimizer="adam",
     # NOTE: TFA focal loss is failing sporadically. I think it has something

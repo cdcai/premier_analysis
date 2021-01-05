@@ -46,12 +46,11 @@ def create_ragged_data(inputs: list,
     # BUG: Model doesn't seem to like this when it's ragged. Figure it out eventually.
     demog = tf.ragged.constant([dem for _, dem, _ in inputs])
 
-    demog = demog.to_tensor(default_value=0,
-                            shape=(demog.shape[0], max_demog))
+    demog = demog.to_tensor(default_value=0, shape=(demog.shape[0], max_demog))
     if not ragged:
         # This will be an expensive operation
         # and will probably not work.
-        X = X.to_tensor()
+        X = X.to_tensor(default_value=0, shape=(len(seq), max_time, X.bounding_shape()[2]))
 
     # Labs as stacked
     # NOTE: some loss functions require this to be float
@@ -462,6 +461,67 @@ def LSTM(time_seq,
     demog_dense = keras.layers.Flatten()(demog_dense)
 
     comb = keras.layers.Concatenate()([lstm_layer, demog_dense])
+
+    output_dim = keras.layers.Dense(
+        n_classes,
+        activation="sigmoid",
+        bias_initializer=tf.keras.initializers.Constant(output_bias),
+        name="Output")(comb)
+
+    return keras.Model([input_layer, input_layer_2], output_dim)
+
+
+def attention_model(time_seq,
+                    vocab_size,
+                    emb_dim=64,
+                    emb_dropout=0.2,
+                    n_att=3,
+                    att_dropout=0.2,
+                    n_classes=1,
+                    n_demog_bags=6,
+                    n_demog=11,
+                    output_bias=0.0,
+                    batch_size=32):
+    """
+    Using multi-head attention model. (Requires TF 2.4) Also cannot be ragged.
+    """
+    # Input layer
+    input_layer = keras.Input(shape=(time_seq, None), batch_size=batch_size)
+    # Feature Embeddings
+    emb1 = keras.layers.Embedding(vocab_size,
+                                  output_dim=emb_dim,
+                                  mask_zero=True,
+                                  name="Feature_Embeddings")(input_layer)
+    # Average weights of embedding
+    emb2 = keras.layers.Embedding(vocab_size,
+                                  output_dim=1,
+                                  mask_zero=True,
+                                  name="Average_Embeddings")(input_layer)
+
+    # Multiply and average
+    mult = keras.layers.Multiply(name="Embeddings_by_Average")([emb1, emb2])
+
+    avg = keras.backend.mean(mult, axis=2)
+
+    att_layer = keras.layers.MultiHeadAttention(num_heads=n_att,
+                                                key_dim=n_att,
+                                                dropout=att_dropout,
+                                                name="Attention")(avg, avg,
+                                                                  avg)
+
+    pool = keras.layers.GlobalAveragePooling1D()(att_layer)
+
+    input_layer_2 = keras.Input(shape=(n_demog_bags, ), batch_size=batch_size)
+
+    demog_emb = keras.layers.Embedding(
+        n_demog, output_dim=5, mask_zero=True,
+        name="Demographic_Embeddings")(input_layer_2)
+
+    demog_dense = keras.layers.Dense(units=1, activation="relu")(demog_emb)
+
+    demog_dense = keras.layers.Flatten()(demog_dense)
+
+    comb = keras.layers.Concatenate()([pool, demog_dense])
 
     output_dim = keras.layers.Dense(
         n_classes,
