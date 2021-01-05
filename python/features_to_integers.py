@@ -110,6 +110,10 @@ if ADD_DEMOG:
 
     demog_vocab = demog_vec.vocabulary_
 
+    # This allows us to use 0 for padding if we coerce to dense
+    for k in demog_vocab.keys():
+        demog_vocab[k] += 1
+
     demog_ints = [[
         demog_vocab[k] for k in doc.split() if k in demog_vocab.keys()
     ] for doc in demog_list]

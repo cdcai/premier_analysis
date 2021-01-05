@@ -69,7 +69,8 @@ with open(tensorboard_dir + "emb_metadata.tsv", "w") as f:
 
 # %% Determining number of vocab entries
 N_VOCAB = len(vocab) + 1
-N_DEMOG = len(demog_lookup)
+N_DEMOG = len(demog_lookup) + 1
+MAX_DEMOG = max(len(x) for _, x, _ in inputs)
 
 # %% Subsampling if desired
 if SUBSAMPLE:
@@ -111,6 +112,7 @@ out_bias = np.log([pos / neg])
 # %%
 train_gen = tk.create_ragged_data(train,
                                   max_time=TIME_SEQ,
+                                  max_demog=MAX_DEMOG,
                                   epochs=EPOCHS,
                                   random_seed=RAND,
                                   resample=False,
@@ -119,6 +121,7 @@ train_gen = tk.create_ragged_data(train,
 
 validation_gen = tk.create_ragged_data(validation,
                                        max_time=TIME_SEQ,
+                                       max_demog=MAX_DEMOG,
                                        epochs=EPOCHS,
                                        random_seed=RAND,
                                        batch_size=BATCH_SIZE)
@@ -126,6 +129,7 @@ validation_gen = tk.create_ragged_data(validation,
 # NOTE: don't shuffle test data
 test_gen = tk.create_ragged_data(test,
                                  max_time=TIME_SEQ,
+                                 max_demog=MAX_DEMOG,
                                  epochs=1,
                                  shuffle=False,
                                  random_seed=RAND,
@@ -134,6 +138,8 @@ test_gen = tk.create_ragged_data(test,
 # %% Setting up the model
 model = tk.LSTM(time_seq=TIME_SEQ,
                 vocab_size=N_VOCAB,
+                n_demog=N_DEMOG,
+                n_demog_bags=MAX_DEMOG,
                 ragged=RAGGED,
                 output_bias=out_bias,
                 lstm_dropout=LSTM_DROPOUT,
@@ -153,7 +159,7 @@ model.compile(
 
 model.summary()
 
-# Create Tensorboard callback
+# %% Create Tensorboard callback
 tb_callback = TensorBoard(
     log_dir=tensorboard_dir + "/" + TARGET + "/" +
     datetime.now().strftime("%Y%m%d-%H%M%S") + "/",

@@ -20,6 +20,7 @@ import tensorflow_addons as tfa
 
 def create_ragged_data(inputs: list,
                        max_time: float,
+                       max_demog: int,
                        epochs: int,
                        batch_size: int = 32,
                        random_seed: int = 1234,
@@ -41,9 +42,12 @@ def create_ragged_data(inputs: list,
     # Sanity check
     assert X.shape.as_list() == [len(seq), None, None]
 
-    # Making demographics non-ragged
-    demog = tf.ragged.constant([dem for dem, _, _ in inputs])
+    # Making demographics dense
+    # BUG: Model doesn't seem to like this when it's ragged. Figure it out eventually.
+    demog = tf.ragged.constant([dem for _, dem, _ in inputs])
 
+    demog = demog.to_tensor(default_value=0,
+                            shape=(demog.shape[0], max_demog))
     if not ragged:
         # This will be an expensive operation
         # and will probably not work.
@@ -62,10 +66,17 @@ def create_ragged_data(inputs: list,
         pos_idx = np.where(y == 1)[0]
         neg_idx = np.where(y == 0)[0]
 
-        pos_data = tf.data.Dataset.from_tensor_slices(
-            (tf.gather(X, pos_idx), tf.gather(demog, pos_idx), y[pos_idx]))
-        neg_data = tf.data.Dataset.from_tensor_slices(
-            (tf.gather(X, neg_idx), tf.gather(demog, neg_idx), y[neg_idx]))
+        pos_samples = tf.data.Dataset.from_tensor_slices(
+            (tf.gather(X, pos_idx), tf.gather(demog, pos_idx)))
+        pos_labels = tf.data.Dataset.from_tensor_slices(y[pos_idx])
+
+        pos_data = tf.data.Dataset.zip((pos_samples, pos_labels))
+
+        neg_samples = tf.data.Dataset.from_tensor_slices(
+            (tf.gather(X, neg_idx), tf.gather(demog, neg_idx)))
+        neg_labels = tf.data.Dataset.from_tensor_slices(y[neg_idx])
+
+        neg_data = tf.data.Dataset.zip((neg_samples, neg_labels))
 
         data_gen = tf.data.experimental.sample_from_datasets(
             datasets=[neg_data, pos_data],
@@ -73,8 +84,10 @@ def create_ragged_data(inputs: list,
             seed=random_seed)
 
     else:
-        data_gen = tf.data.Dataset.from_tensor_slices((X, demog, y))
+        data_samp = tf.data.Dataset.from_tensor_slices((X, demog))
+        data_lab = tf.data.Dataset.from_tensor_slices(y)
 
+        data_gen = tf.data.Dataset.zip((data_samp, data_lab))
     if shuffle:
         data_gen = data_gen.shuffle(buffer_size=len(seq),
                                     seed=random_seed,
@@ -82,7 +95,7 @@ def create_ragged_data(inputs: list,
 
     data_gen = data_gen.repeat(epochs)
 
-    data_gen = data_gen.batch(batch_size)
+    data_gen = data_gen.batch(batch_size, drop_remainder=True)
 
     return data_gen
 
@@ -400,6 +413,8 @@ def LSTM(time_seq,
          lstm_dropout=0.2,
          recurrent_dropout=0.2,
          n_classes=1,
+         n_demog_bags=6,
+         n_demog=11,
          output_bias=0.0,
          batch_size=32,
          ragged=True):
@@ -436,10 +451,22 @@ def LSTM(time_seq,
         name="Recurrent",
     )(avg)
 
+    input_layer_2 = keras.Input(shape=(n_demog_bags, ), batch_size=batch_size)
+
+    demog_emb = keras.layers.Embedding(
+        n_demog, output_dim=5, mask_zero=True,
+        name="Demographic_Embeddings")(input_layer_2)
+
+    demog_dense = keras.layers.Dense(units=1, activation="relu")(demog_emb)
+
+    demog_dense = keras.layers.Flatten()(demog_dense)
+
+    comb = keras.layers.Concatenate()([lstm_layer, demog_dense])
+
     output_dim = keras.layers.Dense(
         n_classes,
         activation="sigmoid",
         bias_initializer=tf.keras.initializers.Constant(output_bias),
-        name="Output")(lstm_layer)
+        name="Output")(comb)
 
-    return keras.Model(input_layer, output_dim)
+    return keras.Model([input_layer, input_layer_2], output_dim)
