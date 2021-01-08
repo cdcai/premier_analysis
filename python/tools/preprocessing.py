@@ -2,7 +2,6 @@
 
 import numpy as np
 import pandas as pd
-import multiprocessing
 import os
 import sys
 
@@ -109,6 +108,7 @@ def df_to_features(df,
                    slim=True):
     # Pulling out the text
     text = df[text_col].astype(str)
+    df[text_col] = text
 
     # Optionally quantizing the numeric column
     if num_col is not None:

@@ -21,9 +21,7 @@ MISA_ONLY = True
 WRITE_PARQUET = False
 
 # Setting the directories
-#output_dir = os.path.abspath('../output/') + '/'
 output_dir = os.path.abspath('./output/') + '/'
-
 data_dir = os.path.abspath('../data/data/') + '/'
 targets_dir = os.path.abspath('../data/targets/') + '/'
 pkl_dir = output_dir + 'pkl/'

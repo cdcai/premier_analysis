@@ -15,38 +15,50 @@ from multiprocessing import Pool
 import tools.preprocessing as tp
 
 
-def get_times(df, dict, day_col=None, time_col=None, ftr_col="ftr"):
+def get_times(df, 
+              dict, 
+              day_col=None, 
+              time_col=None, 
+              ftr_col="ftr",
+              day_only=True):
     """Gets days, hours, and minutes from index for a table"""
     # Doing the days
-    dfi_orig = np.array([dict[id] for id in df.pat_key])
+    dfi_orig = np.array([dict[id] for id in df.pat_key], dtype=np.uint16)
 
     # Optionally returning early if the table has no existing day or time
     if day_col is None:
         out = df[["pat_key", ftr_col]]
         out["dfi"] = dfi_orig
-        out["hfi"] = out.dfi * 24
-        out["mfi"] = out.hfi * 60
+        if not day_only:
+            out["hfi"] = out.dfi * 24
+            out["mfi"] = out.hfi * 60
         return out
 
     # Doing the hours and minutes
     dfi = np.array(dfi_orig + df[day_col], dtype=np.uint32)
-    hfi = dfi * 24
-    mfi = hfi * 60
-    if time_col is not None:
-        with Pool() as p:
-            times = [t for t in df[time_col]]
-            hours = np.array(p.map(tp.time_to_hours, times), dtype=np.uint32)
-            mins = np.array(p.map(tp.time_to_minutes, times), dtype=np.uint32)
-            p.close()
-            p.join()
-        hfi += hours
-        mfi += mins
+    
+    # Optionally working with hours and minutes from index
+    if not day_only:
+        hfi = dfi * 24
+        mfi = hfi * 60
+        
+        # Converting the times to hours and minutes
+        if time_col is not None:
+            with Pool() as p:
+                times = [t for t in df[time_col]]
+                hours = np.array(p.map(tp.time_to_hours, times), dtype=np.uint32)
+                mins = np.array(p.map(tp.time_to_minutes, times), dtype=np.uint32)
+                p.close()
+                p.join()
+            hfi += hours
+            mfi += mins
+        
+        out["hfi"] = hfi
+        out["mfi"] = mfi
 
     # Returning the new df
     out = df[["pat_key", ftr_col]]
     out["dfi"] = dfi
-    out["hfi"] = hfi
-    out["mfi"] = mfi
 
     return out
 

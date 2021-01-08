@@ -50,10 +50,14 @@ def main():
         text_col='lab_test',
         time_cols=['observation_day_number', 'observation_time_of_day'],
         num_col='test_result_numeric_value')
+    pq.vitals = []
+    
     bill, bill_dict = tp.df_to_features(pq.bill,
                                         feature_prefix='bill',
                                         text_col='std_chg_desc',
                                         time_cols=['serv_day'])
+    pq.bill = []
+    
     genlab, genlab_dict = tp.df_to_features(
         pq.genlab,
         feature_prefix='genl',
@@ -61,14 +65,19 @@ def main():
         time_cols=['collection_day_number', 'collection_time_of_day'],
         replace_col='lab_test_result',
         num_col='numeric_value')
+    pq.genlab = []
+    
     proc, proc_dict = tp.df_to_features(pq.proc,
                                         feature_prefix='proc',
                                         text_col='icd_code',
                                         time_cols=['proc_day'])
+    pq.proc = []
+    
     diag, diag_dict = tp.df_to_features(pq.diag,
                                         feature_prefix='dx',
                                         text_col='icd_code')
-
+    pq.diag = []
+    
     # Dropping pat_keys that won't have a days_from_index
     bill = bill.merge(pq.id.pat_key, how='right')
 
@@ -82,6 +91,9 @@ def main():
         feature_prefix='lbrs',
         text_col='text',
         time_cols=['spec_day_number', 'spec_time_of_day'])
+    
+    # Freeing up the last bit of memory memory
+    pq = []
 
     # Combining the feature dicts and saving to disk
     dicts = [v_dict, bill_dict, genlab_dict, proc_dict, diag_dict, lab_res_dict]
@@ -99,10 +111,7 @@ def main():
     bill = tm.get_times(bill, day_dict, 'serv_day')
     proc = tm.get_times(proc, day_dict, 'proc_day')
     diag = tm.get_times(diag, day_dict)
-
-    # Freeing up memory
-    pq = []
-
+    
     # Aggregating features by day
     print('Aggregating the features by day...')
     vitals_agg = tp.agg_features(vitals, TIME_UNIT)
