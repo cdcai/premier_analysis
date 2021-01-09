@@ -20,6 +20,7 @@ import tools.analysis as ta
 
 # Globals
 DAY_ONE_ONLY = True
+USE_DEMOG = True
 
 # Setting the directories and importing the data
 output_dir = os.path.abspath("output/") + "/"
@@ -35,9 +36,18 @@ with open(pkl_dir + "all_ftrs_dict.pkl", "rb") as f:
 with open(pkl_dir + "feature_lookup.pkl", "rb") as f:
     all_feats = pkl.load(f)
 
+with open(pkl_dir + "demog_dict.pkl", "rb") as f:
+    demog_dict = pkl.load(f)
+    demog_dict = {k:v for v, k in demog_dict.items()}
+
 # Separating the inputs and labels
 features = [t[0] for t in inputs]
-labels = [t[1] for t in inputs]
+demog = [t[1] for t in inputs]
+labels = [t[2] for t in inputs]
+
+# Counts to use for loops and stuff
+n_patients = len(features)
+n_features = np.max(list(vocab.keys()))
 
 # Optionally limiting the features to only those from the first day
 # of the actual COVID visit
@@ -46,11 +56,19 @@ if DAY_ONE_ONLY:
 else:
     features = [tp.flatten(l) for l in features]
 
+# Optionally mixing in the demographic features
+if USE_DEMOG:
+    new_demog = [[i + n_features for i in l] for l in demog]
+    features = [features[i] + new_demog[i] for i in range(n_patients)]
+    demog_vocab = {k + n_features:v for k,v in demog_dict.items()}
+    vocab.update(demog_vocab)
+    n_features = np.max([np.max(l) for l in features])
+
 # Converting the labels to an array
 y = np.array(labels, dtype=np.uint8)
 
 # Converting the features to a sparse matrix
-mat = lil_matrix((len(features), len(vocab.keys()) + 1))
+mat = lil_matrix((n_patients, n_features + 1))
 for row, cols in enumerate(features):
     mat[row, cols] = 1
 
@@ -84,6 +102,8 @@ codes = top_codes + bottom_codes
 coefs = np.concatenate([exp_coefs[top_coef],
                         exp_coefs[bottom_coef]])
 coef_df = pd.DataFrame([codes, coefs]).transpose()
+coef_df.columns = ['feature', 'aOR']
+coef_df.sort_values('aOR', ascending=False, inplace=True)
 coef_df.to_csv(output_dir + 'lgr_coefs.csv', index=False)
 
 # And then again to the training data to get predictive performance
