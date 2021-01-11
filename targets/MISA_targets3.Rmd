@@ -20,6 +20,11 @@ knitr::opts_chunk$set(
 )
 ```
 
+```{r}
+setwd("C:/Users/vij4/OneDrive - CDC/2019nCoV/premier_analysis")
+```
+
+
 ```{r packages_setup}
 #Clear existing data and graphics
 rm(list=ls())
@@ -881,19 +886,39 @@ first_misa = first_misa2_encounter %>%
   left_join(resp_dx_pts)
 
 targets = covid_genlab %>% 
-  select(pat_key) %>%
+  distinct(pat_key) %>%
   left_join(covid_data %>% select(pat_key, medrec_key)) %>% 
-  distinct(medrec_key) %>% 
-  left_join(first_misa) %>% 
-  select(medrec_key, first_misa_patkey = pat_key, misa_pt = misa2, misa_resp = resp_dx) %>%
+  left_join(first_misa %>% mutate(first_misa = 1)) %>% 
+  left_join(first_misa %>% filter(misa2==1) %>% mutate(misa_pt = 1) %>% select(medrec_key, misa_pt)) %>% 
+  select(medrec_key, pat_key, first_misa, misa_pt, misa_resp = resp_dx) %>%
   mutate(misa_pt = ifelse(is.na(misa_pt), 0, misa_pt), 
-         misa_resp = ifelse(is.na(misa_resp), 0, misa_resp))
+         first_misa = ifelse(is.na(first_misa), 0, first_misa), 
+         misa_resp = ifelse(is.na(misa_resp), 0, misa_resp)) 
+```
+
+```{r}
+# Get ICU status
+icu_yn <- covid_oth_bill %>% 
+  filter(clin_sum_code %in% c(110108, 110102)) %>%
+  distinct(pat_key) %>%
+  mutate(icu = "Y") 
+
+icu_targets = targets %>% left_join(icu_yn) %>% 
+  filter(icu == "Y") 
+
+icu_targets %>% group_by(misa_pt, first_misa) %>% count()
 ```
 
 
+
 ```{r}
-write_csv2(targets, "targets/targets.csv")
+# write_csv2(targets, "targets/targets.csv")
+write_csv2(icu_targets, "targets/icu_targets.csv")
 # write_csv2(misa2_pts, "../data/clean/misa2_pts.csv")
+
+# targets <- read.csv2("targets/targets.csv")
+
+  
 ```
 
 
