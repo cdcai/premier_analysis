@@ -197,14 +197,10 @@ fitting = model.fit(
 print(model.evaluate(test_gen))
 
 # %% Validation F1 cut
-y_validation = [[(lambda x: [0] if x == [] else x)(bags) for bags in seq]
-                for seq, _ in validation]
 
-y_validation = tf.ragged.constant(y_validation)
+y_pred_validation = model.predict(validation_gen, steps=VALID_STEPS_PER_EPOCH)
 
-y_pred_validation = model.predict(y_validation)
-
-y_true_validation = [lab for _, lab in validation]
+y_true_validation = [lab for _, _, lab in validation]
 
 # Resizing for output which is divisible by BATCH_SIZE
 y_true_validation = np.array(y_true_validation[0:y_pred_validation.shape[0]])
@@ -219,7 +215,7 @@ f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
 # %% Predicting on test data
 y_pred_test = model.predict(test_gen)
 
-y_true_test = [lab for _, lab in test]
+y_true_test = [lab for _, _, lab in test]
 y_true_test = np.array(y_true_test[0:y_pred_test.shape[0]])
 
 # %% Print the stats when taking the cutpoint from the validation set (not cheating)
