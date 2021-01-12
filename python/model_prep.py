@@ -11,47 +11,76 @@ import os
 from importlib import reload
 from multiprocessing import Pool
 
-import tools.preprocessing as tp
 
-# Which COVID visit to use as the focus for prediction--the first, the last,
-# or both.
-CUT_METHOD = 'first'
+def find_cutpoints(visit_type,
+                   visit_length,
+                   tail=1,
+                   origin=0,
+                   how='first'):
+    '''Figures out where to cut each patient's sequence of visits.
+    '''
+    covid_idx = np.where(np.array(visit_type) == 1)[0]
+    first = np.min(covid_idx)
+    first_end = np.sum(visit_length[0:first], dtype=np.uint16) + tail
+    last = np.max(covid_idx)
+    last_end = np.sum(visit_length[0:last], dtype=np.uint16) + tail
+    
+    if how == 'first':
+        if origin != 0:
+            origin = np.maximum(0, first_end - origin)
+        return (origin, first_end), first
+    elif how == 'last':
+        if origin != 0:
+            origin = np.maximum(0, last_end - origin)
+        return (origin, last_end), last
+    elif how == 'both':
+        return (first_end, last_end), last
 
-# Time in days to the prediction horizon from the start of the final visit
-HORIZON = 1
 
-# Maximum length of lookback period
-MAX_SEQ = 225
-
-# Pat-level outcome to use as the label
-OUTCOME = 'misa_pt'
-
-# %% Setting the directories
-output_dir = os.path.abspath('output/') + '/'
-data_dir = os.path.abspath('..data/data/') + '/'
-pkl_dir = output_dir + 'pkl/'
+def trim_sequence(inputs, labels, cuts):
+    '''Trims the sequences of visits according to find_cutpoints.
+    '''
+    in_start, in_end = cuts[0][0], cuts[0][1]
+    label_id = cuts[1]
+    return inputs[0][in_start:in_end], inputs[1], labels[label_id]
 
 
-# %%
-def main():
-
+if __name__ == "__main__":
+    # Which COVID visit to use as the focus for prediction--the first, 
+    # the last, or both.
+    CUT_METHOD = 'first'
+    
+    # Time in days to the prediction horizon from the start of the final visit
+    HORIZON = 1
+    
+    # Maximum length of lookback period
+    MAX_SEQ = 225
+    
+    # Pat-level outcome to use as the label
+    OUTCOME = 'misa_pt'
+    
+    # %% Setting the directories
+    output_dir = os.path.abspath('output/') + '/'
+    data_dir = os.path.abspath('..data/data/') + '/'
+    pkl_dir = output_dir + 'pkl/'
+    
     # Reading in the full dataset
     with open(pkl_dir + 'int_seqs.pkl', 'rb') as f:
         int_seqs = pkl.load(f)
-
+    
     with open(pkl_dir + 'pat_data.pkl', 'rb') as f:
         pat_data = pkl.load(f)
-
+    
     # Total number of patients
     n_patients = len(int_seqs)
-
+    
     # Trimming the day sequences
     with Pool() as p:
         # Finding the cut points for the sequences
         find_input = [(pat_data['covid'][i], pat_data['length'][i], HORIZON,
                        MAX_SEQ, CUT_METHOD) for i in range(n_patients)]
-        cut_points = p.starmap(tp.find_cutpoints, find_input)
-
+        cut_points = p.starmap(find_cutpoints, find_input)
+        
         # Figuring out who doesn't have another day after the horizon
         keepers = [
             pat_data['length'][i][cut_points[i][1]] > 1
@@ -59,23 +88,18 @@ def main():
             and pat_data['age'][i][cut_points[i][1]] > 17
             for i in range(n_patients)
         ]
-
+        
         # Trimming the inputs and outputs to the right length
         trim_input = [(int_seqs[i], pat_data[OUTCOME][i], cut_points[i])
                       for i in range(n_patients)]
-        trim_out = p.starmap(tp.trim_sequence, trim_input)
-
+        trim_out = p.starmap(trim_sequence, trim_input)
+        
         # Keeping the keepers and booting the rest
         trim_out = [trim_out[i] for i in range(n_patients) if keepers[i]]
-
+    
     # output max time to use in keras model
     print("Use TIME_SEQ:{}".format(max([len(x) for x, _, _ in trim_out])))
-
+    
     # Saving the trimmed sequences to disk
     with open(pkl_dir + 'trimmed_seqs.pkl', 'wb') as f:
         pkl.dump(trim_out, f)
-
-
-# %%
-if __name__ == "__main__":
-    main()
