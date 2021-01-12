@@ -19,6 +19,8 @@ def find_cutpoints(visit_type,
                    origin=0,
                    how='first'):
     '''Figures out where to cut each patient's sequence of visits.
+    
+    See tools.preprocessing for full docstring.
     '''
     covid_idx = np.where(np.array(visit_type) == 1)[0]
     first = np.min(covid_idx)
@@ -40,6 +42,8 @@ def find_cutpoints(visit_type,
 
 def trim_sequence(inputs, labels, cuts):
     '''Trims the sequences of visits according to find_cutpoints.
+    
+    See tools.preprocessing for full docstring.
     '''
     in_start, in_end = cuts[0][0], cuts[0][1]
     label_id = cuts[1]
@@ -66,6 +70,8 @@ if __name__ == "__main__":
                         help='minimum age of patients to include')
     parser.add_argument('--max_age', type=int, default=120,
                         help='max age of patients to include')
+    parser.add_argument('--write_df', type=bool, default=True,
+                        help='whether to write patient data to a DF')
     args = parser.parse_args()
     
     # Setting the globals
@@ -74,8 +80,9 @@ if __name__ == "__main__":
     MAX_SEQ = args.max_seq
     OUTCOME = args.outcome
     MIN_AGE = args.min_age
+    WRITE_DF = args.write_df
     
-    #  Setting the directories
+    # Setting the directories
     output_dir = os.path.abspath(args.out_dir) + '/'
     data_dir = os.path.abspath(args.data_dir) + '/'
     pkl_dir = output_dir + 'pkl/'
@@ -104,6 +111,21 @@ if __name__ == "__main__":
             and pat_data['age'][i][cut_points[i][1]] >= MIN_AGE
             for i in range(n_patients)
         ]
+        
+        # Making a DF with the pat-level data to link for analysis later
+        if WRITE_DF:
+            cohort = [[pat_data['key'][i][cut_points[i][1]],
+                       pat_data['age'][i][cut_points[i][1]],
+                       pat_data['length'][i][cut_points[i][1]],
+                       pat_data['misa_pt'][i][cut_points[i][1]],
+                       pat_data['misa_resp'][i][cut_points[i][1]],
+                       pat_data['death'][i][cut_points[i][1]]]
+                      for i in range(n_patients) if keepers[i]]
+            cohort_df = pd.DataFrame(cohort)
+            cohort_df.columns = ['key', 'age', 'length',
+                                 'misa_pt', 'misa_resp', 'death']
+            cohort_df.to_csv(output_dir + OUTCOME + '_cohort.csv',
+                             index=False)
         
         # Trimming the inputs and outputs to the right length
         trim_input = [(int_seqs[i], pat_data[OUTCOME][i], cut_points[i])
