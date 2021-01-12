@@ -78,15 +78,15 @@ for row, cols in enumerate(features):
 X = mat.tocsr()
 
 # Splitting the data
-train, test = train_test_split(range(X.shape[0]),
-                               test_size=0.25,
+train, test = train_test_split(range(n_patients),
+                               test_size=0.5,
                                stratify=y,
                                random_state=2020)
 
-train, val = train_test_split(train,
-                              test_size=1/3,
-                              stratify=y[train],
-                              random_state=2020)
+val, test = train_test_split(test,
+                             test_size=0.5,
+                             stratify=y[test],
+                             random_state=2020)
 
 # Fitting a logistic regression to the whole dataset
 lgr = LogisticRegression(max_iter=5000)
@@ -116,20 +116,25 @@ val_gm = ta.grid_metrics(y[val], val_probs)
 f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
 test_probs = lgr.predict_proba(X[test])[:, 1]
 test_preds = ta.threshold(test_probs, f1_cut)
+stats = ta.clf_metrics(y[test],
+                       test_probs,
+                       preds_are_probs=True,
+                       cutpoint=f1_cut,
+                       mod_name='lgr')
 
-lgr_roc = roc_curve(y[test], test_probs)
-lgr_auc = auc(lgr_roc[0], lgr_roc[1])
-lgr_pr = average_precision_score(y[test], test_probs)
-lgr_stats = ta.clf_metrics(y[test], test_preds)
-lgr_stats['auc'] = lgr_auc
-lgr_stats['ap'] = lgr_pr
-
-lgr_stats.to_csv(stats_dir + OUTCOME + '_lgr_stats.csv', index=False)
+# Writing the stats to disk
+stats_filename = OUTCOME + '_stats.csv'
+if stats_filename in os.listdir(stats_dir):
+    stats_df = pd.read_csv(stats_dir + stats_filename)
+    stats_df = pd.concat([stats_df, stats], axis=1)
+    stats_df.to_csv(stats_dir + stats_filename, index=False)
+else:
+    stats.to_csv(stats_dir + stats_filename, index=False)
 
 # Writing the test predictions to the test predictions CSV
 preds_filename = OUTCOME + '_preds.csv'
 if preds_filename in os.listdir(stats_dir):
-    preds_df = pd.read_csv(preds_filename)
+    preds_df = pd.read_csv(stats_dir + preds_filename)
 else:
     preds_df = pd.read_csv(output_dir + OUTCOME + '_cohort.csv')
     preds_df = preds_df.iloc[test, :]
