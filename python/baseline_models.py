@@ -21,13 +21,15 @@ import tools.analysis as ta
 # Globals
 DAY_ONE_ONLY = True
 USE_DEMOG = True
+OUTCOME = 'death'
 
 # Setting the directories and importing the data
 output_dir = os.path.abspath("output/") + "/"
 data_dir = os.path.abspath("..data/data/") + "/"
 pkl_dir = output_dir + "pkl/"
+stats_dir = output_dir + 'analysis/'
 
-with open(pkl_dir + "trimmed_seqs.pkl", "rb") as f:
+with open(pkl_dir + OUTCOME + "_trimmed_seqs.pkl", "rb") as f:
     inputs = pkl.load(f)
 
 with open(pkl_dir + "all_ftrs_dict.pkl", "rb") as f:
@@ -104,7 +106,7 @@ coefs = np.concatenate([exp_coefs[top_coef],
 coef_df = pd.DataFrame([codes, coefs]).transpose()
 coef_df.columns = ['feature', 'aOR']
 coef_df.sort_values('aOR', ascending=False, inplace=True)
-coef_df.to_csv(output_dir + 'lgr_coefs.csv', index=False)
+coef_df.to_csv(stats_dir + OUTCOME + '_lgr_coefs.csv', index=False)
 
 # And then again to the training data to get predictive performance
 lgr = LogisticRegression(max_iter=5000)
@@ -113,13 +115,26 @@ val_probs = lgr.predict_proba(X[val])[:, 1]
 val_gm = ta.grid_metrics(y[val], val_probs)
 f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
 test_probs = lgr.predict_proba(X[test])[:, 1]
+test_preds = ta.threshold(test_probs, f1_cut)
 
 lgr_roc = roc_curve(y[test], test_probs)
 lgr_auc = auc(lgr_roc[0], lgr_roc[1])
 lgr_pr = average_precision_score(y[test], test_probs)
-lgr_stats = ta.clf_metrics(y[test],
-                           ta.threshold(test_probs, f1_cut))
+lgr_stats = ta.clf_metrics(y[test], test_preds)
 lgr_stats['auc'] = lgr_auc
 lgr_stats['ap'] = lgr_pr
 
-lgr_stats.to_csv(output_dir + 'lgr_stats.csv', index=False)
+lgr_stats.to_csv(stats_dir + OUTCOME + '_lgr_stats.csv', index=False)
+
+# Writing the test predictions to the test predictions CSV
+preds_filename = OUTCOME + '_preds.csv'
+if preds_filename in os.listdir(stats_dir):
+    preds_df = pd.read_csv(preds_filename)
+else:
+    preds_df = pd.read_csv(output_dir + OUTCOME + '_cohort.csv')
+    preds_df = preds_df.iloc[test, :]
+
+preds_df['lgr_prob'] = test_probs
+preds_df['lgr_pred'] = test_preds
+preds_df.to_csv(stats_dir + preds_filename, index=False)
+
