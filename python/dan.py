@@ -113,6 +113,11 @@ val_gm = ta.grid_metrics(y[val], val_probs)
 f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
 test_probs = mod.predict(X[test]).flatten()
 test_preds = ta.threshold(test_probs, f1_cut)
+stats = ta.clf_metrics(y[test],
+                       test_probs,
+                       preds_are_probs=True,
+                       cutpoint=f1_cut,
+                       mod_name='DAN')
 
 # Writing the results to disk
 
