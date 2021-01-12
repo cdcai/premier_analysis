@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 
 from sklearn.metrics import confusion_matrix
+from sklearn.metrics import roc_curve, average_precision_score, auc
 from sklearn.model_selection import StratifiedKFold, cross_val_predict
 from scipy.stats import binom, chi2, norm
 from copy import deepcopy
@@ -58,7 +59,10 @@ def clf_metrics(true,
                 weighted=True,
                 round=4,
                 round_pval=False,
-                mcnemar=False):
+                mcnemar=False,
+                preds_are_probs=False,
+                cutpoint=0.5,
+                mod_name=None):
     
     # Converting pd.Series to np.array
     stype = type(pd.Series())
@@ -68,6 +72,14 @@ def clf_metrics(true,
         true = true.values
     if type(average_by) == stype:
         average_by == average_by.values
+    
+    # Optionally converting probabilities to 
+    if preds_are_probs:
+        roc = roc_curve(true, pred)
+        auc_score = auc(roc[0], roc[1])
+        ap = average_precision_score(true, pred)
+        brier = brier_score(true, pred)
+        pred = threshold(pred, cutpoint)
     
     # Optionally returning macro-average results
     if average_by is not None:
@@ -93,7 +105,8 @@ def clf_metrics(true,
     mcc_num = ((tp * tn) - (fp * fn))
     mcc_denom = np.sqrt(((tp+fp)*(tp+fn)*(tn+fp)*(tn+fn)))
     mcc = mcc_num / mcc_denom
-    brier = np.round(brier_score(true, pred), round)
+    if not preds_are_probs:
+        brier = np.round(brier_score(true, pred), round)
     outmat = np.array([tp, fp, tn, fn,
                        sens, spec, ppv,
                        npv, j, f1, mcc, brier]).reshape(-1, 1)
@@ -101,6 +114,9 @@ def clf_metrics(true,
                        columns=['tp', 'fp', 'tn', 
                                 'fn', 'sens', 'spec', 'ppv',
                                 'npv', 'j', 'f1', 'mcc', 'brier'])
+    if preds_are_probs:
+        out['auc'] = auc_score
+        out['ap'] = ap
     
     # Calculating some additional measures based on positive calls
     true_prev = int(np.sum(true == 1))
@@ -121,6 +137,10 @@ def clf_metrics(true,
     # Optionally dropping the mcnemar p-val
     if mcnemar:
         out['mcnemar'] = pval
+    
+    # And optionally adding the model name
+    if mod_name is not None:
+        out['model'] = mod_name
     
     return out
 
