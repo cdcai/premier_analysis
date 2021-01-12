@@ -6,6 +6,7 @@ labels.
 import numpy as np
 import pandas as pd
 import pickle as pkl
+import argparse
 import os
 
 from importlib import reload
@@ -46,22 +47,39 @@ def trim_sequence(inputs, labels, cuts):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--cut_method', type=str, default='first',
+                        choices=['first', 'last', 'both'],
+                        help='which COVID visit(s) to use as bookends')
+    parser.add_argument('--horizon', type=int, default=1,
+                        help='prediction horizon for the target visit')
+    parser.add_argument('--max_seq', type=int, default=225,
+                        help='max number of days to include')
+    parser.add_argument('--outcome', type=str, default='misa_pt',
+                        choices=['misa_pt', 'misa_resp', 'death'],
+                        help='which outcome to use as the prediction target')
+    parser.add_argument('--out_dir', type=str, default='output/',
+                        help='output directory')
+    parser.add_argument('--data_dir', type=str, default='..data/data/',
+                        help='path to the Premier data')
+    args = parser.parse_args()
+    
     # Which COVID visit to use as the focus for prediction--the first, 
     # the last, or both.
-    CUT_METHOD = 'first'
+    CUT_METHOD = args.cut_method
     
     # Time in days to the prediction horizon from the start of the final visit
-    HORIZON = 1
+    HORIZON = args.horizon
     
     # Maximum length of lookback period
-    MAX_SEQ = 225
+    MAX_SEQ = args.max_seq
     
     # Pat-level outcome to use as the label
-    OUTCOME = 'misa_pt'
+    OUTCOME = args.outcome
     
     # %% Setting the directories
-    output_dir = os.path.abspath('output/') + '/'
-    data_dir = os.path.abspath('..data/data/') + '/'
+    output_dir = os.path.abspath(args.out_dir) + '/'
+    data_dir = os.path.abspath(args.data_dir) + '/'
     pkl_dir = output_dir + 'pkl/'
     
     # Reading in the full dataset
