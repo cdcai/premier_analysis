@@ -126,7 +126,7 @@ stats = ta.clf_metrics(y[test],
 stats_filename = OUTCOME + '_stats.csv'
 if stats_filename in os.listdir(stats_dir):
     stats_df = pd.read_csv(stats_dir + stats_filename)
-    stats_df = pd.concat([stats_df, stats], axis=1)
+    stats_df = pd.concat([stats_df, stats], axis=0)
     stats_df.to_csv(stats_dir + stats_filename, index=False)
 else:
     stats.to_csv(stats_dir + stats_filename, index=False)
