@@ -62,22 +62,20 @@ if __name__ == "__main__":
                         help='output directory')
     parser.add_argument('--data_dir', type=str, default='..data/data/',
                         help='path to the Premier data')
+    parser.add_argument('--min_age', type=int, default=18,
+                        help='minimum age of patients to include')
+    parser.add_argument('--max_age', type=int, default=120,
+                        help='max age of patients to include')
     args = parser.parse_args()
     
-    # Which COVID visit to use as the focus for prediction--the first, 
-    # the last, or both.
+    # Setting the globals
     CUT_METHOD = args.cut_method
-    
-    # Time in days to the prediction horizon from the start of the final visit
     HORIZON = args.horizon
-    
-    # Maximum length of lookback period
     MAX_SEQ = args.max_seq
-    
-    # Pat-level outcome to use as the label
     OUTCOME = args.outcome
+    MIN_AGE = args.min_age
     
-    # %% Setting the directories
+    #  Setting the directories
     output_dir = os.path.abspath(args.out_dir) + '/'
     data_dir = os.path.abspath(args.data_dir) + '/'
     pkl_dir = output_dir + 'pkl/'
@@ -101,9 +99,9 @@ if __name__ == "__main__":
         
         # Figuring out who doesn't have another day after the horizon
         keepers = [
-            pat_data['length'][i][cut_points[i][1]] > 1
+            pat_data['length'][i][cut_points[i][1]] > HORIZON
             and pat_data['inpat'][i][cut_points[i][1]] == 1
-            and pat_data['age'][i][cut_points[i][1]] > 17
+            and pat_data['age'][i][cut_points[i][1]] >= MIN_AGE
             for i in range(n_patients)
         ]
         
@@ -119,5 +117,5 @@ if __name__ == "__main__":
     print("Use TIME_SEQ:{}".format(max([len(x) for x, _, _ in trim_out])))
     
     # Saving the trimmed sequences to disk
-    with open(pkl_dir + 'trimmed_seqs.pkl', 'wb') as f:
+    with open(pkl_dir + OUTCOME + '_trimmed_seqs.pkl', 'wb') as f:
         pkl.dump(trim_out, f)
