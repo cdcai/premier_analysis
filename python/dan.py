@@ -15,6 +15,7 @@ from sklearn.metrics import auc, average_precision_score
 
 import tools.keras as tk
 import tools.analysis as ta
+import tools.preprocessing as tp
 
 
 # Globals
@@ -109,6 +110,10 @@ mod.fit(X[train], y[train],
         callbacks=callbacks)
 
 # Getting the model's predictions
+mod_name = 'dan'
+if DAY_ONE_ONLY:
+    mod_name += '_d1'
+
 val_probs = mod.predict(X[val]).flatten()
 val_gm = ta.grid_metrics(y[val], val_probs)
 f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
@@ -118,7 +123,7 @@ stats = ta.clf_metrics(y[test],
                        test_probs,
                        preds_are_probs=True,
                        cutpoint=f1_cut,
-                       mod_name='DAN')
+                       mod_name=mod_name)
 
 # Writing the results to disk
 stats_filename = OUTCOME + '_stats.csv'
@@ -137,7 +142,7 @@ else:
     preds_df = pd.read_csv(output_dir + OUTCOME + '_cohort.csv')
     preds_df = preds_df.iloc[test, :]
 
-preds_df['dan_prob'] = test_probs
-preds_df['dan_pred'] = test_preds
+preds_df[mod_name + '_prob'] = test_probs
+preds_df[mod_name + '_pred'] = test_preds
 preds_df.to_csv(stats_dir + preds_filename, index=False)
 

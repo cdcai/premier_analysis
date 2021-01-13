@@ -19,7 +19,7 @@ import tools.analysis as ta
 
 
 # Globals
-DAY_ONE_ONLY = True
+DAY_ONE_ONLY = False
 USE_DEMOG = True
 OUTCOME = 'death'
 
@@ -121,6 +121,9 @@ stats = ta.clf_metrics(y[test],
                        preds_are_probs=True,
                        cutpoint=f1_cut,
                        mod_name='lgr')
+
+if DAY_ONE_ONLY:
+    stats['model'] += '_d1'
 
 # Writing the stats to disk
 stats_filename = OUTCOME + '_stats.csv'
