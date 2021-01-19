@@ -488,13 +488,11 @@ def DAN(vocab_size,
         input_length=None,
         embedding_size=64,
         dense_size=32,
-        n_classes=1,
-        batch_size=32):
+        n_classes=1):
     '''A deep averaging network (DAN) with only a single dense layer'''
     # Specifying the input
     input = keras.Input(shape=(None if ragged else input_length,),
-                        ragged=ragged,
-                        batch_size=batch_size)
+                        ragged=ragged)
     
     # Feature Embeddings
     embeddings = keras.layers.Embedding(vocab_size,
