@@ -20,6 +20,7 @@ def create_ragged_data(inputs: list,
                        max_time: float,
                        max_demog: int,
                        epochs: int,
+                       multiclass: bool = False,
                        batch_size: int = 32,
                        random_seed: int = 1234,
                        ragged: bool = True,
@@ -52,8 +53,11 @@ def create_ragged_data(inputs: list,
 
     # Labs as stacked
     # NOTE: some loss functions require this to be float
-    y = np.array([tup[2] for tup in inputs],
-                 dtype=np.int32 if label_int else np.float)
+    if multiclass:
+        y = tf.one_hot([tup[2] for tup in inputs], max([tup[2] for tup in inputs]) + 1)
+    else:
+        y = np.array([tup[2] for tup in inputs],
+                    dtype=np.int32 if label_int else np.float)
 
     # Make sure our data are equal
     assert y.shape[0] == X.shape[0]

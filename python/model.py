@@ -68,7 +68,7 @@ with open(tensorboard_dir + "emb_metadata.tsv", "w") as f:
 N_VOCAB = len(vocab) + 1
 N_DEMOG = len(demog_lookup) + 1
 MAX_DEMOG = max(len(x) for _, x, _ in inputs)
-N_CLASS = max(x for _, _, x in inputs)
+N_CLASS = max(x for _, _, x in inputs) + 1
 
 # %% Subsampling if desired
 if SUBSAMPLE:
@@ -108,6 +108,7 @@ train_gen = tk.create_ragged_data(train,
                                   max_time=TIME_SEQ,
                                   max_demog=MAX_DEMOG,
                                   epochs=EPOCHS,
+                                  multiclass=N_CLASS > 2,
                                   random_seed=RAND,
                                   resample=False,
                                   resample_frac=[0.9, 0.1],
@@ -117,6 +118,7 @@ validation_gen = tk.create_ragged_data(validation,
                                        max_time=TIME_SEQ,
                                        max_demog=MAX_DEMOG,
                                        epochs=EPOCHS,
+                                       multiclass=N_CLASS > 2,
                                        random_seed=RAND,
                                        batch_size=BATCH_SIZE)
 
@@ -125,6 +127,7 @@ test_gen = tk.create_ragged_data(test,
                                  max_time=TIME_SEQ,
                                  max_demog=MAX_DEMOG,
                                  epochs=1,
+                                 multiclass=N_CLASS > 2,
                                  shuffle=False,
                                  random_seed=RAND,
                                  batch_size=BATCH_SIZE)
@@ -141,7 +144,7 @@ model = tk.LSTM(time_seq=TIME_SEQ,
                 batch_size=BATCH_SIZE)
 
 model.compile(optimizer="adam",
-              loss=keras.losses.SparseCategoricalCrossentropy(),
+              loss=keras.losses.CategoricalCrossentropy(),
               metrics=[
                   keras.metrics.AUC(num_thresholds=int(1e5), name="ROC-AUC"),
                   keras.metrics.AUC(num_thresholds=int(1e5),
