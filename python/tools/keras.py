@@ -44,8 +44,7 @@ def create_ragged_data(inputs: list,
     # BUG: Model doesn't seem to like this when it's ragged. Figure it out eventually.
     demog = tf.ragged.constant([dem for _, dem, _ in inputs])
 
-    demog = demog.to_tensor(default_value=0,
-                            shape=(demog.shape[0], max_demog))
+    demog = demog.to_tensor(default_value=0, shape=(demog.shape[0], max_demog))
     if not ragged:
         # This will be an expensive operation
         # and will probably not work.
@@ -157,7 +156,7 @@ class DataGenerator(keras.utils.Sequence):
         """Returns the number of batches per epoch"""
         n_batch = int(np.floor(len(self.inputs) / self.batch_size))
         return n_batch
-    
+
     def __getitem__(self, index):
         """Fetches a batch of X, y pairs given a batch number"""
         # Generate idx of the batch
@@ -406,7 +405,6 @@ class LSTMHyperModel(HyperModel):
 def LSTM(time_seq,
          vocab_size,
          emb_dim=64,
-         emb_dropout=0.2,
          lstm_dim=32,
          lstm_dropout=0.2,
          recurrent_dropout=0.2,
@@ -420,14 +418,14 @@ def LSTM(time_seq,
     # Input layer
     code_in = keras.Input(shape=(None if ragged else time_seq, None),
                           ragged=ragged,
-                           batch_size=batch_size)
-    
+                          batch_size=batch_size)
+
     # Feature Embeddings
     emb1 = keras.layers.Embedding(vocab_size,
                                   output_dim=emb_dim,
                                   mask_zero=True,
                                   name="Feature_Embeddings")(code_in)
-    
+
     # Optionally learning averaging weights for the embeddings
     if weighted_average:
         # Looking up the averaging weights for each code
@@ -435,10 +433,11 @@ def LSTM(time_seq,
                                       output_dim=1,
                                       mask_zero=True,
                                       name="Average_Embeddings")(code_in)
-        
+
         # Multiplying the code embeddings by their respective weights
-        mult = keras.layers.Multiply(name="Embeddings_by_Average")([emb1, emb2])
-        
+        mult = keras.layers.Multiply(name="Embeddings_by_Average")(
+            [emb1, emb2])
+
         # Computing the mean of the weighted embeddings
         if ragged:
             # NOTE: I think these are the equivalent ragged-aware ops
@@ -447,39 +446,38 @@ def LSTM(time_seq,
                                       name="Averaging")(mult)
         else:
             avg = keras.backend.mean(mult, axis=2)
-    
+
     else:
         avg = keras.backend.mean(emb1, axis=2)
-    
+
     # Running the sequences through the LSTM
     lstm_layer = keras.layers.LSTM(lstm_dim,
                                    dropout=lstm_dropout,
                                    recurrent_dropout=recurrent_dropout,
                                    name="Recurrent")(avg)
-    
+
     # Bringing in the demographic variables
-    demog_in = keras.Input(shape=(n_demog_bags, ), 
-                                batch_size=batch_size)
-    
+    demog_in = keras.Input(shape=(n_demog_bags, ), batch_size=batch_size)
+
     # Embedding the demographic variables
-    demog_emb = keras.layers.Embedding(n_demog, 
-                                       output_dim=lstm_dim, 
+    demog_emb = keras.layers.Embedding(n_demog,
+                                       output_dim=lstm_dim,
                                        mask_zero=True,
                                        name="Demographic_Embeddings")(demog_in)
-    
+
     # Averaging the demographic variable embeddings
     demog_avg = keras.backend.mean(demog_emb, axis=2)
-    
+
     # Concatenating the LSTM output and deemographic variable embeddings
     comb = keras.layers.Concatenate()([lstm_layer, demog_avg])
-    
+
     # Running the embeddings through a final dense layer for prediction
     output = keras.layers.Dense(
         n_classes,
         activation="sigmoid",
         bias_initializer=keras.initializers.Constant(output_bias),
         name="Output")(comb)
-    
+
     return keras.Model([code_in, demog_in], output)
 
 
@@ -491,24 +489,21 @@ def DAN(vocab_size,
         n_classes=1):
     '''A deep averaging network (DAN) with only a single dense layer'''
     # Specifying the input
-    input = keras.Input(shape=(None if ragged else input_length,),
+    input = keras.Input(shape=(None if ragged else input_length, ),
                         ragged=ragged)
-    
+
     # Feature Embeddings
     embeddings = keras.layers.Embedding(vocab_size,
                                         output_dim=embedding_size,
                                         mask_zero=True,
                                         name='embeddings')(input)
-    
+
     # Averaging the embeddings
     embedding_avg = keras.backend.mean(embeddings, 1)
-    
-    # Dense layers
-    dense = keras.layers.Dense(dense_size,
-                               name='dense_1')(embedding_avg)
-    output = keras.layers.Dense(n_classes,
-                                activation='sigmoid',
-                                name='output')(dense)
-    
-    return keras.Model(input, output)
 
+    # Dense layers
+    dense = keras.layers.Dense(dense_size, name='dense_1')(embedding_avg)
+    output = keras.layers.Dense(n_classes, activation='sigmoid',
+                                name='output')(dense)
+
+    return keras.Model(input, output)
