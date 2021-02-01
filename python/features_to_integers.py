@@ -1,12 +1,12 @@
 '''This script merges the feature columns and converts them to ints.'''
 
+# %%
 import pandas as pd
 import numpy as np
 import pickle as pkl
 import os
 
 from sklearn.feature_extraction.text import CountVectorizer
-
 
 # Setting top-level parameters
 MIN_DF = 5
@@ -20,7 +20,7 @@ MISA_ONLY = True
 WRITE_PARQUET = False
 
 # Setting the directories
-output_dir = os.path.abspath('./output/') + '/'
+output_dir = os.path.abspath('../output/') + '/'
 data_dir = os.path.abspath('../data/data/') + '/'
 targets_dir = os.path.abspath('../data/targets/') + '/'
 pkl_dir = output_dir + 'pkl/'
@@ -30,14 +30,15 @@ final_cols = ['covid_visit', 'ftrs']
 # Read in the pat and ID tables
 pat_df = pd.read_parquet(data_dir + "vw_covid_pat_all/")
 id_df = pd.read_parquet(data_dir + "vw_covid_id/")
-misa_data = pd.read_csv(targets_dir + 'targets.csv', ";")
+misa_data = pd.read_csv(targets_dir + 'icu_targets.csv', ",")
 
 # Read in the flat feature file
 trimmed_seq = pd.read_parquet(output_dir + "parquet/flat_features.parquet")
 
 # Filter Denom to those identified in MISA case def
 if MISA_ONLY:
-    trimmed_seq = trimmed_seq[trimmed_seq.medrec_key.isin(misa_data.medrec_key)]
+    trimmed_seq = trimmed_seq[trimmed_seq.medrec_key.isin(
+        misa_data.medrec_key)]
 
 # Determine unique patients
 n_patients = trimmed_seq["medrec_key"].nunique()
@@ -55,9 +56,7 @@ trimmed_seq["ftrs"] = (trimmed_seq[ftr_cols].astype(str).replace(
 
 # Fitting the vectorizer to the features
 ftrs = [doc for doc in trimmed_seq.ftrs]
-vec = CountVectorizer(ngram_range=(1, 1),
-                      min_df=MIN_DF,
-                      binary=True)
+vec = CountVectorizer(ngram_range=(1, 1), min_df=MIN_DF, binary=True)
 vec.fit(ftrs)
 vocab = vec.vocabulary_
 
@@ -81,11 +80,11 @@ seq_gen = [[seq for seq in medrec] for medrec in int_seqs]
 # Optionally add demographics
 if ADD_DEMOG:
     demog_vars = ["gender", "hispanic_ind", "race"]
-    
+
     # Append demog
     trimmed_plus_demog = trimmed_seq.merge(pat_df[["medrec_key"] + demog_vars],
                                            how="left").set_index("medrec_key")
-    
+
     # Take distinct by medrec
     demog_map = map(lambda name: name + ":" + trimmed_plus_demog[name],
                     demog_vars)
@@ -93,7 +92,7 @@ if ADD_DEMOG:
     raw_demog = demog_labeled.reset_index().drop_duplicates()
     just_demog = raw_demog.groupby("medrec_key").agg(
         lambda x: " ".join(list(set(x))).lower())
-    
+
     # BUG: Note there are some medrecs with both hispanic=y and hispanic=N
     just_demog["all_demog"] = just_demog[demog_vars].agg(" ".join, axis=1)
     demog_list = [demog for demog in just_demog.all_demog]
@@ -101,21 +100,22 @@ if ADD_DEMOG:
     demog_vec = CountVectorizer(binary=True, token_pattern=r"(?u)\b[\w:]+\b")
     demog_vec.fit(demog_list)
     demog_vocab = demog_vec.vocabulary_
-    
+
     # This allows us to use 0 for padding if we coerce to dense
     for k in demog_vocab.keys():
         demog_vocab[k] += 1
-    demog_ints = [[demog_vocab[k] for k in doc.split() 
-                   if k in demog_vocab.keys()] for doc in demog_list]
-    
+    demog_ints = [[
+        demog_vocab[k] for k in doc.split() if k in demog_vocab.keys()
+    ] for doc in demog_list]
+
     # Zip with seq_gen to produce a list of tuples
     seq_gen = [seq for seq in zip(seq_gen, demog_ints)]
-    
+
     # And saving vocab
     with open(pkl_dir + "demog_dict.pkl", "wb") as f:
         pkl.dump(demog_vocab, f)
 
-# Figuring out which visit were covid visits, 
+# Figuring out which visit were covid visits,
 # and which patients have no covid visits (post-trim)
 cv_dict = dict(zip(pat_df.pat_key, pat_df.covid_visit))
 cv_pats = [[cv_dict[pat_key] for pat_key in np.unique(seq.values)]
@@ -166,7 +166,7 @@ pat_age = [[age_dict[id] for id in np.unique(df.values)]
            for _, df in grouped_pat_keys]
 
 # Mixing in the MIS-A targets and Making a lookup for the first case definition
-misa_pt_pats = misa_data[misa_data.misa_pt == 1].first_misa_patkey
+misa_pt_pats = misa_data[misa_data.misa_filled == 1].pat_key
 misa_pt_dict = dict(zip(pat_df.pat_key, [0] * len(pat_df.pat_key)))
 for pat in misa_pt_pats:
     misa_pt_dict.update({pat: 1})
@@ -174,17 +174,18 @@ for pat in misa_pt_pats:
 misa_pt = [[misa_pt_dict[id] for id in np.unique(df.values)]
            for _, df in grouped_pat_keys]
 
-# Making a lookup for the second case definition
-misa_resp_pats = misa_data[misa_data.misa_resp == 1].first_misa_patkey
-misa_resp_dict = dict(zip(pat_df.pat_key, [0] * len(pat_df.pat_key)))
+#  Making a lookup for the multiclass labels
+misa_multi_df = trimmed_seq[["medrec_key",
+                             "pat_key"]].set_index("medrec_key").join(
+                                 misa_data[["medrec_key",
+                                            "status"]].set_index("medrec_key"))
 
-for pat in misa_resp_pats:
-    misa_resp_dict.update({pat: 1})
+misa_multi_df = misa_multi_df.drop_duplicates().drop(
+    "pat_key", axis=1).reset_index().groupby("medrec_key")
 
-misa_resp = [[misa_resp_dict[id] for id in np.unique(df.values)]
-             for _, df in grouped_pat_keys]
+misa_multi = [df.status.to_list() for _, df in misa_multi_df]
 
-# And finally saving a the pat_keys themselves to facilitate
+#  And finally saving a the pat_keys themselves to facilitate
 # record linkage during analysis
 pat_key = [[num for num in df.values] for _, df in grouped_pat_keys]
 
@@ -197,7 +198,7 @@ pat_dict = {
     'inpat': pat_inpat,
     'death': pat_deaths,
     'misa_pt': misa_pt,
-    'misa_resp': misa_resp
+    'multi_class': misa_multi
 }
 
 with open(pkl_dir + "pat_data.pkl", "wb") as f:
