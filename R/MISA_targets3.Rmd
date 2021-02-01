@@ -20,6 +20,11 @@ knitr::opts_chunk$set(
 )
 ```
 
+```{r}
+# setwd("C:/Users/vij4/OneDrive - CDC/2019nCoV/premier_analysis")
+```
+
+
 ```{r packages_setup}
 #Clear existing data and graphics
 rm(list=ls())
@@ -737,163 +742,218 @@ covid_genlab %>%
 
 
 ```{r}
-first_misa2_encounter <- combine_crit %>% 
+# first_misa2_encounter <- combine_crit %>% 
+#   select(-c(misa1, misa3)) %>%
+#   mutate(misa2 = ifelse(is.na(misa2), 0, misa2)) %>% 
+#   group_by(medrec_key) %>%
+#   filter(misa2 == max(misa2, na.rm=T)) %>%
+#   select(pat_key, misa2) %>%
+#   left_join(covid_data %>% select(pat_key, age, gender, race, adm_dt, disc_dt, disc_mon_seq)) %>%
+#   filter(misa2==1) %>% 
+#   # filter(age>=18 & age <130) %>% 
+#   ungroup %>% 
+#   group_by(medrec_key) %>%
+#   filter(disc_dt == min(disc_dt)) %>%
+#   filter(disc_mon_seq==min(disc_mon_seq)) %>%
+#   ungroup 
+
+first_misa2_encounter = combine_crit %>% 
   select(-c(misa1, misa3)) %>%
   mutate(misa2 = ifelse(is.na(misa2), 0, misa2)) %>% 
+  filter(misa2==1) %>%
+  select(pat_key, misa2) %>%
+  left_join(covid_data %>% select(pat_key, medrec_key, disc_dt, disc_mon_seq)) %>%
   group_by(medrec_key) %>%
-  filter(misa2 == max(misa2, na.rm=T)) %>%  
-  left_join(covid_data %>% select(pat_key, age, gender, race, adm_dt, disc_dt, disc_mon_seq)) %>%
-  filter(misa2==1) %>% 
-  # filter(age>=18 & age <130) %>% 
-  ungroup %>% 
-  group_by(medrec_key) %>%
-  filter(disc_dt == min(disc_dt)) %>%
-  filter(disc_mon_seq==min(disc_mon_seq)) %>%
-  ungroup 
+  filter(disc_dt == min(disc_dt), disc_mon_seq==min(disc_mon_seq)) %>%
+  ungroup() %>%
+  mutate(first_misa=1) %>% 
+  select(pat_key, first_misa)
 
 ```
+
 
 ```{r, eval=FALSE}
 first_misa2_encounter %>%
-  group_by(misa2) %>% count()
-```
-
-```{r, eval=FALSE}
-first_misa_encounter %>%
-  filter(misa==1) %>%
+  left_join(covid_data %>% select(pat_key, medrec_key)) %>% 
   distinct(medrec_key) %>% count()
 ```
 
 ```{r, eval=FALSE}
-first_misa2_encounter %>%
-  group_by(misa2) %>% #count()
-  summarise(med = median(age, na.rm=T), perc25 = quantile(age, .25, na.rm=T), perc75 = quantile(age, .75, na.rm=T), n=n(), min(age, na.rm=T), max(age, na.rm=T))
-
-first_misa2_encounter %>%
-  group_by(misa2, gender) %>%
-  count()
-
-first_misa2_encounter %>%
-  mutate(age_21_55 = ifelse(age >=21 & age <=55, 1, 0)) %>%
-  group_by(misa2, age_21_55) %>% count()
-
-first_misa2_encounter %>%
-  left_join(adm_fever_pts) %>%
-  filter(!is.na(fever)) %>%
-  group_by(misa2, fever) %>% count()
-
-misa2_pts %>%
-  filter(misa2_pt==1) %>% distinct(medrec_key) %>%
-  left_join(first_misa2_encounter %>% select(pat_key, medrec_key, misa2)) %>%
-  filter(is.na(misa2))
-
-combine_crit %>%
-  filter(medrec_key == 128991558) %>%
-  select(pat_key, age, misa2) %>%
-  left_join(covid_data %>% select(pat_key, disc_dt, disc_mon_seq))
+# first_misa2_encounter %>%
+#   group_by(misa2) %>% #count()
+#   summarise(med = median(age, na.rm=T), perc25 = quantile(age, .25, na.rm=T), perc75 = quantile(age, .75, na.rm=T), n=n(), min(age, na.rm=T), max(age, na.rm=T))
+# 
+# first_misa2_encounter %>%
+#   group_by(misa2, gender) %>%
+#   count()
+# 
+# first_misa2_encounter %>%
+#   mutate(age_21_55 = ifelse(age >=21 & age <=55, 1, 0)) %>%
+#   group_by(misa2, age_21_55) %>% count()
+# 
+# first_misa2_encounter %>%
+#   left_join(adm_fever_pts) %>%
+#   filter(!is.na(fever)) %>%
+#   group_by(misa2, fever) %>% count()
+# 
+# misa2_pts %>%
+#   filter(misa2_pt==1) %>% distinct(medrec_key) %>%
+#   left_join(first_misa2_encounter %>% select(pat_key, medrec_key, misa2)) %>%
+#   filter(is.na(misa2))
+# 
+# combine_crit %>%
+#   filter(medrec_key == 128991558) %>%
+#   select(pat_key, age, misa2) %>%
+#   left_join(covid_data %>% select(pat_key, disc_dt, disc_mon_seq))
 ```
 
 ```{r, eval=FALSE}
 # Which criteria
-criteria_met = first_misa2_encounter %>% 
-  select(medrec_key, pat_key, misa2) %>%
-  left_join(combine_crit) %>% 
-  filter(misa2==1) %>%
-  mutate(infl = ifelse(infl_crit >=1, 1, 0)) %>%
-  select(misa2, infl, shock_crit, icd_cardiac, plt_crit, icd_gi, connective_dx, kawasaki_dx)
-
-criteria_met[is.na(criteria_met)] <- 0
+# criteria_met = first_misa2_encounter %>% 
+#   select(medrec_key, pat_key, misa2) %>%
+#   left_join(combine_crit) %>% 
+#   filter(misa2==1) %>%
+#   mutate(infl = ifelse(infl_crit >=1, 1, 0)) %>%
+#   select(misa2, infl, shock_crit, icd_cardiac, plt_crit, icd_gi, connective_dx, kawasaki_dx)
+# 
+# criteria_met[is.na(criteria_met)] <- 0
 ```
 
 ```{r, eval=FALSE}
-s = criteria_met %>%
-  ungroup() %>%
-  select(infl:icd_gi) %>%
-  mutate_all(as.integer) %>%
-  as.data.frame()
-
-upset(s, 
-      order.by = "freq", 
-      point.size=3,
-      text.scale = c(1.3, 1.3, 1, 1, 2, 2))
+# s = criteria_met %>%
+#   ungroup() %>%
+#   select(infl:icd_gi) %>%
+#   mutate_all(as.integer) %>%
+#   as.data.frame()
+# 
+# upset(s, 
+#       order.by = "freq", 
+#       point.size=3,
+#       text.scale = c(1.3, 1.3, 1, 1, 2, 2))
 ```
 
 ```{r, eval=FALSE}
-covid_lab_res %>% 
-  inner_join(first_misa_encounter %>% select(pat_key, misa)) %>% 
-  filter(grepl("SARS coronavirus 2", test, ignore.case = T)) %>%
-  filter(observation != "") %>%
-  select(pat_key, test, observation, misa) %>%
-  # group_by(test) %>% count()
-  mutate(test2 = case_when(
-    grepl("SARS coronavirus 2 Ab.IgG:", test, ignore.case = T) ~ "IgG", 
-    grepl("SARS coronavirus 2 Ab.IgM:", test, ignore.case = T) ~ "IgM",
-    grepl("SARS coronavirus 2 Ab.IgG\\+IgM:", test, ignore.case = T) ~ "IgG + IgM",
-    grepl("SARS coronavirus 2 Ab.IgG & IgM panel", test, ignore.case = T) ~ "IgG + IgM",
-    grepl("SARS coronavirus 2 RNA:", test, ignore.case = T) ~ "PCR"
-  )) %>%
-  distinct(pat_key, test2, observation) %>%
-  group_by(pat_key, test2) %>%
-  filter(observation == max(observation)) %>%
-  ungroup() %>% 
-  spread(test2, observation) %>%
-  group_by(IgG, IgM, `IgG + IgM`, PCR) %>% count() %>% datatable()
-
-covid_lab_res %>% 
-  inner_join(first_misa_encounter %>% select(pat_key, misa)) %>% 
-  filter(grepl("SARS coronavirus 2", test, ignore.case = T)) %>%
-  filter(observation != "") %>%
-  select(pat_key, test, observation, misa) %>%
-  # group_by(test) %>% count()
-  mutate(test2 = case_when(
-    grepl("SARS coronavirus 2 Ab", test, ignore.case = T) ~ "Ab", 
-    grepl("SARS coronavirus 2 RNA:", test, ignore.case = T) ~ "PCR"
-  )) %>%
-  distinct(pat_key, test2, observation) %>%
-  group_by(pat_key, test2) %>%
-  filter(observation == max(observation)) %>%
-  ungroup() %>% 
-  spread(test2, observation) %>%
-  group_by(Ab, PCR) %>% count() %>% 
-  filter(Ab != "", PCR != "") %>%
-  datatable()
+# covid_lab_res %>% 
+#   inner_join(first_misa_encounter %>% select(pat_key, misa)) %>% 
+#   filter(grepl("SARS coronavirus 2", test, ignore.case = T)) %>%
+#   filter(observation != "") %>%
+#   select(pat_key, test, observation, misa) %>%
+#   # group_by(test) %>% count()
+#   mutate(test2 = case_when(
+#     grepl("SARS coronavirus 2 Ab.IgG:", test, ignore.case = T) ~ "IgG", 
+#     grepl("SARS coronavirus 2 Ab.IgM:", test, ignore.case = T) ~ "IgM",
+#     grepl("SARS coronavirus 2 Ab.IgG\\+IgM:", test, ignore.case = T) ~ "IgG + IgM",
+#     grepl("SARS coronavirus 2 Ab.IgG & IgM panel", test, ignore.case = T) ~ "IgG + IgM",
+#     grepl("SARS coronavirus 2 RNA:", test, ignore.case = T) ~ "PCR"
+#   )) %>%
+#   distinct(pat_key, test2, observation) %>%
+#   group_by(pat_key, test2) %>%
+#   filter(observation == max(observation)) %>%
+#   ungroup() %>% 
+#   spread(test2, observation) %>%
+#   group_by(IgG, IgM, `IgG + IgM`, PCR) %>% count() %>% datatable()
+# 
+# covid_lab_res %>% 
+#   inner_join(first_misa_encounter %>% select(pat_key, misa)) %>% 
+#   filter(grepl("SARS coronavirus 2", test, ignore.case = T)) %>%
+#   filter(observation != "") %>%
+#   select(pat_key, test, observation, misa) %>%
+#   # group_by(test) %>% count()
+#   mutate(test2 = case_when(
+#     grepl("SARS coronavirus 2 Ab", test, ignore.case = T) ~ "Ab", 
+#     grepl("SARS coronavirus 2 RNA:", test, ignore.case = T) ~ "PCR"
+#   )) %>%
+#   distinct(pat_key, test2, observation) %>%
+#   group_by(pat_key, test2) %>%
+#   filter(observation == max(observation)) %>%
+#   ungroup() %>% 
+#   spread(test2, observation) %>%
+#   group_by(Ab, PCR) %>% count() %>% 
+#   filter(Ab != "", PCR != "") %>%
+#   datatable()
 ```
 
 ## Exclude respiratory involvement? 
 ```{r}
 # Exclude ARDS (J80), pneumonia, resp infections (J00-J22)
-resp_dx_pts <- covid_icd_diag %>%
-  filter(grepl("J96|J80|J22|J0", icd_code, ignore.case = T)) %>% 
-  distinct(pat_key) %>%
-  mutate(resp_dx = 1)
+# resp_dx_pts <- covid_icd_diag %>%
+#   filter(grepl("J96|J80|J22|J0", icd_code, ignore.case = T)) %>% 
+#   distinct(pat_key) %>%
+#   mutate(resp_dx = 1)
 ```
 
 # Check and save final datasets
 ```{r}
 # medrec key + misa2 pt status
-misa2_pts %>% 
-  filter(misa2_pt==1) %>% 
-  distinct(medrec_key)
+# misa2_pts %>% 
+#   filter(misa2_pt==1) %>% 
+#   distinct(medrec_key)
 ```
 
 ```{r}
-first_misa = first_misa2_encounter %>% 
-  left_join(resp_dx_pts)
+# first_misa = first_misa2_encounter %>% 
+#   left_join(resp_dx_pts)
 
-targets = covid_genlab %>% 
-  select(pat_key) %>%
-  left_join(covid_data %>% select(pat_key, medrec_key)) %>% 
-  distinct(medrec_key) %>% 
-  left_join(first_misa) %>% 
-  select(medrec_key, first_misa_patkey = pat_key, misa_pt = misa2, misa_resp = resp_dx) %>%
-  mutate(misa_pt = ifelse(is.na(misa_pt), 0, misa_pt), 
-         misa_resp = ifelse(is.na(misa_resp), 0, misa_resp))
+# targets = covid_genlab %>% 
+#   distinct(pat_key) %>%
+#   left_join(covid_data %>% select(pat_key, medrec_key)) %>% 
+#   left_join(first_misa %>% mutate(first_misa = 1)) %>% 
+#   left_join(first_misa %>% filter(misa2==1) %>% mutate(misa_pt = 1) %>% select(medrec_key, misa_pt)) %>% 
+#   select(medrec_key, pat_key, first_misa, misa_pt, misa_resp = resp_dx) %>%
+#   mutate(misa_pt = ifelse(is.na(misa_pt), 0, misa_pt), 
+#          first_misa = ifelse(is.na(first_misa), 0, first_misa), 
+#          misa_resp = ifelse(is.na(misa_resp), 0, misa_resp)) 
+
+misa_filled = covid_genlab %>%
+  distinct(pat_key) %>%
+  left_join(covid_data %>% select(pat_key, medrec_key, age, disc_dt, disc_mon_seq)) %>%
+  filter(age>=18, age<130) %>% #eligible cohort
+  left_join(first_misa2_encounter) %>%
+  filter(first_misa==1) %>%
+  select(medrec_key) %>%
+  left_join(covid_data %>% select(pat_key, medrec_key, age, disc_dt, disc_mon_seq)) %>% #visits of MISA patients in cohort
+  left_join(first_misa2_encounter) %>%
+  group_by(medrec_key) %>%
+  arrange(disc_dt, disc_mon_seq) %>% 
+  mutate(misa_filled=first_misa) %>%
+  fill(misa_filled)
+
+misa_targets = covid_genlab %>%
+  distinct(pat_key) %>%
+  left_join(covid_data %>% select(pat_key, medrec_key, age, disc_dt, disc_mon_seq)) %>%
+  filter(age>=18, age<130) %>% 
+  distinct(medrec_key) %>% # eligible cohort 
+  left_join(covid_data %>% select(pat_key, medrec_key)) %>%
+  left_join(misa_filled %>% select(pat_key, misa_filled)) 
+```
+
+```{r}
+# Get ICU status
+icu_yn <- covid_oth_bill %>% 
+  filter(clin_sum_code %in% c(110108, 110102)) %>%
+  distinct(pat_key) %>%
+  mutate(icu_visit = "Y") 
+
+icu_pt <- icu_yn %>% left_join(covid_data %>% select(pat_key, medrec_key)) %>%
+  distinct(medrec_key) %>%
+  mutate(icu_ever = 1)
+
+icu_targets = misa_targets %>% left_join(icu_yn) %>%
+  left_join(icu_pt)
+
+icu_targets %>% group_by(icu_visit, icu_ever) %>% count()
 ```
 
 
+
 ```{r}
-write_csv2(targets, "data/targets/targets.csv")
+# write_csv2(targets, "targets/targets.csv")
+write_csv2(icu_targets, "targets/icu_targets.csv")
 # write_csv2(misa2_pts, "../data/clean/misa2_pts.csv")
+
+# targets <- read.csv2("targets/targets.csv")
+
+  
 ```
 
 
