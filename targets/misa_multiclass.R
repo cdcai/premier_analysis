@@ -26,9 +26,9 @@ targets <- targets %>%
       # 1 - MISA
       # 2 - Severe COVID (using ICU + COVID ICD as proxy)
       # 3 - Non-severe COVID (still inpatient)
-      sum(misa_filled) > 0 ~ 1,
-      sum(icu_ever) > 0 ~ 2,
-      TRUE ~ 3
+      sum(misa_filled) > 0 ~ 0,
+      sum(icu_ever) > 0 ~ 1,
+      TRUE ~ 2
     )
   ) %>%
   ungroup()
