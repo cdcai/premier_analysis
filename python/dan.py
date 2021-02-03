@@ -1,31 +1,33 @@
-'''Runs some baseline prediction models on day-1 predictors'''
+'''Trains a deep averaging network (DAN) on the visit sequences'''
+
 import numpy as np
 import pandas as pd
 import pickle as pkl
+import tensorflow as tf
 import scipy
 import os
 
 from importlib import reload
-from scipy.sparse import lil_matrix
-from sklearn.linear_model import SGDClassifier, LogisticRegression
-from sklearn.svm import LinearSVC
-from sklearn.ensemble import RandomForestClassifier
+from tensorflow import keras as keras
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_curve, precision_recall_curve
 from sklearn.metrics import auc, average_precision_score
 
-import tools.preprocessing as tp
+import tools.keras as tk
 import tools.analysis as ta
+import tools.preprocessing as tp
 
 
 # Globals
-DAY_ONE_ONLY = False
+DAY_ONE_ONLY = True
 USE_DEMOG = True
 OUTCOME = 'death'
+MAX_SEQ = 225
 
 # Setting the directories and importing the data
 output_dir = os.path.abspath("output/") + "/"
 data_dir = os.path.abspath("..data/data/") + "/"
+tensorboard_dir = os.path.abspath("../data/model_checkpoints/") + "/"
 pkl_dir = output_dir + "pkl/"
 stats_dir = output_dir + 'analysis/'
 
@@ -66,16 +68,11 @@ if USE_DEMOG:
     vocab.update(demog_vocab)
     n_features = np.max([np.max(l) for l in features])
 
-# Converting the labels to an array
+# Making the variables
+X = tf.keras.preprocessing.sequence.pad_sequences(features,
+                                                  maxlen=225,
+                                                  padding='post')
 y = np.array(labels, dtype=np.uint8)
-
-# Converting the features to a sparse matrix
-mat = lil_matrix((n_patients, n_features + 1))
-for row, cols in enumerate(features):
-    mat[row, cols] = 1
-
-# Converting to csr because the internet said it would be faster
-X = mat.tocsr()
 
 # Splitting the data
 train, test = train_test_split(range(n_patients),
@@ -88,48 +85,64 @@ val, test = train_test_split(test,
                              stratify=y[test],
                              random_state=2020)
 
-# Fitting a logistic regression to the whole dataset
-lgr = LogisticRegression(max_iter=5000)
-lgr.fit(X, y)
-exp_coefs = np.exp(lgr.coef_)[0]
-top_coef = np.argsort(exp_coefs)[::-1][0:30]
-top_ftrs = [vocab[code] for code in top_coef]
-top_codes = [all_feats[ftr] for ftr in top_ftrs]
+# Setting up the callbacks
+callbacks = [
+    keras.callbacks.EarlyStopping(patience=2),
+    keras.callbacks.TensorBoard(log_dir=output_dir + '/logs'),
+]
 
-bottom_coef = np.argsort(exp_coefs)[0:30]
-bottom_ftrs = [vocab[code] for code in bottom_coef]
-bottom_codes = [all_feats[ftr] for ftr in bottom_ftrs]
+metrics = [
+    keras.metrics.AUC(num_thresholds=int(1e5), name="ROC-AUC"),
+    keras.metrics.AUC(num_thresholds=int(1e5), curve="PR", name="PR-AUC"),
+]
 
-codes = top_codes + bottom_codes
-coefs = np.concatenate([exp_coefs[top_coef],
-                        exp_coefs[bottom_coef]])
-coef_df = pd.DataFrame([codes, coefs]).transpose()
-coef_df.columns = ['feature', 'aOR']
-coef_df.sort_values('aOR', ascending=False, inplace=True)
-coef_df.to_csv(stats_dir + OUTCOME + '_lgr_coefs.csv', index=False)
+# Setting and training up the model
+mod = tk.DAN(vocab_size=n_features + 1,
+             ragged=False,
+             input_length=MAX_SEQ)
+mod.compile(optimizer='adam',
+            loss='binary_crossentropy',
+            metrics=metrics)
+mod.fit(X[train], y[train],
+        batch_size=32,
+        epochs=20,
+        validation_data=(X[val], y[val]),
+        callbacks=callbacks)
 
-# And then again to the training data to get predictive performance
-lgr = LogisticRegression(max_iter=5000)
-lgr.fit(X[train], y[train])
-val_probs = lgr.predict_proba(X[val])[:, 1]
+# Getting the model's predictions
+mod_name = 'dan'
+if DAY_ONE_ONLY:
+    mod_name += '_d1'
+
+val_probs = mod.predict(X[val]).flatten()
 val_gm = ta.grid_metrics(y[val], val_probs)
 f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
-test_probs = lgr.predict_proba(X[test])[:, 1]
+test_probs = mod.predict(X[test]).flatten()
 test_preds = ta.threshold(test_probs, f1_cut)
 stats = ta.clf_metrics(y[test],
                        test_probs,
                        preds_are_probs=True,
                        cutpoint=f1_cut,
-                       mod_name='lgr')
+                       mod_name=mod_name)
 
-if DAY_ONE_ONLY:
-    stats['model'] += '_d1'
+# Writing the results to disk
+stats_filename = OUTCOME + '_stats.csv'
+if stats_filename in os.listdir(stats_dir):
+    stats_df = pd.read_csv(stats_dir + stats_filename)
+    stats_df = pd.concat([stats_df, stats], axis=0)
+    stats_df.to_csv(stats_dir + stats_filename, index=False)
+else:
+    stats.to_csv(stats_dir + stats_filename, index=False)
 
-# Saving the results to disk
-mod_name = stats.model.values[0]
-ta.write_stats(stats, OUTCOME)
-ta.write_preds(preds=test_preds,
-               outcome=OUTCOME,
-               mod_name=mod_name,
-               test_idx=test,
-               probs=test_probs)
+# Writing the test predictions to the test predictions CSV
+preds_filename = OUTCOME + '_preds.csv'
+if preds_filename in os.listdir(stats_dir):
+    preds_df = pd.read_csv(stats_dir + preds_filename)
+else:
+    preds_df = pd.read_csv(output_dir + OUTCOME + '_cohort.csv')
+    preds_df = preds_df.iloc[test, :]
+
+preds_df[mod_name + '_prob'] = test_probs
+preds_df[mod_name + '_pred'] = test_preds
+preds_df.to_csv(stats_dir + preds_filename, index=False)
+
