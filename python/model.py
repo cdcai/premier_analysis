@@ -5,6 +5,7 @@ Starter Keras model
 import csv
 import os
 import pickle as pkl
+import pandas as pd
 from datetime import datetime
 import argparse
 
@@ -17,6 +18,7 @@ from tensorflow.keras.callbacks import TensorBoard
 import tools.analysis as ta
 from tools import keras as tk
 from tools.analysis import grid_metrics
+import tools.preprocessing as tp
 
 # %% Globals
 if __name__ == "__main__":
@@ -94,7 +96,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     TIME_SEQ = args.max_seq
+    MOD_NAME = args.model
     TARGET = args.outcome
+    DEMOG = args.demog
+    DAY_ONE_ONLY = args.day_one
     LSTM_DROPOUT = args.dropout
     LSTM_RECURRENT_DROPOUT = args.recurrent_dropout
     N_LSTM = args.n_cells
@@ -105,13 +110,17 @@ if __name__ == "__main__":
     RAND = args.rand_seed
     TB_UPDATE_FREQ = args.tb_update_freq
 
-    # %% Load in Data
+    # DIRS / FILES
     output_dir = os.path.abspath(args.out_dir)
     tensorboard_dir = os.path.abspath(
         os.path.join(args.data_dir, "..", "model_checkpoints"))
     data_dir = os.path.abspath(args.data_dir)
     pkl_dir = os.path.join(output_dir, "pkl")
+    stats_dir = os.path.join(output_dir, "analysis")
 
+    stats_filename = TARGET + "_stats.csv"
+
+    # Data load
     with open(os.path.join(pkl_dir, "multi_class_trimmed_seqs.pkl"),
               "rb") as f:
         inputs = pkl.load(f)
@@ -125,7 +134,7 @@ if __name__ == "__main__":
     with open(os.path.join(pkl_dir, "demog_dict.pkl"), "rb") as f:
         demog_lookup = pkl.load(f)
 
-    # %% Save Embedding metadata
+    # Save Embedding metadata
     # We can use this with tensorboard to visualize the embeddings
     with open(os.path.join(tensorboard_dir, "emb_metadata.tsv"), "w") as f:
         writer = csv.writer(f, delimiter="\t")
@@ -134,162 +143,241 @@ if __name__ == "__main__":
         for key, value in vocab.items():
             writer.writerow([key, value, all_feats[value]])
 
-    # %% Determining number of vocab entries
+    # Determining number of vocab entries
     N_VOCAB = len(vocab) + 1
     N_DEMOG = len(demog_lookup) + 1
     MAX_DEMOG = max(len(x) for _, x, _ in inputs)
     N_CLASS = max(x for _, _, x in inputs) + 1
 
-    # %% Split into test/train
-    train, test, _, _ = train_test_split(
-        inputs,
-        [labs for _, _, labs in inputs],
-        test_size=TEST_SPLIT,
-        random_state=RAND,
-        stratify=[labs for _, _, labs in inputs],
-    )
+    # Create some callbacks
+    callbacks = [
+        TensorBoard(
+            log_dir=os.path.join(tensorboard_dir, TARGET,
+                                 datetime.now().strftime("%Y%m%d-%H%M%S")),
+            histogram_freq=1,
+            update_freq=TB_UPDATE_FREQ,
+            embeddings_freq=5,
+            embeddings_metadata=os.path.join(tensorboard_dir,
+                                             "emb_metadata.tsv"),
+        ),
 
-    # Further split into train/validation
-    train, validation, _, _ = train_test_split(
-        train,
-        [labs for _, _, labs in train],
-        test_size=VAL_SPLIT,
-        random_state=RAND,
-        stratify=[labs for _, _, labs in train],
-    )
+        # Create model checkpoint callback
+        keras.callbacks.ModelCheckpoint(filepath=os.path.join(
+            tensorboard_dir, TARGET,
+            "weights.{epoch:02d}-{val_loss:.2f}.hdf5"),
+                                        save_weights_only=True,
+                                        monitor="val_loss",
+                                        mode="max",
+                                        save_best_only=True),
 
-    # %% Compute steps-per-epoch
-    # NOTE: Sometimes it can't determine this properly from tf.data
-    STEPS_PER_EPOCH = len(train) // BATCH_SIZE
-    VALID_STEPS_PER_EPOCH = len(validation) // BATCH_SIZE
+        # Create early stopping callback
+        keras.callbacks.EarlyStopping(monitor="val_loss",
+                                      min_delta=0,
+                                      patience=2,
+                                      mode="auto")
+    ]
 
-    # %%
-    train_gen = tk.create_ragged_data(train,
-                                      max_time=TIME_SEQ,
-                                      max_demog=MAX_DEMOG,
-                                      epochs=EPOCHS,
-                                      multiclass=N_CLASS > 2,
-                                      random_seed=RAND,
-                                      resample=False,
-                                      resample_frac=[0.9, 0.1],
-                                      batch_size=BATCH_SIZE)
+    # Create some metrics
+    metrics = [
+        keras.metrics.AUC(num_thresholds=int(1e5), name="ROC-AUC"),
+        keras.metrics.AUC(num_thresholds=int(1e5), curve="PR", name="PR-AUC"),
+    ]
 
-    validation_gen = tk.create_ragged_data(validation,
-                                           max_time=TIME_SEQ,
-                                           max_demog=MAX_DEMOG,
-                                           epochs=EPOCHS,
-                                           multiclass=N_CLASS > 2,
-                                           random_seed=RAND,
-                                           batch_size=BATCH_SIZE)
+    # Define loss function
+    # NOTE: We were experimenting with focal loss at one point, maybe we can try that again at some point
+    loss_fn = keras.losses.CategoricalCrossentropy if TARGET == "multi_class" else keras.losses.binary_crossentropy
 
-    # NOTE: don't shuffle test data
-    test_gen = tk.create_ragged_data(test,
-                                     max_time=TIME_SEQ,
-                                     max_demog=MAX_DEMOG,
-                                     epochs=1,
-                                     multiclass=N_CLASS > 2,
-                                     shuffle=False,
-                                     random_seed=RAND,
-                                     batch_size=BATCH_SIZE)
+    # --- Model-specific code
+    # TODO: Rework some sections to streamline input and label generation along with splitting
+    if MOD_NAME == "lstm":
+        # %% Split into test/train
+        train, test, _, _ = train_test_split(
+            inputs,
+            [labs for _, _, labs in inputs],
+            test_size=TEST_SPLIT,
+            random_state=RAND,
+            stratify=[labs for _, _, labs in inputs],
+        )
 
-    # %% Setting up the model
-    model = tk.LSTM(time_seq=TIME_SEQ,
-                    vocab_size=N_VOCAB,
-                    n_classes=N_CLASS,
-                    n_demog=N_DEMOG,
-                    n_demog_bags=MAX_DEMOG,
-                    ragged=True,
-                    lstm_dropout=LSTM_DROPOUT,
-                    recurrent_dropout=LSTM_RECURRENT_DROPOUT,
-                    batch_size=BATCH_SIZE)
+        # Further split into train/validation
+        train, validation, _, _ = train_test_split(
+            train,
+            [labs for _, _, labs in train],
+            test_size=VAL_SPLIT,
+            random_state=RAND,
+            stratify=[labs for _, _, labs in train],
+        )
 
-    model.compile(optimizer="adam",
-                  loss=keras.losses.CategoricalCrossentropy(),
-                  metrics=[
-                      keras.metrics.AUC(num_thresholds=int(1e5),
-                                        name="ROC-AUC"),
-                      keras.metrics.AUC(num_thresholds=int(1e5),
-                                        curve="PR",
-                                        name="PR-AUC"),
-                  ])
+        # %% Compute steps-per-epoch
+        # NOTE: Sometimes it can't determine this properly from tf.data
+        STEPS_PER_EPOCH = len(train) // BATCH_SIZE
+        VALID_STEPS_PER_EPOCH = len(validation) // BATCH_SIZE
 
-    model.summary()
+        # %%
+        train_gen = tk.create_ragged_data(train,
+                                          max_time=TIME_SEQ,
+                                          max_demog=MAX_DEMOG,
+                                          epochs=EPOCHS,
+                                          multiclass=N_CLASS > 2,
+                                          random_seed=RAND,
+                                          batch_size=BATCH_SIZE)
 
-    # %% Create Tensorboard callback
-    tb_callback = TensorBoard(
-        log_dir=tensorboard_dir + "/" + TARGET + "/" +
-        datetime.now().strftime("%Y%m%d-%H%M%S") + "/",
-        histogram_freq=1,
-        update_freq=TB_UPDATE_FREQ,
-        embeddings_freq=5,
-        embeddings_metadata=output_dir + "emb_metadata.tsv",
-    )
+        validation_gen = tk.create_ragged_data(validation,
+                                               max_time=TIME_SEQ,
+                                               max_demog=MAX_DEMOG,
+                                               epochs=EPOCHS,
+                                               multiclass=N_CLASS > 2,
+                                               random_seed=RAND,
+                                               batch_size=BATCH_SIZE)
 
-    # Create model checkpoint callback
-    model_checkpoint_callback = keras.callbacks.ModelCheckpoint(
-        filepath=tensorboard_dir + "/" + TARGET + "/" +
-        "weights.{epoch:02d}-{val_loss:.2f}.hdf5",
-        save_weights_only=True,
-        monitor="val_loss",
-        mode="max",
-        save_best_only=True)
+        # NOTE: don't shuffle test data
+        test_gen = tk.create_ragged_data(test,
+                                         max_time=TIME_SEQ,
+                                         max_demog=MAX_DEMOG,
+                                         epochs=1,
+                                         multiclass=N_CLASS > 2,
+                                         shuffle=False,
+                                         random_seed=RAND,
+                                         batch_size=BATCH_SIZE)
 
-    # Create early stopping callback
-    stopping_checkpoint = keras.callbacks.EarlyStopping(monitor="val_loss",
-                                                        min_delta=0,
-                                                        patience=2,
-                                                        mode="auto")
+        # %% Setting up the model
+        model = tk.LSTM(time_seq=TIME_SEQ,
+                        vocab_size=N_VOCAB,
+                        n_classes=N_CLASS,
+                        n_demog=N_DEMOG,
+                        n_demog_bags=MAX_DEMOG,
+                        ragged=True,
+                        lstm_dropout=LSTM_DROPOUT,
+                        recurrent_dropout=LSTM_RECURRENT_DROPOUT,
+                        batch_size=BATCH_SIZE)
 
-    # %% Train
-    fitting = model.fit(train_gen,
-                        steps_per_epoch=STEPS_PER_EPOCH,
-                        validation_data=validation_gen,
-                        validation_steps=VALID_STEPS_PER_EPOCH,
-                        epochs=EPOCHS,
-                        callbacks=[
-                            tb_callback, model_checkpoint_callback,
-                            stopping_checkpoint
-                        ])
+        model.compile(optimizer="adam", loss=loss_fn, metrics=metrics)
 
-    # Test
-    print(model.evaluate(test_gen))
+        # Train
+        fitting = model.fit(train_gen,
+                            steps_per_epoch=STEPS_PER_EPOCH,
+                            validation_data=validation_gen,
+                            validation_steps=VALID_STEPS_PER_EPOCH,
+                            epochs=EPOCHS,
+                            callbacks=callbacks)
 
-    # %% Validation F1 cut
+        # ---
+        # Compute decision threshold cut from validation data using grid search
+        # then apply threshold to test data to compute metrics
 
-    y_pred_validation = model.predict(validation_gen,
-                                      steps=VALID_STEPS_PER_EPOCH)
+        val_probs = model.predict(validation_gen, steps=VALID_STEPS_PER_EPOCH)
 
-    y_true_validation = [lab for _, _, lab in validation]
+        val_labs = [lab for _, _, lab in validation]
 
-    # Resizing for output which is divisible by BATCH_SIZE
-    y_true_validation = np.array(
-        y_true_validation[0:y_pred_validation.shape[0]])
+        # Resizing for output which is divisible by BATCH_SIZE
+        val_labs = np.array(val_labs[0:val_probs.shape[0]])
 
-    val_gm = ta.grid_metrics(y_true_validation,
-                             y_pred_validation,
-                             min=0.0,
-                             max=1.0,
-                             step=0.001)
+        val_gm = ta.grid_metrics(val_labs, val_probs)
 
-    f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
-    # %% Predicting on test data
-    y_pred_test = model.predict(test_gen)
+        # Computed threshold cutpoint based on F1
+        # NOTE: we could change that too. Maybe that's not the best objective
+        f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
 
-    y_true_test = [lab for _, _, lab in test]
-    y_true_test = np.array(y_true_test[0:y_pred_test.shape[0]])
+        test_probs = model.predict(test_gen)
+        test_preds = ta.threshold(test_probs, f1_cut)
 
-    # %% Print the stats when taking the cutpoint from the validation set (not cheating)
-    lstm_stats = ta.clf_metrics(y_true_test, ta.threshold(y_pred_test, f1_cut))
-    auc = roc_auc_score(y_true_test, y_pred_test)
-    pr = average_precision_score(y_true_test, y_pred_test)
-    lstm_stats['auc'] = auc
-    lstm_stats['ap'] = pr
+        test_labs = [lab for _, _, lab in test]
+        test_labs = np.array(test_labs[0:test_preds.shape[0]])
 
-    print(lstm_stats)
-    # %% Run grid metrics on test anyways just to see overall
-    output = grid_metrics(y_true_test, y_pred_test)
-    print(output.sort_values("f1"))
+        stats = ta.clf_metrics(test_labs,
+                               test_probs,
+                               preds_are_probs=True,
+                               cutpoint=f1_cut,
+                               mod_name=MOD_NAME)
 
-    output.to_csv(tensorboard_dir + "/" + TARGET + "/" + "grid_metrics.csv",
-                  index=False)
-    print("ROC-AUC: {}".format(roc_auc_score(y_true_test, y_pred_test)))
+    elif MOD_NAME == "dan":
+
+        if DAY_ONE_ONLY:
+            # Optionally limiting the features to only those from the first day
+            # of the actual COVID visit
+            MOD_NAME += "_d1"
+            features = [l[0][-1] for l in inputs]
+        else:
+            features = [tp.flatten(l[0]) for l in inputs]
+
+        # Optionally mixing in the demographic features
+        if DEMOG:
+            new_demog = [[i + N_VOCAB - 1 for i in l[1]] for l in inputs]
+            features = [
+                features[i] + new_demog[i] for i in range(len(features))
+            ]
+            demog_vocab = {k + N_VOCAB - 1: v for k, v in demog_lookup.items()}
+            vocab.update(demog_vocab)
+            N_VOCAB = np.max([np.max(l) for l in features])
+
+        # Making the variables
+        X = keras.preprocessing.sequence.pad_sequences(features,
+                                                       maxlen=225,
+                                                       padding='post')
+        y = np.array([t[2] for t in inputs], dtype=np.uint8)
+
+        # Splitting the data
+        train, test = train_test_split(range(len(features)),
+                                       test_size=TEST_SPLIT,
+                                       stratify=y,
+                                       random_state=2020)
+
+        train, val = train_test_split(train,
+                                      test_size=VAL_SPLIT,
+                                      stratify=y[train],
+                                      random_state=2020)
+
+        # Produce DAN model to fit
+        model = tk.DAN(
+            vocab_size=N_VOCAB,
+            # TODO: Maybe parameterize? Ionno.
+            ragged=False,
+            input_length=TIME_SEQ)
+
+        model.compile(optimizer="adam", loss=loss_fn, metrics=metrics)
+
+        model.fit(X[train],
+                  y[train],
+                  batch_size=BATCH_SIZE,
+                  epochs=EPOCHS,
+                  validation_data=(X[val], y[val]),
+                  callbacks=callbacks)
+
+        # ---
+        # Compute decision threshold cut from validation data using grid search
+        # then apply threshold to test data to compute metrics
+        val_probs = model.predict(X[val]).flatten()
+        val_gm = ta.grid_metrics(y[val], val_probs)
+        f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
+        test_probs = model.predict(X[test]).flatten()
+        test_preds = ta.threshold(test_probs, f1_cut)
+
+        stats = ta.clf_metrics(y[test],
+                               test_probs,
+                               preds_are_probs=True,
+                               cutpoint=f1_cut,
+                               mod_name=MOD_NAME)
+
+    # ---
+    # Writing the results to disk
+    # Optionally append results if file already exists
+    append_file = stats_filename in os.listdir(stats_dir)
+    preds_filename = TARGET + "_preds.csv"
+
+    stats.to_csv(os.path.join(stats_dir, stats_filename),
+                 mode="a" if append_file else "w",
+                 header=False if append_file else True,
+                 index=False)
+
+    # Writing the test predictions to the test predictions CSV
+
+    if preds_filename in os.listdir(stats_dir):
+        preds_df = pd.read_csv(os.path.join(stats_dir, preds_filename))
+    else:
+        preds_df = pd.read_csv(os.path.join(output_dir,
+                                            TARGET + "_cohort.csv"))
+        preds_df = preds_df.iloc[test, :]
+
+    preds_df[MOD_NAME + '_prob'] = test_probs
+    preds_df[MOD_NAME + '_pred'] = test_preds
+    preds_df.to_csv(os.path.join(stats_dir, preds_filename), index=False)
