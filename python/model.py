@@ -25,7 +25,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--outcome",
+    parser.add_argument("--model",
                         type=str,
                         default="dan",
                         choices=["dan", "lstm"],
