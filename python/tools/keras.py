@@ -54,10 +54,11 @@ def create_ragged_data(inputs: list,
     # Labs as stacked
     # NOTE: some loss functions require this to be float
     if multiclass:
-        y = tf.one_hot([tup[2] for tup in inputs], max([tup[2] for tup in inputs]) + 1)
+        y = tf.one_hot([tup[2] for tup in inputs],
+                       max([tup[2] for tup in inputs]) + 1)
     else:
         y = np.array([tup[2] for tup in inputs],
-                    dtype=np.int32 if label_int else np.float)
+                     dtype=np.int32 if label_int else np.float)
 
     # Make sure our data are equal
     assert y.shape[0] == X.shape[0]
@@ -477,7 +478,9 @@ def LSTM(time_seq,
 
     # Running the embeddings through a final dense layer for prediction
     output = keras.layers.Dense(
-        n_classes,
+        # BUG: We use a single output for the binary case but 3 for the multiclass case
+        # so this should be able to account for that.
+        n_classes if n_classes > 2 else 1,
         activation="sigmoid",
         bias_initializer=keras.initializers.Constant(output_bias),
         name="Output")(comb)

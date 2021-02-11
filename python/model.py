@@ -118,11 +118,13 @@ if __name__ == "__main__":
     pkl_dir = os.path.join(output_dir, "pkl")
     stats_dir = os.path.join(output_dir, "analysis")
 
+    # Create analysis dir if it doesn't exist
+    os.makedirs(stats_dir, exist_ok=True)
+
     stats_filename = TARGET + "_stats.csv"
 
     # Data load
-    with open(os.path.join(pkl_dir, "multi_class_trimmed_seqs.pkl"),
-              "rb") as f:
+    with open(os.path.join(pkl_dir, TARGET + "_trimmed_seqs.pkl"), "rb") as f:
         inputs = pkl.load(f)
 
     with open(os.path.join(pkl_dir, "all_ftrs_dict.pkl"), "rb") as f:
@@ -306,9 +308,9 @@ if __name__ == "__main__":
             features = [
                 features[i] + new_demog[i] for i in range(len(features))
             ]
-            demog_vocab = {k + N_VOCAB - 1: v for k, v in demog_lookup.items()}
+            demog_vocab = {k: v + N_VOCAB - 1 for k, v in demog_lookup.items()}
             vocab.update(demog_vocab)
-            N_VOCAB = np.max([np.max(l) for l in features])
+            N_VOCAB = np.max([np.max(l) for l in features]) + 1
 
         # Making the variables
         X = keras.preprocessing.sequence.pad_sequences(features,
