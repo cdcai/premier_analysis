@@ -40,12 +40,15 @@ if __name__ == "__main__":
                         choices=["misa_pt", "multi_class", "death"],
                         help="which outcome to use as the prediction target")
     parser.add_argument(
-        "--day_one",
-        type=bool,
-        default=True,
-        help=
-        "(if using DAN) should we only consider features from the first inpatient day?"
-    )
+        '--day_one',
+        help="Use only first inpatient day's worth of features (DAN only)",
+        dest='day_one',
+        action='store_true')
+    parser.add_argument('--all_days',
+                        help="Use all features in lookback period (DAN only)",
+                        dest='day_one',
+                        action='store_false')
+    parser.set_defaults(day_one=True)
     parser.add_argument("--demog",
                         type=bool,
                         default=True,
@@ -266,7 +269,8 @@ if __name__ == "__main__":
         # ---
         # Compute decision threshold cut from validation data using grid search
         # then apply threshold to test data to compute metrics
-
+        # BUG: figure out how to predict on all samples for the preds file
+        # only LSTM deals with a generator which only works if samples are evenly divisible by batch size, else it drops the tailing end
         val_probs = model.predict(validation_gen, steps=VALID_STEPS_PER_EPOCH)
 
         val_labs = [lab for _, _, lab in validation]
