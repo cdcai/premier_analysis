@@ -56,8 +56,6 @@ def slim_metrics(df, rules, by=None):
 # Runs basic diagnostic stats on binary (only) predictions
 def clf_metrics(true, 
                 pred,
-                average_by=None,
-                weighted=True,
                 round=4,
                 round_pval=False,
                 mcnemar=False,
@@ -74,7 +72,49 @@ def clf_metrics(true,
     if type(average_by) == stype:
         average_by == average_by.values
     
-    # Optionally converting probabilities to 
+    # Optional exit for doing averages with multiclass/label inputs
+    if len(np.unique(true)) > 2:
+        # Converting the multiclass columns to multiple binary columns
+        codes = np.unique(true)
+        if type(codes[0]) != type(int(0)):
+            y = [np.array([doc == code for doc in true], dtype=np.uint8)
+                 for code in codes]
+            y_ = [np.array([doc == code for doc in pred], dtype=np.uint8)
+                  for code in codes]
+        else:
+            y = [np.array(true == code, dtype=np.uint8) for code in codes]
+            y_ = [np.array(pred == code, dtype=np.uint8) for code in codes]
+        
+        # Getting the binry stats for each column
+        stats = [clf_metrics(y[i], 
+                             y_[i], 
+                             round=16,
+                             mod_name=mod_name) 
+                 for i in range(len(y))]
+        stats = pd.concat(stats, axis=0)
+        stats.fillna(0, inplace=True)
+        cols = stats.columns.values
+        
+        # Calculating the averaged metrics
+        if average == 'weighted':
+            weighted = np.average(stats, weights=stats.true_prev, axis=0)
+            out = pd.DataFrame(weighted).transpose()
+            out.columns = cols
+        elif average == 'macro':
+            out = pd.DataFrame(stats.mean()).transpose()
+        elif average == 'micro':
+            out = clf_metrics(np.concatenate(y),
+                              np.concatenate(y_))
+            
+        # Rounding things off
+        out = out.round(4)
+        out.iloc[:, 0:4] = out.iloc[:, 0:4].round()
+        out.iloc[:, 12:15] = out.iloc[:, 12:15].round()
+        
+        return out
+    
+    # For the binary case, if the predictions are scores, use them to calculate
+    # AUC, average precision, and Brier score
     if preds_are_probs:
         roc = roc_curve(true, pred)
         auc_score = auc(roc[0], roc[1])
@@ -82,32 +122,30 @@ def clf_metrics(true,
         brier = brier_score(true, pred)
         pred = threshold(pred, cutpoint)
     
-    # Optionally returning macro-average results
-    if average_by is not None:
-        return macro_clf_metrics(targets=true,
-                                 guesses=pred,
-                                 by=average_by,
-                                 weighted=weighted,
-                                 round=round)
-    # Constructing the 2x2 table
+    # Constructing the 2x2 table with the class predictions
     confmat = confusion_matrix(true, pred)
     tp = confmat[1, 1]
     fp = confmat[0, 1]
     tn = confmat[0, 0]
     fn = confmat[1, 0]
     
-    # Calculating basic measures of diagnostic accuracy
-    sens = np.round(tp / (tp + fn), round)
-    spec = np.round(tn / (tn + fp), round)
-    ppv = np.round(tp / (tp + fp), round)
-    npv = np.round(tn / (tn + fn), round)
-    f1 = np.round(2 * (sens * ppv) / (sens + ppv), round)
-    j = sens + spec - 1
+    # Calculating the main binary metrics
+    ppv = np.round(tp / (tp + fp), round) if tp + fp > 0 else 0
+    sens = np.round(tp / (tp + fn), round) if tp + fn > 0 else 0
+    spec = np.round(tn / (tn + fp), round) if tn + fp > 0 else 0
+    npv = np.round(tn / (tn + fn), round) if tn + fn > 0 else 0
+    f1 = np.round(2*(sens*ppv) / (sens+ppv), round) if sens + ppv != 0 else 0 
+    
+    # Calculating the Matthews correlation coefficient
     mcc_num = ((tp * tn) - (fp * fn))
     mcc_denom = np.sqrt(((tp+fp)*(tp+fn)*(tn+fp)*(tn+fn)))
-    mcc = mcc_num / mcc_denom
-    if not preds_are_probs:
-        brier = np.round(brier_score(true, pred), round)
+    mcc = mcc_num / mcc_denom if mcc_denom != 0 else 0
+    
+    # Calculating Youden's J and the Brier score
+    j = sens + spec - 1
+    brier = np.round(brier_score(true, pred), round)
+    
+    # Rolling everything so far into a dataframe
     outmat = np.array([tp, fp, tn, fn,
                        sens, spec, ppv,
                        npv, j, f1, mcc, brier]).reshape(-1, 1)
@@ -115,6 +153,8 @@ def clf_metrics(true,
                        columns=['tp', 'fp', 'tn', 
                                 'fn', 'sens', 'spec', 'ppv',
                                 'npv', 'j', 'f1', 'mcc', 'brier'])
+                                
+    # Adding score-based measures, if available
     if preds_are_probs:
         out['auc'] = auc_score
         out['ap'] = ap
