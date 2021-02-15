@@ -271,30 +271,33 @@ if __name__ == "__main__":
         # then apply threshold to test data to compute metrics
         # BUG: figure out how to predict on all samples for the preds file
         # only LSTM deals with a generator which only works if samples are evenly divisible by batch size, else it drops the tailing end
-        val_probs = model.predict(validation_gen, steps=VALID_STEPS_PER_EPOCH)
+        val_probs = model.predict(validation_gen)
 
-        val_labs = [lab for _, _, lab in validation]
-
-        # Resizing for output which is divisible by BATCH_SIZE
-        val_labs = np.array(val_labs[0:val_probs.shape[0]])
-
-        val_gm = ta.grid_metrics(val_labs, val_probs)
-
-        # Computed threshold cutpoint based on F1
-        # NOTE: we could change that too. Maybe that's not the best objective
-        f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
+        val_labs = np.array([lab for _, _, lab in validation])
+        test_labs = np.array([lab for _, _, lab in test])
 
         test_probs = model.predict(test_gen)
-        test_preds = ta.threshold(test_probs, f1_cut)
 
-        test_labs = [lab for _, _, lab in test]
-        test_labs = np.array(test_labs[0:test_preds.shape[0]])
+        if N_CLASS <= 2:
+            # If we are in the binary case, compute grid metrics on validation data
+            # and compute the cutpoint for the test set.
+            val_gm = ta.grid_metrics(val_labs, val_probs)
 
-        stats = ta.clf_metrics(test_labs,
-                               test_probs,
-                               preds_are_probs=True,
-                               cutpoint=f1_cut,
-                               mod_name=MOD_NAME)
+            # Computed threshold cutpoint based on F1
+            # NOTE: we could change that too. Maybe that's not the best objective
+            f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
+            test_preds = ta.threshold(test_probs, f1_cut)
+
+            stats = ta.clf_metrics(test_labs,
+                                   test_probs,
+                                   preds_are_probs=True,
+                                   cutpoint=f1_cut,
+                                   mod_name=MOD_NAME)
+        else:
+            # In the multiclass case, take argmax
+            test_preds = np.argmax(test_probs, axis=1)
+
+            stats = ta.clf_metrics(test_labs, test_preds, mod_name=MOD_NAME)
 
     elif MOD_NAME == "dan":
 
@@ -353,16 +356,29 @@ if __name__ == "__main__":
         # Compute decision threshold cut from validation data using grid search
         # then apply threshold to test data to compute metrics
         val_probs = model.predict(X[val]).flatten()
-        val_gm = ta.grid_metrics(y[val], val_probs)
-        f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
         test_probs = model.predict(X[test]).flatten()
-        test_preds = ta.threshold(test_probs, f1_cut)
 
-        stats = ta.clf_metrics(y[test],
-                               test_probs,
-                               preds_are_probs=True,
-                               cutpoint=f1_cut,
-                               mod_name=MOD_NAME)
+        if N_CLASS <= 2:
+            # If we are in the binary case, compute grid metrics on validation data
+            # and compute the cutpoint for the test set.
+            val_gm = ta.grid_metrics(y[val], val_probs)
+
+            # Computed threshold cutpoint based on F1
+            # NOTE: we could change that too. Maybe that's not the best objective
+            f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
+            test_preds = ta.threshold(test_probs, f1_cut)
+
+            stats = ta.clf_metrics(y[test],
+                                   test_probs,
+                                   preds_are_probs=True,
+                                   cutpoint=f1_cut,
+                                   mod_name=MOD_NAME)
+
+        else:
+            # In the multiclass case, take argmax
+            test_preds = np.argmax(test_probs, axis=1)
+
+            stats = ta.clf_metrics(y[test], test_preds, mod_name=MOD_NAME)
 
     # ---
     # Writing the results to disk
