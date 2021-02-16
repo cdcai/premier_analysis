@@ -190,28 +190,23 @@ if __name__ == "__main__":
 
     # Define loss function
     # NOTE: We were experimenting with focal loss at one point, maybe we can try that again at some point
-    loss_fn = keras.losses.CategoricalCrossentropy if TARGET == "multi_class" else keras.losses.binary_crossentropy
+    loss_fn = keras.losses.categorical_crossentropy if TARGET == "multi_class" else keras.losses.binary_crossentropy
 
     # --- Model-specific code
     # TODO: Rework some sections to streamline input and label generation along with splitting
     if MOD_NAME == "lstm":
-        # %% Split into test/train
-        train, test, _, _ = train_test_split(
-            inputs,
-            [labs for _, _, labs in inputs],
+        # Splitting the data
+        train, test = train_test_split(
+            range(len(inputs)),
             test_size=TEST_SPLIT,
-            random_state=RAND,
             stratify=[labs for _, _, labs in inputs],
-        )
+            random_state=RAND)
 
-        # Further split into train/validation
-        train, validation, _, _ = train_test_split(
+        train, validation = train_test_split(
             train,
-            [labs for _, _, labs in train],
             test_size=VAL_SPLIT,
-            random_state=RAND,
-            stratify=[labs for _, _, labs in train],
-        )
+            stratify=[samp[2] for i, samp in enumerate(inputs) if i in train],
+            random_state=RAND)
 
         # %% Compute steps-per-epoch
         # NOTE: Sometimes it can't determine this properly from tf.data
@@ -219,7 +214,7 @@ if __name__ == "__main__":
         VALID_STEPS_PER_EPOCH = np.ceil(len(validation) / BATCH_SIZE)
 
         # %%
-        train_gen = tk.create_ragged_data(train,
+        train_gen = tk.create_ragged_data([inputs[samp] for samp in train],
                                           max_time=TIME_SEQ,
                                           max_demog=MAX_DEMOG,
                                           epochs=EPOCHS,
@@ -227,17 +222,18 @@ if __name__ == "__main__":
                                           random_seed=RAND,
                                           batch_size=BATCH_SIZE)
 
-        validation_gen = tk.create_ragged_data(validation,
-                                               max_time=TIME_SEQ,
-                                               max_demog=MAX_DEMOG,
-                                               epochs=EPOCHS,
-                                               shuffle=False,
-                                               multiclass=N_CLASS > 2,
-                                               random_seed=RAND,
-                                               batch_size=BATCH_SIZE)
+        validation_gen = tk.create_ragged_data(
+            [inputs[samp] for samp in validation],
+            max_time=TIME_SEQ,
+            max_demog=MAX_DEMOG,
+            epochs=EPOCHS,
+            shuffle=False,
+            multiclass=N_CLASS > 2,
+            random_seed=RAND,
+            batch_size=BATCH_SIZE)
 
         # NOTE: don't shuffle test data
-        test_gen = tk.create_ragged_data(test,
+        test_gen = tk.create_ragged_data([inputs[samp] for samp in test],
                                          max_time=TIME_SEQ,
                                          max_demog=MAX_DEMOG,
                                          epochs=1,
@@ -274,8 +270,10 @@ if __name__ == "__main__":
         val_probs = model.predict(validation_gen, steps=VALID_STEPS_PER_EPOCH)
         test_probs = model.predict(test_gen)
 
-        val_labs = np.array([lab for _, _, lab in validation])
-        test_labs = np.array([lab for _, _, lab in test])
+        val_labs = np.array(
+            [samp[2] for i, samp in enumerate(inputs) if i in validation])
+        test_labs = np.array(
+            [samp[2] for i, samp in enumerate(inputs) if i in test])
 
         val_probs = val_probs[range(val_labs.shape[0])]
         test_probs = test_probs[range(test_labs.shape[0])]
@@ -299,7 +297,10 @@ if __name__ == "__main__":
             # In the multiclass case, take argmax
             test_preds = np.argmax(test_probs, axis=1)
 
-            stats = ta.clf_metrics(test_labs, test_preds, mod_name=MOD_NAME)
+            stats = ta.clf_metrics(test_labs,
+                                   test_preds,
+                                   average="micro",
+                                   mod_name=MOD_NAME)
 
     elif MOD_NAME == "dan":
 
@@ -331,12 +332,12 @@ if __name__ == "__main__":
         train, test = train_test_split(range(len(features)),
                                        test_size=TEST_SPLIT,
                                        stratify=y,
-                                       random_state=2020)
+                                       random_state=RAND)
 
         train, val = train_test_split(train,
                                       test_size=VAL_SPLIT,
                                       stratify=y[train],
-                                      random_state=2020)
+                                      random_state=RAND)
 
         # Produce DAN model to fit
         model = tk.DAN(
@@ -378,9 +379,12 @@ if __name__ == "__main__":
 
         else:
             # In the multiclass case, take argmax
-            test_preds = np.argmax(test_probs, axis=1)
+            test_preds = np.argmax(test_probs)
 
-            stats = ta.clf_metrics(y[test], test_preds, mod_name=MOD_NAME)
+            stats = ta.clf_metrics(y[test],
+                                   test_preds,
+                                   average="micro",
+                                   mod_name=MOD_NAME)
 
     # ---
     # Writing the results to disk
@@ -402,6 +406,8 @@ if __name__ == "__main__":
                                             TARGET + "_cohort.csv"))
         preds_df = preds_df.iloc[test, :]
 
+    # BUG: multiclass returns multiple cols here
+    # write branching logic to pull just probs of predicted class instead
     preds_df[MOD_NAME + '_prob'] = test_probs
     preds_df[MOD_NAME + '_pred'] = test_preds
     preds_df.to_csv(os.path.join(stats_dir, preds_filename), index=False)
