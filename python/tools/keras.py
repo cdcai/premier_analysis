@@ -95,9 +95,9 @@ def create_ragged_data(inputs: list,
                                     seed=random_seed,
                                     reshuffle_each_iteration=True)
 
-    data_gen = data_gen.repeat(epochs)
+    data_gen = data_gen.batch(batch_size)
 
-    data_gen = data_gen.batch(batch_size, drop_remainder=True)
+    data_gen = data_gen.repeat(epochs)
 
     return data_gen
 
@@ -417,13 +417,11 @@ def LSTM(time_seq,
          n_demog_bags=6,
          n_demog=32,
          output_bias=0.0,
-         batch_size=32,
          weighted_average=True,
          ragged=True):
     # Input layer
     code_in = keras.Input(shape=(None if ragged else time_seq, None),
-                          ragged=ragged,
-                          batch_size=batch_size)
+                          ragged=ragged)
 
     # Feature Embeddings
     emb1 = keras.layers.Embedding(vocab_size,
@@ -462,7 +460,7 @@ def LSTM(time_seq,
                                    name="Recurrent")(avg)
 
     # Bringing in the demographic variables
-    demog_in = keras.Input(shape=(n_demog_bags, ), batch_size=batch_size)
+    demog_in = keras.Input(shape=(n_demog_bags, ))
 
     # Embedding the demographic variables
     demog_emb = keras.layers.Embedding(n_demog,
