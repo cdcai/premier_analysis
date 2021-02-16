@@ -215,8 +215,8 @@ if __name__ == "__main__":
 
         # %% Compute steps-per-epoch
         # NOTE: Sometimes it can't determine this properly from tf.data
-        STEPS_PER_EPOCH = len(train) // BATCH_SIZE
-        VALID_STEPS_PER_EPOCH = len(validation) // BATCH_SIZE
+        STEPS_PER_EPOCH = np.ceil(len(train) / BATCH_SIZE)
+        VALID_STEPS_PER_EPOCH = np.ceil(len(validation) / BATCH_SIZE)
 
         # %%
         train_gen = tk.create_ragged_data(train,
@@ -231,6 +231,7 @@ if __name__ == "__main__":
                                                max_time=TIME_SEQ,
                                                max_demog=MAX_DEMOG,
                                                epochs=EPOCHS,
+                                               shuffle=False,
                                                multiclass=N_CLASS > 2,
                                                random_seed=RAND,
                                                batch_size=BATCH_SIZE)
@@ -253,8 +254,7 @@ if __name__ == "__main__":
                         n_demog_bags=MAX_DEMOG,
                         ragged=True,
                         lstm_dropout=LSTM_DROPOUT,
-                        recurrent_dropout=LSTM_RECURRENT_DROPOUT,
-                        batch_size=BATCH_SIZE)
+                        recurrent_dropout=LSTM_RECURRENT_DROPOUT)
 
         model.compile(optimizer="adam", loss=loss_fn, metrics=metrics)
 
@@ -271,12 +271,14 @@ if __name__ == "__main__":
         # then apply threshold to test data to compute metrics
         # BUG: figure out how to predict on all samples for the preds file
         # only LSTM deals with a generator which only works if samples are evenly divisible by batch size, else it drops the tailing end
-        val_probs = model.predict(validation_gen)
+        val_probs = model.predict(validation_gen, steps=VALID_STEPS_PER_EPOCH)
+        test_probs = model.predict(test_gen)
 
         val_labs = np.array([lab for _, _, lab in validation])
         test_labs = np.array([lab for _, _, lab in test])
 
-        test_probs = model.predict(test_gen)
+        val_probs = val_probs[range(val_labs.shape[0])]
+        test_probs = test_probs[range(test_labs.shape[0])]
 
         if N_CLASS <= 2:
             # If we are in the binary case, compute grid metrics on validation data
