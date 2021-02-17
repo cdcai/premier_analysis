@@ -20,7 +20,7 @@ TIME_UNIT = 'dfi'
 COVID_ONLY = True
 
 # Setting the file directories
-prem_dir = 'data/data/'
+prem_dir = '../data/data/'
 out_dir = 'output/'
 parq_dir = out_dir + 'parquet/'
 pkl_dir = out_dir + 'pkl/'
@@ -32,6 +32,9 @@ def main():
     print('Loading the parquet files...')
 
     pq = tp.load_parquets(prem_dir)
+    
+    # Replacing NaN with 0
+    pq.id.days_from_index.fillna(0, inplace=True)
 
     # Making some lookup tables to use later
     medrec_dict = dict(
