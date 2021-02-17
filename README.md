@@ -28,16 +28,16 @@ Input: Several EHR views in parquet format
 
 Output:   
 
-    - A pandas data frame with separate columns of tokenized features by source table
-    aggregated to either days, hours, or seconds from index date. 
-    - A feature dictionary containing the abbreviated feature names and their descriptions.
+- A pandas data frame with separate columns of tokenized features by source table
+    aggregated to either days, hours, or seconds from index date.  
+- A feature dictionary containing the abbreviated feature names and their descriptions.
 
 Steps:  
 
-    - Join all visit-level data across EHR views  
-    - Discretize continuous values by quantile (labs, vitals)
-    - Abbreviate categorical values to tokens (billing data, qualitative lab result)
-    - Aggregate all features to day, hour, or seconds from medical record index date
+- Join all visit-level data across EHR views  
+- Discretize continuous values by quantile (labs, vitals)
+- Abbreviate categorical values to tokens (billing data, qualitative lab result)
+- Aggregate all features to day, hour, or seconds from medical record index date
 
 ### 2. python/features_to_integers.py  
 
@@ -46,17 +46,18 @@ Additional aggregation and conversion of dataframe of string tokens by time step
 
 Input: Pandas dataframe from feature_extraction.py  
 
-Output:
-    - Nested list-of-lists with all features encoded into integer representation
-    - Dictionary of tokens and their encoded values  
-    - dictionary of visits and their LOS and outcome indicators  
+Output:  
+
+  - Nested list-of-lists with all features encoded into integer representation
+  - Dictionary of tokens and their encoded values  
+  - dictionary of visits and their LOS and outcome indicators  
 
 Steps:
 
-    - Join all feature columns together into single string aggregated by timestep in visit  
-    - Use sklearn CountVectorizer to encode tokens to integer representation (minimum document frequency: 5)
-    - Save list-of-lists  
-    - Compute LOS, outcomes for each visit, save to dictionary  
+  - Join all feature columns together into single string aggregated by timestep in visit  
+  - Use sklearn CountVectorizer to encode tokens to integer representation (minimum document frequency: 5)
+  - Save list-of-lists  
+  - Compute LOS, outcomes for each visit, save to dictionary  
 
 ### 3. python/model_prep.py  
 
@@ -65,16 +66,16 @@ Trim sequences to the appropriate lookback period according to which COVID visit
 Per the working definition, this is the first visit to occur. Also labels the sequences according to the outcome of interest.
 
 Input: 
-    - List-of-lists from features_to_integers  
-    - Dictionary of visits and their LOS + outcome indicators from features_to_integers  
+  - List-of-lists from features_to_integers  
+  - Dictionary of visits and their LOS + outcome indicators from features_to_integers  
 
 Output:
-    - A Tuple, (trimmed list-of-lists, list of labels)
+  - A Tuple, (trimmed list-of-lists, list of labels)
 
 Steps:
 
-    - Using dictionary and global settings, compute appropriate lookback period (tp.find_cutpoints)
-    - Trim sequences to the appropriate length determined, combine with labels to form tuple
+  - Using dictionary and global settings, compute appropriate lookback period (tp.find_cutpoints)
+  - Trim sequences to the appropriate length determined, combine with labels to form tuple
 
 ### 4. Keras modelling / Hyperparameter tuning  
 

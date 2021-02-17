@@ -8,11 +8,8 @@ import pickle as pkl
 from datetime import datetime
 
 import numpy as np
-import tensorflow as tf
 import tensorflow.keras as keras
-from focal_loss import BinaryFocalLoss
-from sklearn.metrics import (average_precision_score, classification_report,
-                             roc_auc_score)
+from sklearn.metrics import (roc_auc_score, average_precision_score)
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.callbacks import TensorBoard
 
@@ -46,7 +43,7 @@ tensorboard_dir = os.path.abspath("../data/model_checkpoints/") + "/"
 data_dir = os.path.abspath("../data/data/") + "/"
 pkl_dir = output_dir + "pkl/"
 
-with open(pkl_dir + "trimmed_seqs.pkl", "rb") as f:
+with open(pkl_dir + "multi_class_trimmed_seqs.pkl", "rb") as f:
     inputs = pkl.load(f)
 
 with open(pkl_dir + "all_ftrs_dict.pkl", "rb") as f:
@@ -71,6 +68,7 @@ with open(tensorboard_dir + "emb_metadata.tsv", "w") as f:
 N_VOCAB = len(vocab) + 1
 N_DEMOG = len(demog_lookup) + 1
 MAX_DEMOG = max(len(x) for _, x, _ in inputs)
+N_CLASS = max(x for _, _, x in inputs) + 1
 
 # %% Subsampling if desired
 if SUBSAMPLE:
@@ -105,15 +103,12 @@ train, validation, _, _ = train_test_split(
 STEPS_PER_EPOCH = len(train) // BATCH_SIZE
 VALID_STEPS_PER_EPOCH = len(validation) // BATCH_SIZE
 
-# %% Compute initial output bias
-neg, pos = np.bincount([lab for _, _, lab in train])
-out_bias = np.log([pos / neg])
-
 # %%
 train_gen = tk.create_ragged_data(train,
                                   max_time=TIME_SEQ,
                                   max_demog=MAX_DEMOG,
                                   epochs=EPOCHS,
+                                  multiclass=N_CLASS > 2,
                                   random_seed=RAND,
                                   resample=False,
                                   resample_frac=[0.9, 0.1],
@@ -123,6 +118,7 @@ validation_gen = tk.create_ragged_data(validation,
                                        max_time=TIME_SEQ,
                                        max_demog=MAX_DEMOG,
                                        epochs=EPOCHS,
+                                       multiclass=N_CLASS > 2,
                                        random_seed=RAND,
                                        batch_size=BATCH_SIZE)
 
@@ -131,6 +127,7 @@ test_gen = tk.create_ragged_data(test,
                                  max_time=TIME_SEQ,
                                  max_demog=MAX_DEMOG,
                                  epochs=1,
+                                 multiclass=N_CLASS > 2,
                                  shuffle=False,
                                  random_seed=RAND,
                                  batch_size=BATCH_SIZE)
@@ -138,24 +135,22 @@ test_gen = tk.create_ragged_data(test,
 # %% Setting up the model
 model = tk.LSTM(time_seq=TIME_SEQ,
                 vocab_size=N_VOCAB,
+                n_classes=N_CLASS,
                 n_demog=N_DEMOG,
                 n_demog_bags=MAX_DEMOG,
                 ragged=RAGGED,
-                output_bias=out_bias,
                 lstm_dropout=LSTM_DROPOUT,
                 recurrent_dropout=LSTM_RECURRENT_DROPOUT,
                 batch_size=BATCH_SIZE)
 
-model.compile(
-    optimizer="adam",
-    # NOTE: TFA focal loss is failing sporadically. I think it has something
-    # to do with regularization, but I've not been able to consistently reproduce.
-    # the focal-loss implementation doesn't seem to have these issues.
-    loss=BinaryFocalLoss(gamma=2.0, pos_weight=0.25),
-    metrics=[
-        keras.metrics.AUC(num_thresholds=int(1e5), name="ROC-AUC"),
-        keras.metrics.AUC(num_thresholds=int(1e5), curve="PR", name="PR-AUC"),
-    ])
+model.compile(optimizer="adam",
+              loss=keras.losses.CategoricalCrossentropy(),
+              metrics=[
+                  keras.metrics.AUC(num_thresholds=int(1e5), name="ROC-AUC"),
+                  keras.metrics.AUC(num_thresholds=int(1e5),
+                                    curve="PR",
+                                    name="PR-AUC"),
+              ])
 
 model.summary()
 
@@ -197,14 +192,10 @@ fitting = model.fit(
 print(model.evaluate(test_gen))
 
 # %% Validation F1 cut
-y_validation = [[(lambda x: [0] if x == [] else x)(bags) for bags in seq]
-                for seq, _ in validation]
 
-y_validation = tf.ragged.constant(y_validation)
+y_pred_validation = model.predict(validation_gen, steps=VALID_STEPS_PER_EPOCH)
 
-y_pred_validation = model.predict(y_validation)
-
-y_true_validation = [lab for _, lab in validation]
+y_true_validation = [lab for _, _, lab in validation]
 
 # Resizing for output which is divisible by BATCH_SIZE
 y_true_validation = np.array(y_true_validation[0:y_pred_validation.shape[0]])
@@ -219,7 +210,7 @@ f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
 # %% Predicting on test data
 y_pred_test = model.predict(test_gen)
 
-y_true_test = [lab for _, lab in test]
+y_true_test = [lab for _, _, lab in test]
 y_true_test = np.array(y_true_test[0:y_pred_test.shape[0]])
 
 # %% Print the stats when taking the cutpoint from the validation set (not cheating)
