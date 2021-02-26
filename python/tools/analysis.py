@@ -54,27 +54,24 @@ def slim_metrics(df, rules, by=None):
 
 
 # Runs basic diagnostic stats on binary (only) predictions
+# Runs basic diagnostic stats on binary (only) predictions
 def clf_metrics(true, 
                 pred,
+                average='weighted',
                 round=4,
                 round_pval=False,
-                mcnemar=False,
-                preds_are_probs=False,
-                cutpoint=0.5,
-                mod_name=None):
-    
+                mcnemar=False):
+    '''Runs basic diagnostic stats on binary (only) predictions'''
     # Converting pd.Series to np.array
     stype = type(pd.Series())
     if type(pred) == stype:
         pred = pred.values
     if type(true) == stype:
         true = true.values
-    if type(average_by) == stype:
-        average_by == average_by.values
     
     # Optional exit for doing averages with multiclass/label inputs
     if len(np.unique(true)) > 2:
-        # Converting the multiclass columns to multiple binary columns
+        # Getting binary metrics for each set of results
         codes = np.unique(true)
         if type(codes[0]) != type(int(0)):
             y = [np.array([doc == code for doc in true], dtype=np.uint8)
@@ -85,12 +82,7 @@ def clf_metrics(true,
             y = [np.array(true == code, dtype=np.uint8) for code in codes]
             y_ = [np.array(pred == code, dtype=np.uint8) for code in codes]
         
-        # Getting the binry stats for each column
-        stats = [clf_metrics(y[i], 
-                             y_[i], 
-                             round=16,
-                             mod_name=mod_name) 
-                 for i in range(len(y))]
+        stats = [clf_metrics(y[i], y_[i], round=16) for i in range(len(y))]
         stats = pd.concat(stats, axis=0)
         stats.fillna(0, inplace=True)
         cols = stats.columns.values
@@ -113,16 +105,7 @@ def clf_metrics(true,
         
         return out
     
-    # For the binary case, if the predictions are scores, use them to calculate
-    # AUC, average precision, and Brier score
-    if preds_are_probs:
-        roc = roc_curve(true, pred)
-        auc_score = auc(roc[0], roc[1])
-        ap = average_precision_score(true, pred)
-        brier = brier_score(true, pred)
-        pred = threshold(pred, cutpoint)
-    
-    # Constructing the 2x2 table with the class predictions
+    # Constructing the 2x2 table
     confmat = confusion_matrix(true, pred)
     tp = confmat[1, 1]
     fp = confmat[0, 1]
@@ -153,11 +136,6 @@ def clf_metrics(true,
                        columns=['tp', 'fp', 'tn', 
                                 'fn', 'sens', 'spec', 'ppv',
                                 'npv', 'j', 'f1', 'mcc', 'brier'])
-                                
-    # Adding score-based measures, if available
-    if preds_are_probs:
-        out['auc'] = auc_score
-        out['ap'] = ap
     
     # Calculating some additional measures based on positive calls
     true_prev = int(np.sum(true == 1))
@@ -178,10 +156,6 @@ def clf_metrics(true,
     # Optionally dropping the mcnemar p-val
     if mcnemar:
         out['mcnemar'] = pval
-    
-    # And optionally adding the model name
-    if mod_name is not None:
-        out['model'] = mod_name
     
     return out
 
