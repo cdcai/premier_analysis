@@ -21,6 +21,7 @@ import tools.analysis as ta
 # Globals
 DAY_ONE_ONLY = False
 USE_DEMOG = True
+EXCLUDE_ICU = True
 OUTCOME = 'death'
 
 # Setting the directories and importing the data
@@ -47,6 +48,23 @@ features = [t[0] for t in inputs]
 demog = [t[1] for t in inputs]
 labels = [t[2] for t in inputs]
 
+# Converting the labels to an array
+y = np.array(labels, dtype=np.uint8)
+
+# Reverse vocab to use for exclusions
+rev_vocab = {v:k for k,v in vocab.items()}
+
+# Optionally excluding patients who were in the ICU on day 1
+if EXCLUDE_ICU:
+    icu_codes = [k for k,v in all_feats.items() if 'ICU' in v]
+    icu_ftrs = [rev_vocab[code] for code in icu_codes
+                if code in rev_vocab.keys()]
+    first_days = [l[-1] for l in features]
+    to_keep = np.where([len(np.intersect1d(icu_ftrs, doc)) == 0
+                           for doc in first_days])[0]
+    features = [features[i] for i in to_keep]
+    y = y[to_keep]
+
 # Counts to use for loops and stuff
 n_patients = len(features)
 n_features = np.max(list(vocab.keys()))
@@ -65,9 +83,6 @@ if USE_DEMOG:
     demog_vocab = {k + n_features:v for k,v in demog_dict.items()}
     vocab.update(demog_vocab)
     n_features = np.max([np.max(l) for l in features])
-
-# Converting the labels to an array
-y = np.array(labels, dtype=np.uint8)
 
 # Converting the features to a sparse matrix
 mat = lil_matrix((n_patients, n_features + 1))
@@ -89,7 +104,7 @@ val, test = train_test_split(test,
                              random_state=2020)
 
 # Fitting a logistic regression to the whole dataset
-lgr = LogisticRegression(max_iter=5000)
+lgr = LogisticRegression(max_iter=5000, multi_class='ovr')
 lgr.fit(X, y)
 exp_coefs = np.exp(lgr.coef_)[0]
 top_coef = np.argsort(exp_coefs)[::-1][0:30]
@@ -109,18 +124,25 @@ coef_df.sort_values('aOR', ascending=False, inplace=True)
 coef_df.to_csv(stats_dir + OUTCOME + '_lgr_coefs.csv', index=False)
 
 # And then again to the training data to get predictive performance
-lgr = LogisticRegression(max_iter=5000)
+lgr = LogisticRegression(max_iter=5000, multi_class='ovr')
 lgr.fit(X[train], y[train])
-val_probs = lgr.predict_proba(X[val])[:, 1]
-val_gm = ta.grid_metrics(y[val], val_probs)
-f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
-test_probs = lgr.predict_proba(X[test])[:, 1]
-test_preds = ta.threshold(test_probs, f1_cut)
-stats = ta.clf_metrics(y[test],
-                       test_probs,
-                       preds_are_probs=True,
-                       cutpoint=f1_cut,
-                       mod_name='lgr')
+
+if OUTCOME != 'multi_class':
+    val_probs = lgr.predict_proba(X[val])[:, 1]
+    val_gm = ta.grid_metrics(y[val], val_probs)
+    f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
+    test_probs = lgr.predict_proba(X[test])[:, 1]
+    test_preds = ta.threshold(test_probs, f1_cut)
+    stats = ta.clf_metrics(y[test],
+                           test_probs,
+                           preds_are_probs=True,
+                           cutpoint=f1_cut,
+                           mod_name='lgr')
+else:
+    test_preds = lgr.predict(X[test])
+    stats = ta.clf_metrics(y[test],
+                           test_preds,
+                           mod_name='lgr')
 
 if DAY_ONE_ONLY:
     stats['model'] += '_d1'

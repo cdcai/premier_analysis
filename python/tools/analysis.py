@@ -58,6 +58,8 @@ def slim_metrics(df, rules, by=None):
 def clf_metrics(true, 
                 pred,
                 average='weighted',
+                preds_are_probs=False,
+                mod_name=None,
                 round=4,
                 round_pval=False,
                 mcnemar=False):
@@ -89,7 +91,9 @@ def clf_metrics(true,
         
         # Calculating the averaged metrics
         if average == 'weighted':
-            weighted = np.average(stats, weights=stats.true_prev, axis=0)
+            weighted = np.average(stats, 
+                                  weights=stats.true_prev,
+                                  axis=0)
             out = pd.DataFrame(weighted).transpose()
             out.columns = cols
         elif average == 'macro':
@@ -102,6 +106,9 @@ def clf_metrics(true,
         out = out.round(4)
         out.iloc[:, 0:4] = out.iloc[:, 0:4].round()
         out.iloc[:, 12:15] = out.iloc[:, 12:15].round()
+        
+        if mod_name is not None:
+            out['model'] = mod_name
         
         return out
     
@@ -156,6 +163,10 @@ def clf_metrics(true,
     # Optionally dropping the mcnemar p-val
     if mcnemar:
         out['mcnemar'] = pval
+    
+    # And finally tacking on the model name
+    if mod_name is not None:
+        out['model'] = mod_name
     
     return out
 
