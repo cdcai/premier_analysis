@@ -22,7 +22,7 @@ import tools.analysis as ta
 DAY_ONE_ONLY = False
 USE_DEMOG = True
 EXCLUDE_ICU = True
-OUTCOME = 'death'
+OUTCOME = 'multi_class'
 
 # Setting the directories and importing the data
 output_dir = os.path.abspath("output/") + "/"
@@ -48,26 +48,12 @@ features = [t[0] for t in inputs]
 demog = [t[1] for t in inputs]
 labels = [t[2] for t in inputs]
 
-# Converting the labels to an array
-y = np.array(labels, dtype=np.uint8)
-
-# Reverse vocab to use for exclusions
-rev_vocab = {v:k for k,v in vocab.items()}
-
-# Optionally excluding patients who were in the ICU on day 1
-if EXCLUDE_ICU:
-    icu_codes = [k for k,v in all_feats.items() if 'ICU' in v]
-    icu_ftrs = [rev_vocab[code] for code in icu_codes
-                if code in rev_vocab.keys()]
-    first_days = [l[-1] for l in features]
-    to_keep = np.where([len(np.intersect1d(icu_ftrs, doc)) == 0
-                           for doc in first_days])[0]
-    features = [features[i] for i in to_keep]
-    y = y[to_keep]
-
 # Counts to use for loops and stuff
 n_patients = len(features)
 n_features = np.max(list(vocab.keys()))
+
+# Converting the labels to an array
+y = np.array(labels, dtype=np.uint8)
 
 # Optionally limiting the features to only those from the first day
 # of the actual COVID visit
