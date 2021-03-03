@@ -154,10 +154,12 @@ if __name__ == "__main__":
         
         # Optionally adding other exclusion criteria
         if EXCLUDE_ICU:
+            exclusion_strings = ['ICU', 'TCU', 'STEP DOWN']
             rev_vocab = {v:k for k,v in vocab.items()}
-            icu_codes = [k for k,v in all_feats.items() if 'ICU' in v]
-            icu_ftrs = [rev_vocab[code] for code in icu_codes
-                        if code in rev_vocab.keys()]
+            exclusion_codes = [k for k,v in all_feats.items() 
+                               if any(s in v for s in exclusion_strings)]
+            exclusion_ftrs = [rev_vocab[code] for code in exclusion_codes
+                              if code in rev_vocab.keys()]
             lookback = [np.min((len(l), HORIZON)) for l in trim_out]
             first_days = [trim_out[i][0][-lookback[i]]
                           for i in range(n_patients)]
@@ -167,9 +169,9 @@ if __name__ == "__main__":
             if HORIZON > 1:
                 first_days = [flatten(l) for l in first_days]
             
-            no_icu = [len(np.intersect1d(icu_ftrs, l)) == 0
+            no_excl = [len(np.intersect1d(exclusion_ftrs, l)) == 0
                                    for l in first_days]
-            keepers = [keepers[i] and no_icu[i] for i in range(n_patients)]
+            keepers = [keepers[i] and no_excl[i] for i in range(n_patients)]
         
         # Keeping the keepers and booting the rest
         trim_out = [trim_out[i] for i in range(n_patients) if keepers[i]]

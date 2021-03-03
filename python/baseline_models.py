@@ -19,7 +19,7 @@ import tools.analysis as ta
 
 
 # Globals
-DAY_ONE_ONLY = False
+DAY_ONE_ONLY = True
 USE_DEMOG = True
 EXCLUDE_ICU = True
 OUTCOME = 'multi_class'
@@ -92,7 +92,7 @@ val, test = train_test_split(test,
 # Fitting a logistic regression to the whole dataset
 lgr = LogisticRegression(max_iter=5000, multi_class='ovr')
 lgr.fit(X, y)
-exp_coefs = np.exp(lgr.coef_)[0]
+exp_coefs = np.exp(lgr.coef_)[2]
 top_coef = np.argsort(exp_coefs)[::-1][0:30]
 top_ftrs = [vocab[code] for code in top_coef]
 top_codes = [all_feats[ftr] for ftr in top_ftrs]
