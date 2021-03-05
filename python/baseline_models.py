@@ -27,15 +27,21 @@ if __name__ == '__main__':
                         default='multi_class',
                         choices=['misa_pt', 'multi_class', 'death'],
                         help='which outcome to use as the prediction target')
-    parser.add_argument('--day_1_only',
-                        type=bool,
-                        default=True,
-                        help='whether to use the full patient history (False) \
-                        or only the first day (True) as features')
+    parser.add_argument('--history',
+                        type=str,
+                        default='target_visit_only',
+                        choices=['all', 'target_visit_only'],
+                        help='how much patient history to use in constructing\
+                         the visit sequences')
     parser.add_argument('--use_demog',
                         type=bool,
                         default=True,
                         help='whether to iclude demographics in the features')
+    parser.add_argument('--average',
+                        type=str,
+                        default='weighted',
+                        choices=['micro', 'macro', 'weighted'],
+                        help='how to average stats for multiclass predictions')
     parser.add_argument('--out_dir',
                         type=str,
                         default='output/',
@@ -48,12 +54,13 @@ if __name__ == '__main__':
     
     # Setting the globals
     OUTCOME = args.outcome
-    DAY_ONE_ONLY = args.day_1_only
-    USE_DEMOG = True
+    USE_DEMOG = args.use_demog
+    AVERAGE = args.average
+    DAY_ONE_ONLY = True if args.history != 'all' else False
     
     # Setting the directories and importing the data
-    output_dir = os.path.abspath("output/") + "/"
-    data_dir = os.path.abspath("..data/data/") + "/"
+    output_dir = os.path.abspath(args.out_dir) + '/'
+    data_dir = os.path.abspath(args.data_dir) + '/'
     pkl_dir = output_dir + "pkl/"
     stats_dir = output_dir + 'analysis/'
     
@@ -79,6 +86,7 @@ if __name__ == '__main__':
     n_patients = len(features)
     n_features = np.max(list(vocab.keys()))
     n_classes = len(np.unique(labels))
+    binary = n_classes <= 2
     
     # Converting the labels to an array
     y = np.array(labels, dtype=np.uint8)
@@ -113,7 +121,7 @@ if __name__ == '__main__':
                                    random_state=2020)
     
     # Doing a validation split for threshold-picking on binary problems
-    if n_classes <= 2:
+    if binary:
         val, test = train_test_split(test,
                                      test_size=0.5,
                                      stratify=y[test],
@@ -126,7 +134,7 @@ if __name__ == '__main__':
     
     # Sorting the coefficients for 
     for i in range(n_classes):
-        if n_classes > 2:
+        if not binary:
             exp_coefs = np.exp(lgr.coef_)[i]
         else:
             exp_coefs = np.exp(lgr.coef_)[0]
@@ -148,11 +156,11 @@ if __name__ == '__main__':
         coef_list.append(coef_df)
     
     # Writing the sorted coefficients to Excel
-    out_name = 'lgr'
+    out_name = OUTCOME + '_lgr_'
     if DAY_ONE_ONLY:
-        out_name += '_d1'
+        out_name += 'd1_'
     
-    writer = pd.ExcelWriter(stats_dir + OUTCOME + '_lgr_coefs.xlsx')
+    writer = pd.ExcelWriter(stats_dir + out_name + 'coefs.xlsx')
     for i, df in enumerate(coef_list):
         df.to_excel(writer, 
                     sheet_name='coef_' + str(i), 
@@ -177,8 +185,8 @@ if __name__ == '__main__':
         if DAY_ONE_ONLY:
             mod_name += '_d1'
         
-        if OUTCOME != 'multi_class':
-            if 'predict_proba' in dir(mod):
+        if 'predict_proba' in dir(mod):
+            if binary:
                 val_probs = mod.predict_proba(X[val])[:, 1]
                 val_gm = ta.grid_metrics(y[val], val_probs)
                 f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
@@ -188,7 +196,8 @@ if __name__ == '__main__':
                                        test_probs,
                                        preds_are_probs=True,
                                        cutpoint=f1_cut,
-                                       mod_name=mod_name)
+                                       mod_name=mod_name,
+                                       average=args.average)
                 ta.write_preds(preds=test_preds,
                                outcome=OUTCOME,
                                mod_name=mod_name,
@@ -196,18 +205,21 @@ if __name__ == '__main__':
                                probs=test_probs)
             else:
                 test_preds = mod.predict(X[test])
-                stats = ta.clf_metrics(y[test], 
+                stats = ta.clf_metrics(y[test],
                                        test_preds,
-                                       mod_name=mod_name)
+                                       mod_name=mod_name,
+                                       average=args.average)
                 ta.write_preds(preds=test_preds,
                                outcome=OUTCOME,
                                mod_name=mod_name,
                                test_idx=test)
+                
         else:
             test_preds = mod.predict(X[test])
             stats = ta.clf_metrics(y[test],
                                    test_preds,
-                                   mod_name=mod_name)
+                                   mod_name=mod_name,
+                                   average=args.average)
             ta.write_preds(preds=test_preds,
                            outcome=OUTCOME,
                            mod_name=mod_name,
