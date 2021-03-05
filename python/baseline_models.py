@@ -113,7 +113,7 @@ if __name__ == '__main__':
                                    random_state=2020)
     
     # Doing a validation split for threshold-picking on binary problems
-    if n_classes > 2:
+    if n_classes <= 2:
         val, test = train_test_split(test,
                                      test_size=0.5,
                                      stratify=y[test],
@@ -126,7 +126,11 @@ if __name__ == '__main__':
     
     # Sorting the coefficients for 
     for i in range(n_classes):
-        exp_coefs = np.exp(lgr.coef_)[i]
+        if n_classes > 2:
+            exp_coefs = np.exp(lgr.coef_)[i]
+        else:
+            exp_coefs = np.exp(lgr.coef_)[0]
+            i = 1
         top_coef = np.argsort(exp_coefs)[::-1][0:30]
         top_ftrs = [vocab[code] for code in top_coef]
         top_codes = [all_feats[ftr] for ftr in top_ftrs]
@@ -148,7 +152,7 @@ if __name__ == '__main__':
     if DAY_ONE_ONLY:
         out_name += '_d1'
     
-    writer = pd.ExcelWriter(stats_dir + 'lgr_coefs.xlsx')
+    writer = pd.ExcelWriter(stats_dir + OUTCOME + '_lgr_coefs.xlsx')
     for i, df in enumerate(coef_list):
         df.to_excel(writer, 
                     sheet_name='coef_' + str(i), 
@@ -191,8 +195,10 @@ if __name__ == '__main__':
                                test_idx=test,
                                probs=test_probs)
             else:
-                test_preds = mod.predict(X[test])[:, 1]
-                stats = ta.clf_metrics(y[test], test_preds)
+                test_preds = mod.predict(X[test])
+                stats = ta.clf_metrics(y[test], 
+                                       test_preds,
+                                       mod_name=mod_name)
                 ta.write_preds(preds=test_preds,
                                outcome=OUTCOME,
                                mod_name=mod_name,

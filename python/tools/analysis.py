@@ -3,7 +3,7 @@ import numpy as np
 import os
 
 from sklearn.metrics import confusion_matrix
-from sklearn.metrics import roc_curve, average_precision_score, auc
+from sklearn.metrics import roc_auc_score, average_precision_score
 from sklearn.model_selection import StratifiedKFold, cross_val_predict
 from scipy.stats import binom, chi2, norm
 from copy import deepcopy
@@ -59,6 +59,7 @@ def clf_metrics(true,
                 pred,
                 average='weighted',
                 preds_are_probs=False,
+                cutpoint=0.5,
                 mod_name=None,
                 round=4,
                 round_pval=False,
@@ -112,6 +113,15 @@ def clf_metrics(true,
         
         return out
     
+    # Thresholding the probabilities, if provided
+    if preds_are_probs:
+        auc = roc_auc_score(true, pred)
+        brier = brier_score(true, pred)
+        ap = average_precision_score(true, pred)
+        pred = threshold(pred, cutpoint)
+    else:
+        brier = np.round(brier_score(true, pred), round)
+    
     # Constructing the 2x2 table
     confmat = confusion_matrix(true, pred)
     tp = confmat[1, 1]
@@ -133,7 +143,6 @@ def clf_metrics(true,
     
     # Calculating Youden's J and the Brier score
     j = sens + spec - 1
-    brier = np.round(brier_score(true, pred), round)
     
     # Rolling everything so far into a dataframe
     outmat = np.array([tp, fp, tn, fn,
@@ -143,6 +152,11 @@ def clf_metrics(true,
                        columns=['tp', 'fp', 'tn', 
                                 'fn', 'sens', 'spec', 'ppv',
                                 'npv', 'j', 'f1', 'mcc', 'brier'])
+    
+    # Optionally tacking on stats from the raw probabilities
+    if preds_are_probs:
+        out['auc'] = auc
+        out['ap'] = ap
     
     # Calculating some additional measures based on positive calls
     true_prev = int(np.sum(true == 1))
