@@ -105,6 +105,7 @@ if __name__ == '__main__':
         demog_vocab = {k + n_features:v for k,v in demog_dict.items()}
         vocab.update(demog_vocab)
         n_features = np.max([np.max(l) for l in features])
+        all_feats.update({v:v for k,v in demog_dict.items()})
     
     # Converting the features to a sparse matrix
     mat = lil_matrix((n_patients, n_features + 1))
