@@ -17,12 +17,6 @@ outcome=$1
 # Construct path to expected sequence location
 seqs="${PWD}/output/pkl/${outcome}_trimmed_seqs.pkl"
 
-if [[ ! -f "${seqs}" ]]; then
-    echo "Expected trimmed sequences for ${outcome} at ${seqs}"
-    echo "Have you run model_prep.py?"
-    exit 1
-fi
-
 # Check if virtualenv present, and if so activate it
 venv_path="${PWD}/venv/Scripts/activate"
 
@@ -34,9 +28,15 @@ fi
 
 py_location=$(which python)
 
+# TODO: possibly delete existing preds and coefs to avoid overwriting?
+
 # Echo the python install and version
 echo "${py_location}"
 
+run_model_prep() {
+    # TODO: We could also handle other options here
+    python "$PWD/python/model_prep.py" --outcome=$outcome
+}
 
 # Run Baselines
 run_baseline() {
@@ -54,7 +54,8 @@ run_lstm() {
     python "$PWD/python/model.py" --outcome=$outcome --all_days --model=lstm
 }
 
-# Run Baselines
+echo "Trimming sequences and appending labels >>"
+run_model_prep
 echo "Running Baselines >>"
 run_baseline
 echo "Running DAN >>"
