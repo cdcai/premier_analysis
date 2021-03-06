@@ -156,15 +156,15 @@ if __name__ == "__main__":
 
     # Create some callbacks
     callbacks = [
-        TensorBoard(
-            log_dir=os.path.join(tensorboard_dir, TARGET,
-                                 datetime.now().strftime("%Y%m%d-%H%M%S")),
-            histogram_freq=1,
-            update_freq=TB_UPDATE_FREQ,
-            embeddings_freq=5,
-            embeddings_metadata=os.path.join(tensorboard_dir,
-                                             "emb_metadata.tsv"),
-        ),
+        # TensorBoard(
+        #     log_dir=os.path.join(tensorboard_dir, TARGET,
+        #                          datetime.now().strftime("%Y%m%d-%H%M%S")),
+        #     histogram_freq=1,
+        #     update_freq=TB_UPDATE_FREQ,
+        #     embeddings_freq=5,
+        #     embeddings_metadata=os.path.join(tensorboard_dir,
+        #                                      "emb_metadata.tsv"),
+        # ),
 
         # Create model checkpoint callback
         keras.callbacks.ModelCheckpoint(filepath=os.path.join(
@@ -299,8 +299,12 @@ if __name__ == "__main__":
 
             stats = ta.clf_metrics(test_labs,
                                    test_preds,
-                                   average="micro",
+                                   average="weighted",
                                    mod_name=MOD_NAME)
+            
+            # Also take the probability of the predicted class
+            # to report out                     
+            test_probs = np.amax(test_probs, axis=1)
 
     elif MOD_NAME == "dan":
 
@@ -339,29 +343,69 @@ if __name__ == "__main__":
                                       stratify=y[train],
                                       random_state=RAND)
 
-        # Produce DAN model to fit
-        model = tk.DAN(
-            vocab_size=N_VOCAB,
-            # TODO: Maybe parameterize? Ionno.
-            ragged=False,
-            input_length=TIME_SEQ)
+        # Handle multiclass case
+        if N_CLASS > 2:
+            # We have to pass one-hot labels for model fit, but CLF metrics will take indices
+            n_values = np.max(y) + 1
+            y_one_hot = np.eye(n_values)[y]
 
-        model.compile(optimizer="adam", loss=loss_fn, metrics=metrics)
+            # Produce DAN model to fit
+            model = tk.DAN(
+                vocab_size=N_VOCAB,
+                # TODO: Maybe parameterize? Ionno.
+                ragged=False,
+                input_length=TIME_SEQ,
+                n_classes = N_CLASS
+                )
+            
+            model.compile(optimizer="adam", loss=loss_fn, metrics=metrics)
 
-        model.fit(X[train],
-                  y[train],
-                  batch_size=BATCH_SIZE,
-                  epochs=EPOCHS,
-                  validation_data=(X[val], y[val]),
-                  callbacks=callbacks)
+            model.fit(X[train],
+                    y_one_hot[train],
+                    batch_size=BATCH_SIZE,
+                    epochs=EPOCHS,
+                    validation_data=(X[val], y_one_hot[val]),
+                    callbacks=callbacks)
 
-        # ---
-        # Compute decision threshold cut from validation data using grid search
-        # then apply threshold to test data to compute metrics
-        val_probs = model.predict(X[val]).flatten()
-        test_probs = model.predict(X[test]).flatten()
+            test_probs = model.predict(X[test])
+            
+            # In the multiclass case, take argmax
+            test_preds = np.argmax(test_probs, axis=1)
 
-        if N_CLASS <= 2:
+            stats = ta.clf_metrics(y[test],
+                                   test_preds,
+                                   average="weighted",
+                                   mod_name=MOD_NAME)
+
+            # Also take the probability of the predicted class
+            # to report out                     
+            test_probs = np.amax(test_probs, axis=1)
+        else:
+            # Binary case
+
+            # Produce DAN model to fit
+            model = tk.DAN(
+                vocab_size=N_VOCAB,
+                # TODO: Maybe parameterize? Ionno.
+                ragged=False,
+                input_length=TIME_SEQ
+                )
+
+            model.compile(optimizer="adam", loss=loss_fn, metrics=metrics)
+
+            model.fit(X[train],
+                    y[train],
+                    batch_size=BATCH_SIZE,
+                    epochs=EPOCHS,
+                    validation_data=(X[val], y[val]),
+                    callbacks=callbacks)
+
+            # ---
+            # Compute decision threshold cut from validation data using grid search
+            # then apply threshold to test data to compute metrics
+            val_probs = model.predict(X[val]).flatten()
+            test_probs = model.predict(X[test]).flatten()
+
             # If we are in the binary case, compute grid metrics on validation data
             # and compute the cutpoint for the test set.
             val_gm = ta.grid_metrics(y[val], val_probs)
@@ -376,16 +420,7 @@ if __name__ == "__main__":
                                    preds_are_probs=True,
                                    cutpoint=f1_cut,
                                    mod_name=MOD_NAME)
-
-        else:
-            # In the multiclass case, take argmax
-            test_preds = np.argmax(test_probs)
-
-            stats = ta.clf_metrics(y[test],
-                                   test_preds,
-                                   average="micro",
-                                   mod_name=MOD_NAME)
-
+        
     # ---
     # Writing the results to disk
     # Optionally append results if file already exists
