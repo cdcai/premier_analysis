@@ -3,7 +3,7 @@ import numpy as np
 import os
 
 from sklearn.metrics import confusion_matrix
-from sklearn.metrics import roc_curve, average_precision_score, auc
+from sklearn.metrics import roc_auc_score, average_precision_score
 from sklearn.model_selection import StratifiedKFold, cross_val_predict
 from scipy.stats import binom, chi2, norm
 from copy import deepcopy
@@ -53,26 +53,26 @@ def slim_metrics(df, rules, by=None):
 
 
 # Runs basic diagnostic stats on binary (only) predictions
-def clf_metrics(true,
+def clf_metrics(true, 
                 pred,
-                round=4,
-                average="weighted",
-                round_pval=False,
-                mcnemar=False,
+                average='weighted',
                 preds_are_probs=False,
                 cutpoint=0.5,
-                mod_name=None):
-
+                mod_name=None,
+                round=4,
+                round_pval=False,
+                mcnemar=False):
+    '''Runs basic diagnostic stats on binary (only) predictions'''
     # Converting pd.Series to np.array
     stype = type(pd.Series())
     if type(pred) == stype:
         pred = pred.values
     if type(true) == stype:
         true = true.values
-
+    
     # Optional exit for doing averages with multiclass/label inputs
     if len(np.unique(true)) > 2:
-        # Converting the multiclass columns to multiple binary columns
+        # Getting binary metrics for each set of results
         codes = np.unique(true)
         if type(codes[0]) != type(int(0)):
             y = [
@@ -86,19 +86,17 @@ def clf_metrics(true,
         else:
             y = [np.array(true == code, dtype=np.uint8) for code in codes]
             y_ = [np.array(pred == code, dtype=np.uint8) for code in codes]
-
-        # Getting the binry stats for each column
-        stats = [
-            clf_metrics(y[i], y_[i], round=16, mod_name=mod_name)
-            for i in range(len(y))
-        ]
+        
+        stats = [clf_metrics(y[i], y_[i], round=16) for i in range(len(y))]
         stats = pd.concat(stats, axis=0)
         stats.fillna(0, inplace=True)
         cols = stats.columns.values
 
         # Calculating the averaged metrics
         if average == 'weighted':
-            weighted = np.average(stats, weights=stats.true_prev, axis=0)
+            weighted = np.average(stats, 
+                                  weights=stats.true_prev,
+                                  axis=0)
             out = pd.DataFrame(weighted).transpose()
             out.columns = cols
         elif average == 'macro':
@@ -110,19 +108,22 @@ def clf_metrics(true,
         out = out.round(4)
         out.iloc[:, 0:4] = out.iloc[:, 0:4].round()
         out.iloc[:, 12:15] = out.iloc[:, 12:15].round()
-
+        
+        if mod_name is not None:
+            out['model'] = mod_name
+        
         return out
-
-    # For the binary case, if the predictions are scores, use them to calculate
-    # AUC, average precision, and Brier score
+    
+    # Thresholding the probabilities, if provided
     if preds_are_probs:
-        roc = roc_curve(true, pred)
-        auc_score = auc(roc[0], roc[1])
-        ap = average_precision_score(true, pred)
+        auc = roc_auc_score(true, pred)
         brier = brier_score(true, pred)
+        ap = average_precision_score(true, pred)
         pred = threshold(pred, cutpoint)
-
-    # Constructing the 2x2 table with the class predictions
+    else:
+        brier = np.round(brier_score(true, pred), round)
+    
+    # Constructing the 2x2 table
     confmat = confusion_matrix(true, pred)
     tp = confmat[1, 1]
     fp = confmat[0, 1]
@@ -144,21 +145,19 @@ def clf_metrics(true,
 
     # Calculating Youden's J and the Brier score
     j = sens + spec - 1
-    brier = np.round(brier_score(true, pred), round)
-
+    
     # Rolling everything so far into a dataframe
     outmat = np.array(
         [tp, fp, tn, fn, sens, spec, ppv, npv, j, f1, mcc,
          brier]).reshape(-1, 1)
     out = pd.DataFrame(outmat.transpose(),
-                       columns=[
-                           'tp', 'fp', 'tn', 'fn', 'sens', 'spec', 'ppv',
-                           'npv', 'j', 'f1', 'mcc', 'brier'
-                       ])
-
-    # Adding score-based measures, if available
+                       columns=['tp', 'fp', 'tn', 
+                                'fn', 'sens', 'spec', 'ppv',
+                                'npv', 'j', 'f1', 'mcc', 'brier'])
+    
+    # Optionally tacking on stats from the raw probabilities
     if preds_are_probs:
-        out['auc'] = auc_score
+        out['auc'] = auc
         out['ap'] = ap
 
     # Calculating some additional measures based on positive calls
@@ -180,80 +179,16 @@ def clf_metrics(true,
     # Optionally dropping the mcnemar p-val
     if mcnemar:
         out['mcnemar'] = pval
-
-    # And optionally adding the model name
+    
+    # And finally tacking on the model name
     if mod_name is not None:
         out['model'] = mod_name
 
     return out
 
 
-# Performs either macro or weighted macro averaging of clf_metrics
-def macro_clf_metrics(targets,
-                      guesses,
-                      by,
-                      weighted=True,
-                      round=4,
-                      p_method='harmonic',
-                      mcnemar=True):
-    # Column groups for rounding later
-    count_cols = ['tp', 'fp', 'tn', 'fn']
-    prev_cols = ['true_prev', 'pred_prev', 'prev_diff']
-
-    # Getting the indices for each group
-    n = len(targets)
-    group_names = np.unique(by)
-    n_groups = len(group_names)
-    group_idx = [np.where(by == group)[0] for group in group_names]
-    group_counts = np.array([len(idx) for idx in group_idx])
-
-    # Calculating the groupwise statistics
-    group_stats = [
-        clf_metrics(targets[idx], guesses[idx], mcnemar=mcnemar)
-        for idx in group_idx
-    ]
-
-    # Casting the basic counts as proportions
-    for i, df in enumerate(group_stats):
-        df[count_cols] /= group_counts[i]
-        df[prev_cols] /= group_counts[i]
-
-    group_stats = pd.concat(group_stats, axis=0)
-
-    # Calculating the weights
-    if weighted:
-        w = np.array(group_counts / n)
-    else:
-        w = np.repeat(1 / n_groups, n_groups)
-
-    # Calculating the mean values
-    averages = np.average(group_stats, axis=0, weights=w)
-    avg_stats = pd.DataFrame(averages).transpose()
-    avg_stats.columns = group_stats.columns.values
-
-    # Converting the count metrics back to integers
-    avg_stats[count_cols] *= n
-    avg_stats[count_cols] = avg_stats[count_cols].astype(int)
-    avg_stats[prev_cols] *= n
-    avg_stats.rel_prev_diff = avg_stats.prev_diff / avg_stats.true_prev
-
-    # Rounding off the floats
-    float_cols = ['sens', 'spec', 'npv', 'ppv', 'j', 'f1', 'brier']
-    avg_stats[float_cols] = avg_stats[float_cols].round(round)
-    avg_stats.rel_prev_diff = avg_stats.rel_prev_diff.round(round)
-
-    # Getting the mean of the p-values with either Fisher's method
-    # or the harmonic mean method
-    if mcnemar:
-        avg_stats.mcnemar = average_pvals(group_stats.mcnemar,
-                                          w=w,
-                                          method=p_method)
-
-    return avg_stats
-
-
-def average_pvals(p_vals,
-                  w=None,
+def average_pvals(p_vals, 
+                  w=None, 
                   method='harmonic',
                   smooth=True,
                   smooth_val=1e-7):

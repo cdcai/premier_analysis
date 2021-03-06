@@ -46,6 +46,15 @@ def trim_sequence(inputs, labels, cuts):
     return inputs[0][in_start:in_end], inputs[1], labels[label_id]
 
 
+def flatten(l):
+    if type(l) != type([]):
+        return l
+    if type(l[0]) == type([]):
+        return [item for sublist in l for item in sublist]
+    else:
+        return l
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--cut_method',
@@ -66,6 +75,11 @@ if __name__ == "__main__":
                         default='misa_pt',
                         choices=['misa_pt', 'multi_class', 'death'],
                         help='which outcome to use as the prediction target')
+    parser.add_argument('--exclude_icu',
+                        type=bool,
+                        default=True,
+                        help='whether to exclude patients in the ICU before the\
+                         prediction horizon')
     parser.add_argument('--out_dir',
                         type=str,
                         default='output/',
@@ -93,6 +107,7 @@ if __name__ == "__main__":
     HORIZON = args.horizon
     MAX_SEQ = args.max_seq
     OUTCOME = args.outcome
+    EXCLUDE_ICU = args.exclude_icu
     MIN_AGE = args.min_age
     WRITE_DF = args.write_df
 
@@ -107,7 +122,13 @@ if __name__ == "__main__":
 
     with open(pkl_dir + 'pat_data.pkl', 'rb') as f:
         pat_data = pkl.load(f)
-
+    
+    with open(pkl_dir + "all_ftrs_dict.pkl", "rb") as f:
+        vocab = pkl.load(f)
+    
+    with open(pkl_dir + "feature_lookup.pkl", "rb") as f:
+        all_feats = pkl.load(f)
+    
     # Total number of patients
     n_patients = len(int_seqs)
 
@@ -118,14 +139,43 @@ if __name__ == "__main__":
                        MAX_SEQ, CUT_METHOD) for i in range(n_patients)]
         cut_points = p.starmap(find_cutpoints, find_input)
 
-        # Figuring out who doesn't have another day after the horizon
+        # Trimming the inputs and outputs to the right length
+        trim_input = [(int_seqs[i], pat_data[OUTCOME][i], cut_points[i])
+                      for i in range(n_patients)]
+        trim_out = p.starmap(trim_sequence, trim_input)
+        
+        # Figuring out who has at least 1 more day after the horizon
         keepers = [
             pat_data['length'][i][cut_points[i][1]] > HORIZON
             and pat_data['inpat'][i][cut_points[i][1]] == 1
             and pat_data['age'][i][cut_points[i][1]] >= MIN_AGE
             for i in range(n_patients)
         ]
-
+        
+        # Optionally adding other exclusion criteria
+        if EXCLUDE_ICU:
+            exclusion_strings = ['ICU', 'TCU', 'STEP DOWN']
+            rev_vocab = {v:k for k,v in vocab.items()}
+            exclusion_codes = [k for k,v in all_feats.items() 
+                               if any(s in v for s in exclusion_strings)]
+            exclusion_ftrs = [rev_vocab[code] for code in exclusion_codes
+                              if code in rev_vocab.keys()]
+            lookback = [np.min((len(l), HORIZON)) for l in trim_out]
+            first_days = [trim_out[i][0][-lookback[i]]
+                          for i in range(n_patients)]
+            
+            # Optionally flattening the pre-horizon code lists;
+            # Note: this may or may not work
+            if HORIZON > 1:
+                first_days = [flatten(l) for l in first_days]
+            
+            no_excl = [len(np.intersect1d(exclusion_ftrs, l)) == 0
+                                   for l in first_days]
+            keepers = [keepers[i] and no_excl[i] for i in range(n_patients)]
+        
+        # Keeping the keepers and booting the rest
+        trim_out = [trim_out[i] for i in range(n_patients) if keepers[i]]
+        
         # Making a DF with the pat-level data to link for analysis later
         if WRITE_DF:
             cohort = [[
@@ -141,14 +191,6 @@ if __name__ == "__main__":
                 'key', 'age', 'length', 'misa_pt', 'multi_class', 'death'
             ]
             cohort_df.to_csv(output_dir + OUTCOME + '_cohort.csv', index=False)
-
-        # Trimming the inputs and outputs to the right length
-        trim_input = [(int_seqs[i], pat_data[OUTCOME][i], cut_points[i])
-                      for i in range(n_patients)]
-        trim_out = p.starmap(trim_sequence, trim_input)
-
-        # Keeping the keepers and booting the rest
-        trim_out = [trim_out[i] for i in range(n_patients) if keepers[i]]
 
     # output max time to use in keras model
     print("Use TIME_SEQ:{}".format(max([len(x) for x, _, _ in trim_out])))

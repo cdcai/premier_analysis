@@ -37,6 +37,9 @@ def main():
     print('Loading the parquet files...')
 
     pq = tp.load_parquets(prem_dir)
+    
+    # Replacing NaN with 0
+    pq.id.dropna(axis=0, subset=['days_from_index'], inplace=True)
 
     # Making some lookup tables to use later
     medrec_dict = dict(
