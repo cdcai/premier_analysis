@@ -20,6 +20,7 @@ decorator==4.4.2
 defusedxml==0.6.0
 distributed==2.30.0
 entrypoints==0.3
+et-xmlfile==1.0.1
 filelock==3.0.12
 focal-loss==0.0.6
 fsspec==0.8.3
@@ -42,6 +43,7 @@ ipython-genutils==0.2.0
 ipython-memory-usage==1.2
 ipywidgets==7.5.1
 isort==5.6.1
+jdcal==1.4.1
 jedi==0.17.2
 Jinja2==2.11.2
 joblib==0.17.0
@@ -71,6 +73,7 @@ notebook==6.1.4
 numba==0.51.2
 numpy==1.18.5
 oauthlib==3.1.0
+openpyxl==3.0.6
 opt-einsum==3.3.0
 packaging==20.4
 pandas==1.1.3

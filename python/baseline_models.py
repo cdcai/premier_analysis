@@ -47,6 +47,15 @@ if __name__ == '__main__':
                         type=str,
                         default='..data/data/',
                         help='path to the Premier data')
+    parser.add_argument("--test_split",
+                    type=float,
+                    default=0.2,
+                    help="Percentage of total data to use for testing")
+    parser.add_argument("--validation_split",
+                        type=float,
+                        default=0.1,
+                        help="Percentage of train data to use for validation")
+    parser.add_argument("--rand_seed", type=int, default=2021, help="RNG seed")
     args = parser.parse_args()
     
     # Setting the globals
@@ -54,6 +63,9 @@ if __name__ == '__main__':
     USE_DEMOG = args.use_demog
     AVERAGE = args.average
     DAY_ONE_ONLY = True if args.history != 'all' else False
+    TEST_SPLIT = args.test_split
+    VAL_SPLIT = args.validation_split
+    RAND = args.rand_seed
     
     # Setting the directories and importing the data
     output_dir = os.path.abspath(args.out_dir) + '/'
@@ -114,16 +126,16 @@ if __name__ == '__main__':
     
     # Splitting the data
     train, test = train_test_split(range(n_patients),
-                                   test_size=0.5,
-                                   stratify=y,
-                                   random_state=2020)
+                                    test_size=TEST_SPLIT,
+                                    stratify=y,
+                                    random_state=RAND)
     
     # Doing a validation split for threshold-picking on binary problems
     if binary:
-        val, test = train_test_split(test,
-                                     test_size=0.5,
-                                     stratify=y[test],
-                                     random_state=2020)
+        val, train = train_test_split(train,
+                                      test_size=VAL_SPLIT,
+                                      stratify=y[train],
+                                      random_state=RAND)
     
     # Fitting a logistic regression to the whole dataset
     lgr = LogisticRegression(max_iter=5000, multi_class='ovr')
@@ -158,13 +170,13 @@ if __name__ == '__main__':
     if DAY_ONE_ONLY:
         out_name += 'd1_'
     
-    writer = pd.ExcelWriter(stats_dir + out_name + 'coefs.xlsx')
-    for i, df in enumerate(coef_list):
-        df.to_excel(writer, 
-                    sheet_name='coef_' + str(i), 
-                    index=False)
-    
-    writer.save()
+    with pd.ExcelWriter(stats_dir + out_name + 'coefs.xlsx') as writer:
+        for i, df in enumerate(coef_list):
+            df.to_excel(writer, 
+                        sheet_name='coef_' + str(i), 
+                        index=False)
+        
+        writer.save()
     
     # Loading up some models to try
     mods = [
