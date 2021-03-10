@@ -20,10 +20,12 @@ MISA_ONLY = True
 WRITE_PARQUET = False
 
 # Setting the directories
-output_dir = os.path.abspath('./output/') + '/'
-data_dir = os.path.abspath('../data/data/') + '/'
-targets_dir = os.path.abspath('../data/targets/') + '/'
-pkl_dir = output_dir + 'pkl/'
+pwd = os.path.abspath(os.path.dirname(__file__))
+output_dir = os.path.join(pwd, "..", "output", "")
+data_dir = os.path.join(pwd, "..", "data", "data", "")
+targets_dir = os.path.join(pwd, "..", "data", "targets", "")
+pkl_dir = os.path.join(output_dir, "pkl", "")
+
 ftr_cols = ['vitals', 'bill', 'genlab', 'lab_res', 'proc', 'diag']
 final_cols = ['covid_visit', 'ftrs']
 

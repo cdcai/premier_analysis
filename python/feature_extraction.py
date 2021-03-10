@@ -21,8 +21,9 @@ TIME_UNIT = 'dfi'
 COVID_ONLY = True
 
 # Setting the file directories
-prem_dir = os.path.abspath("data/data/")
-out_dir = os.path.abspath("output/")
+pwd = os.path.abspath(os.path.dirname(__file__))
+prem_dir = os.path.join(pwd, "..", "data", "data", "")
+out_dir = os.path.join(pwd, "..", "output", "")
 parq_dir = os.path.join(out_dir, "parquet", "")
 pkl_dir = os.path.join(out_dir, "pkl", "")
 samp_dir = os.path.join(out_dir, "samples", "")
