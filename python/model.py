@@ -167,13 +167,13 @@ if __name__ == "__main__":
         # ),
 
         # Create model checkpoint callback
-        keras.callbacks.ModelCheckpoint(filepath=os.path.join(
-            tensorboard_dir, TARGET,
-            "weights.{epoch:02d}-{val_loss:.2f}.hdf5"),
-                                        save_weights_only=True,
-                                        monitor="val_loss",
-                                        mode="max",
-                                        save_best_only=True),
+        # keras.callbacks.ModelCheckpoint(filepath=os.path.join(
+        #     tensorboard_dir, TARGET,
+        #     "weights.{epoch:02d}-{val_loss:.2f}.hdf5"),
+        #                                 save_weights_only=True,
+        #                                 monitor="val_loss",
+        #                                 mode="max",
+        #                                 save_best_only=True),
 
         # Create early stopping callback
         keras.callbacks.EarlyStopping(monitor="val_loss",
@@ -214,7 +214,7 @@ if __name__ == "__main__":
         VALID_STEPS_PER_EPOCH = np.ceil(len(validation) / BATCH_SIZE)
 
         # %%
-        train_gen = tk.create_ragged_data([inputs[samp] for samp in train],
+        train_gen = tk.create_ragged_data_gen([inputs[samp] for samp in train],
                                           max_time=TIME_SEQ,
                                           max_demog=MAX_DEMOG,
                                           epochs=EPOCHS,
@@ -222,7 +222,7 @@ if __name__ == "__main__":
                                           random_seed=RAND,
                                           batch_size=BATCH_SIZE)
 
-        validation_gen = tk.create_ragged_data(
+        validation_gen = tk.create_ragged_data_gen(
             [inputs[samp] for samp in validation],
             max_time=TIME_SEQ,
             max_demog=MAX_DEMOG,
@@ -233,7 +233,7 @@ if __name__ == "__main__":
             batch_size=BATCH_SIZE)
 
         # NOTE: don't shuffle test data
-        test_gen = tk.create_ragged_data([inputs[samp] for samp in test],
+        test_gen = tk.create_ragged_data_gen([inputs[samp] for samp in test],
                                          max_time=TIME_SEQ,
                                          max_demog=MAX_DEMOG,
                                          epochs=1,
@@ -265,8 +265,6 @@ if __name__ == "__main__":
         # ---
         # Compute decision threshold cut from validation data using grid search
         # then apply threshold to test data to compute metrics
-        # BUG: figure out how to predict on all samples for the preds file
-        # only LSTM deals with a generator which only works if samples are evenly divisible by batch size, else it drops the tailing end
         val_probs = model.predict(validation_gen, steps=VALID_STEPS_PER_EPOCH)
         test_probs = model.predict(test_gen)
 
@@ -441,8 +439,6 @@ if __name__ == "__main__":
                                             TARGET + "_cohort.csv"))
         preds_df = preds_df.iloc[test, :]
 
-    # BUG: multiclass returns multiple cols here
-    # write branching logic to pull just probs of predicted class instead
     preds_df[MOD_NAME + '_prob'] = test_probs
     preds_df[MOD_NAME + '_pred'] = test_preds
     preds_df.to_csv(os.path.join(stats_dir, preds_filename), index=False)

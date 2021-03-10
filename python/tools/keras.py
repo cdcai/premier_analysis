@@ -16,7 +16,7 @@ from tensorflow.keras.layers import (Dense, Embedding, Input, Multiply,
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 
 
-def create_ragged_data(inputs: list,
+def create_ragged_data_gen(inputs: list,
                        max_time: float,
                        max_demog: int,
                        epochs: int,
