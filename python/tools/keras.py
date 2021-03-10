@@ -416,7 +416,6 @@ def LSTM(time_seq,
          n_classes=1,
          n_demog_bags=6,
          n_demog=32,
-         output_bias=0.0,
          weighted_average=True,
          ragged=True):
     # Input layer
@@ -480,7 +479,6 @@ def LSTM(time_seq,
         # so this should be able to account for that.
         n_classes if n_classes > 2 else 1,
         activation="sigmoid",
-        bias_initializer=keras.initializers.Constant(output_bias),
         name="Output")(comb)
 
     return keras.Model([code_in, demog_in], output)
