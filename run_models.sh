@@ -40,7 +40,10 @@ run_model_prep() {
 
 # Run Baselines
 run_baseline() {
-    python "$PWD/python/baseline_models.py" --outcome=$outcome
+    echo "-- Day one model --"
+    python "$PWD/python/baseline_models.py" --day_one --outcome=$outcome
+    echo "-- All day model --"
+    python "$PWD/python/baseline_models.py" --all_days --outcome=$outcome
 }
     
 run_dan() {
