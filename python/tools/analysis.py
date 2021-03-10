@@ -170,16 +170,16 @@ def clf_metrics(true,
 
 def jackknife_metrics(targets, 
                       guesses, 
-                      avereage='weighted'):
+                      average='weighted'):
     # Replicates of the dataset with one row missing from each
     rows = np.array(list(range(targets.shape[0])))
     j_rows = [np.delete(rows, row) for row in rows]
 
     # using a pool to get the metrics across each
-    scores = [clef_metrics(targets[idx], 
-                           guesses[idx], 
-                           average=average) for idx in j_rows]
-    scores = pd.concat(stat_list, axis=0)
+    scores = [clf_metrics(targets[idx],
+                          guesses[idx],
+                          average=average) for idx in j_rows]
+    scores = pd.concat(scores, axis=0)
     means = scores.mean()
     
     return scores, means
@@ -226,11 +226,11 @@ class boot_cis:
         seeds = np.random.randint(0, 1e6, n)
 
         # Generating the bootstrap samples and metrics
-        boots = [boot_sample(targets, seed) for seed in seeds]
+        boots = [boot_sample(targets, seed=seed) for seed in seeds]
         scores = [clf_metrics(targets[b], 
                               guesses[b], 
                               average=average) for b in boots]
-        scores = pd.concat(p_output, axis=0)
+        scores = pd.concat(scores, axis=0)
 
         # Calculating the confidence intervals
         lower = (a / 2) * 100

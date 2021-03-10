@@ -126,23 +126,9 @@ stats = ta.clf_metrics(y[test],
                        mod_name=mod_name)
 
 # Writing the results to disk
-stats_filename = OUTCOME + '_stats.csv'
-if stats_filename in os.listdir(stats_dir):
-    stats_df = pd.read_csv(stats_dir + stats_filename)
-    stats_df = pd.concat([stats_df, stats], axis=0)
-    stats_df.to_csv(stats_dir + stats_filename, index=False)
-else:
-    stats.to_csv(stats_dir + stats_filename, index=False)
-
-# Writing the test predictions to the test predictions CSV
-preds_filename = OUTCOME + '_preds.csv'
-if preds_filename in os.listdir(stats_dir):
-    preds_df = pd.read_csv(stats_dir + preds_filename)
-else:
-    preds_df = pd.read_csv(output_dir + OUTCOME + '_cohort.csv')
-    preds_df = preds_df.iloc[test, :]
-
-preds_df[mod_name + '_prob'] = test_probs
-preds_df[mod_name + '_pred'] = test_preds
-preds_df.to_csv(stats_dir + preds_filename, index=False)
-
+ta.write_stats(stats, OUTCOME)
+ta.write_preds(preds=test_preds,
+               probs=test_probs,
+               outcome=OUTCOME,
+               mod_name=mod_name,
+               test_idx=test)
