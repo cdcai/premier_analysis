@@ -26,7 +26,7 @@ if [[ -f "${venv_path}" ]]; then
     source "${venv_path}"
 fi
 
-py_location=$(which python)
+py_location=$(where python || which python)
 
 # TODO: possibly delete existing preds and coefs to avoid overwriting?
 
@@ -45,7 +45,9 @@ run_baseline() {
     
 run_dan() {
     # Run DAN
+    echo "-- Day one model --"
     python "${PWD}/python/model.py" --outcome=$outcome --day_one --model=dan
+    echo "-- All day model --"
     python "$PWD/python/model.py" --outcome=$outcome --all_days --model=dan
 }
 
