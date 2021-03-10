@@ -594,6 +594,13 @@ def odds_ratio(y, pred, round=2):
     return OR
 
 
+def max_probs(arr, maxes=None, axis=1):
+    if maxes is None:
+        maxes = np.argmax(arr, axis=axis)
+    out = [arr[i, maxes[i]] for i in range(arr.shape[0])]
+    return np.array(out)
+
+
 def write_stats(stats,
                 outcome,
                 stats_dir='output/analysis/'):
