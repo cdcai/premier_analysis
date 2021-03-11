@@ -143,9 +143,7 @@ if __name__ == '__main__':
     # Settnig the loss
     if n_classes > 1:
         loss = 'categorical_crossentropy'
-        y_mat = np.zeros((n_patients, n_classes))
-        for row, col in enumerate(y):
-            y_mat[row, col] = 1
+        y_mat = ta.onehot_matrix(y)
     else:
         loss = 'binary_crossentropy'
         y_mat = y

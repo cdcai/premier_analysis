@@ -34,7 +34,17 @@ def mcnemar_test(true, pred, cc=True):
 
 # Calculates the Brier score for multiclass problems
 def brier_score(true, pred):
-    return np.sum((pred - true)**2) / true.shape[0]
+    n_classes = len(np.unique(true))
+    assert n_classes > 1
+    if n_classes == 2:
+        bs = np.sum((pred - true)**2) / true.shape[0]
+    else:
+        y = onehot_matrix(true)
+        row_diffs = np.diff((pred, y), axis=0)[0]
+        squared_diffs = row_diffs ** 2
+        row_sums = np.sum(squared_diffs, axis=1) 
+        bs = row_sums.mean()
+    return bs
 
 
 # Runs basic diagnostic stats on categorical predictions
@@ -46,7 +56,8 @@ def clf_metrics(true,
                 mod_name=None,
                 round=4,
                 round_pval=False,
-                mcnemar=False):
+                mcnemar=False,
+                argmax_axis=1):
     '''Runs basic diagnostic stats on binary (only) predictions'''
     # Converting pd.Series to np.array
     stype = type(pd.Series())
@@ -59,15 +70,23 @@ def clf_metrics(true,
     if len(np.unique(true)) > 2:
         # Getting binary metrics for each set of results
         codes = np.unique(true)
-        if type(codes[0]) != type(int(0)):
-            y = [np.array([doc == code for doc in true], dtype=np.uint8)
-                 for code in codes]
-            y_ = [np.array([doc == code for doc in pred], dtype=np.uint8)
-                  for code in codes]
-        else:
-            y = [np.array(true == code, dtype=np.uint8) for code in codes]
-            y_ = [np.array(pred == code, dtype=np.uint8) for code in codes]
         
+        # Argmaxing for when we have probabilities
+        if preds_are_probs:
+            auc = roc_auc_score(true,
+                                pred,
+                                average=average,
+                                multi_class='ovr')
+            brier = brier_score(true, pred)
+            pred = np.argmax(pred, axis=argmax_axis)
+        
+        # Making lists of the binary predictions (OVR)    
+        y = [np.array([doc == code for doc in true], dtype=np.uint8)
+             for code in codes]
+        y_ = [np.array([doc == code for doc in pred], dtype=np.uint8)
+              for code in codes]
+        
+        # Getting the stats for each set of binary predictions
         stats = [clf_metrics(y[i], y_[i], round=16) for i in range(len(y))]
         stats = pd.concat(stats, axis=0)
         stats.fillna(0, inplace=True)
@@ -85,11 +104,19 @@ def clf_metrics(true,
         elif average == 'micro':
             out = clf_metrics(np.concatenate(y),
                               np.concatenate(y_))
-            
+        
+        # Adding AUC and AP for when we have probabilities
+        if preds_are_probs:
+            out.auc = auc
+            out.brier = brier
+        
         # Rounding things off
-        out = out.round(4)
-        out.iloc[:, 0:4] = out.iloc[:, 0:4].round()
-        out.iloc[:, 12:15] = out.iloc[:, 12:15].round()
+        out = out.round(round)
+        count_cols = [
+                      'tp', 'fp', 'tn', 'fn', 'true_prev',
+                      'pred_prev', 'prev_diff'
+        ]
+        out[count_cols] = out[count_cols].round()
         
         if mod_name is not None:
             out['model'] = mod_name
@@ -140,6 +167,9 @@ def clf_metrics(true,
     if preds_are_probs:
         out['auc'] = auc
         out['ap'] = ap
+    else:
+        out['auc'] = np.nan
+        out['ap'] = np.nan
     
     # Calculating some additional measures based on positive calls
     true_prev = int(np.sum(true == 1))
@@ -592,6 +622,14 @@ def odds_ratio(y, pred, round=2):
     if round is not None:
         OR = np.round(OR, round)
     return OR
+
+
+def onehot_matrix(y, sparse=False):
+    if not sparse:
+        y_mat = np.zeros((y.shape[0], len(np.unique(y))))
+        for row, col in enumerate(y):
+            y_mat[row, col] = 1
+    return y_mat
 
 
 def max_probs(arr, maxes=None, axis=1):
