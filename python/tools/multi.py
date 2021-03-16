@@ -16,10 +16,10 @@ import tools.preprocessing as tp
 import tools.analysis as ta
 
 
-def get_times(df, 
-              dict, 
-              day_col=None, 
-              time_col=None, 
+def get_times(df,
+              dict,
+              day_col=None,
+              time_col=None,
               ftr_col="ftr",
               day_only=True):
     """Gets days, hours, and minutes from index for a table"""
@@ -37,23 +37,25 @@ def get_times(df,
 
     # Doing the hours and minutes
     dfi = np.array(dfi_orig + df[day_col], dtype=np.uint32)
-    
+
     # Optionally working with hours and minutes from index
     if not day_only:
         hfi = dfi * 24
         mfi = hfi * 60
-        
+
         # Converting the times to hours and minutes
         if time_col is not None:
             with Pool() as p:
                 times = [t for t in df[time_col]]
-                hours = np.array(p.map(tp.time_to_hours, times), dtype=np.uint32)
-                mins = np.array(p.map(tp.time_to_minutes, times), dtype=np.uint32)
+                hours = np.array(p.map(tp.time_to_hours, times),
+                                 dtype=np.uint32)
+                mins = np.array(p.map(tp.time_to_minutes, times),
+                                dtype=np.uint32)
                 p.close()
                 p.join()
             hfi += hours
             mfi += mins
-        
+
         out["hfi"] = hfi
         out["mfi"] = mfi
 
@@ -64,39 +66,39 @@ def get_times(df,
     return out
 
 
-def jackknife_metrics(targets, guesses, average_by=None, weighted=True):
+def jackknife_metrics(targets, guesses, average="weighted"):
     # Replicates of the dataset with one row missing from each
     rows = np.array(list(range(targets.shape[0])))
     j_rows = [np.delete(rows, row) for row in rows]
 
     # using a pool to get the metrics across each
-    inputs = [(targets[idx], guesses[idx], average_by, weighted)
-              for idx in j_rows]
+    inputs = [(targets[idx], guesses[idx], average) for idx in j_rows]
+
     with Pool() as p:
         stat_list = p.starmap(ta.clf_metrics, inputs)
-    
+        p.close()
+
     # Combining the jackknife metrics and getting their means
     scores = pd.concat(stat_list, axis=0)
     means = scores.mean()
-    
+
     return scores, means
 
 
 # Calculates bootstrap confidence intervals for an estimator
 class boot_cis:
-    def __init__(
-        self,
-        targets,
-        guesses,
-        sample_by=None,
-        n=100,
-        a=0.05,
-        method="bca",
-        interpolation="nearest",
-        average='weighted',
-        weighted=True,
-        mcnemar=False,
-        seed=10221983):
+    def __init__(self,
+                 targets,
+                 guesses,
+                 sample_by=None,
+                 n=100,
+                 a=0.05,
+                 method="bca",
+                 interpolation="nearest",
+                 average='weighted',
+                 weighted=True,
+                 mcnemar=False,
+                 seed=10221983):
         # Converting everything to NumPy arrays, just in case
         stype = type(pd.Series())
         if type(targets) == stype:
@@ -127,13 +129,14 @@ class boot_cis:
         with Pool() as p:
             boot_input = [(targets, sample_by, None, seed) for seed in seeds]
             boots = p.starmap(ta.boot_sample, boot_input)
-            inputs = [(targets[boot], guesses[boot], average) 
+            inputs = [(targets[boot], guesses[boot], average)
                       for boot in boots]
-            
+
             # Getting the bootstrapped metrics from the Pool
             p_output = p.starmap(ta.clf_metrics, inputs)
-            scores = pd.concat(p_output, axis=0)
-        
+            p.close()
+
+        scores = pd.concat(p_output, axis=0)
         # Calculating the confidence intervals
         lower = (a / 2) * 100
         upper = 100 - lower
@@ -208,12 +211,9 @@ class boot_cis:
                 np.nanpercentile(scores.iloc[:, i],
                                  q=(lower_q[i], upper_q[i]),
                                  interpolation=interpolation,
-                                 axis=0) 
-                for i in range(len(lower_q))
+                                 axis=0) for i in range(len(lower_q))
             ]
-            cis = pd.DataFrame(cis, 
-                               columns=["lower", "upper"], 
-                               index=colnames)
+            cis = pd.DataFrame(cis, columns=["lower", "upper"], index=colnames)
 
         # Putting the stats with the lower and upper estimates
         cis = pd.concat([stat, cis], axis=1)
@@ -232,12 +232,14 @@ def boot_roc(targets, scores, sample_by=None, n=1000, seed=10221983):
     seeds = np.random.randint(1, 1e7, n)
 
     # Getting the indices for the bootstrap samples
-    p = Pool()
-    boot_input = [(targets, sample_by, None, seed) for seed in seeds]
-    boots = p.starmap(ta.boot_sample, boot_input)
+    with Pool() as p:
+        boot_input = [(targets, sample_by, None, seed) for seed in seeds]
+        boots = p.starmap(ta.boot_sample, boot_input)
 
-    # Getting the ROC curves
-    roc_input = [(targets[boot], scores[boot]) for boot in boots]
-    rocs = p.starmap(roc_curve, roc_input)
+        # Getting the ROC curves
+        roc_input = [(targets[boot], scores[boot]) for boot in boots]
+        rocs = p.starmap(roc_curve, roc_input)
+
+        p.close()
 
     return rocs
