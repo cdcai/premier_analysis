@@ -57,6 +57,12 @@ def clf_metrics(true,
                 mcnemar=False,
                 argmax_axis=1):
     '''Runs basic diagnostic stats on binary (only) predictions'''
+
+    averaging_options = ["weighted", "macro", "micro"]
+
+    if average not in averaging_options:
+        raise ValueError("value of 'average' is not a valid choice in {}".format(averaging_options))
+
     # Converting pd.Series to np.array
     stype = type(pd.Series())
     if type(pred) == stype:
