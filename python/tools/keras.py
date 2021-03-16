@@ -506,7 +506,12 @@ def DAN(vocab_size,
 
     # Dense layers
     dense = keras.layers.Dense(dense_size, name='dense_1')(embedding_avg)
-    output = keras.layers.Dense(n_classes, activation='sigmoid',
+    if n_classes > 1:
+        activation = 'softmax'
+    else:
+        activation = 'sigmoid'
+    output = keras.layers.Dense(n_classes, 
+                                activation=activation,
                                 name='output')(dense)
 
     return keras.Model(input, output)
