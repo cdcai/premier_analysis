@@ -48,7 +48,7 @@ if __name__ == "__main__":
 
     # Running the single confidence intervals (this takes a little time)
     cis = [
-        ta.boot_cis(preds[OUTCOME], preds[mod + '_pred'], n=1000)
+        tm.boot_cis(preds[OUTCOME], preds[mod + '_pred'], n=1000)
         for mod in mods
     ]
 
