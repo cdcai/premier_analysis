@@ -2,16 +2,17 @@
 ordered by time.
 '''
 
-import numpy as np
-import pandas as pd
-import pickle
 import json
-
+import os
+import pickle
+import time
 from importlib import reload
 
-import tools.preprocessing as tp
+import numpy as np
+import pandas as pd
+
 import tools.multi as tm
-import time
+import tools.preprocessing as tp
 
 # Unit of time to use for aggregation
 TIME_UNIT = 'dfi'
@@ -20,10 +21,15 @@ TIME_UNIT = 'dfi'
 COVID_ONLY = True
 
 # Setting the file directories
-prem_dir = 'data/data/'
-out_dir = 'output/'
-parq_dir = out_dir + 'parquet/'
-pkl_dir = out_dir + 'pkl/'
+pwd = os.path.abspath(os.path.dirname(__file__))
+prem_dir = os.path.join(pwd, "..", "data", "data", "")
+out_dir = os.path.join(pwd, "..", "output", "")
+parq_dir = os.path.join(out_dir, "parquet", "")
+pkl_dir = os.path.join(out_dir, "pkl", "")
+samp_dir = os.path.join(out_dir, "samples", "")
+
+[os.makedirs(path, exist_ok=True) for path in [parq_dir, pkl_dir, samp_dir]]
+
 
 
 def main():
@@ -32,6 +38,9 @@ def main():
     print('Loading the parquet files...')
 
     pq = tp.load_parquets(prem_dir)
+    
+    # Replacing NaN with 0
+    pq.id.dropna(axis=0, subset=['days_from_index'], inplace=True)
 
     # Making some lookup tables to use later
     medrec_dict = dict(
@@ -180,7 +189,7 @@ def main():
     # Writing a sample of the flat file to disk
     samp_ids = agg_all.pat_key.sample(1000)
     agg_samp = agg_all[agg_all.pat_key.isin(samp_ids)]
-    agg_samp.to_csv(out_dir + 'samples/agg_samp.csv', index=False)
+    agg_samp.to_csv(samp_dir + 'agg_samp.csv', index=False)
 
     # Writing the flat feature file to disk
     agg_all.to_parquet(parq_dir + 'flat_features.parquet', index=False)

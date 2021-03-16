@@ -107,20 +107,20 @@ neg, pos = np.bincount([lab for _, lab in train])
 
 out_bias = np.log([pos / neg])
 # %%
-train_gen = tk.create_ragged_data(train,
+train_gen = tk.create_ragged_data_gen(train,
                                   max_time=TIME_SEQ,
                                   epochs=EPOCHS,
                                   random_seed=RAND,
                                   batch_size=BATCH_SIZE)
 
-validation_gen = tk.create_ragged_data(validation,
+validation_gen = tk.create_ragged_data_gen(validation,
                                        max_time=TIME_SEQ,
                                        epochs=EPOCHS,
                                        random_seed=RAND,
                                        batch_size=BATCH_SIZE)
 
 # NOTE: don't shuffle test data
-test_gen = tk.create_ragged_data(test,
+test_gen = tk.create_ragged_data_gen(test,
                                  max_time=TIME_SEQ,
                                  epochs=1,
                                  shuffle=False,

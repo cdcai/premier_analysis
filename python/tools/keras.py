@@ -16,7 +16,7 @@ from tensorflow.keras.layers import (Dense, Embedding, Input, Multiply,
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 
 
-def create_ragged_data(inputs: list,
+def create_ragged_data_gen(inputs: list,
                        max_time: float,
                        max_demog: int,
                        epochs: int,
@@ -54,10 +54,11 @@ def create_ragged_data(inputs: list,
     # Labs as stacked
     # NOTE: some loss functions require this to be float
     if multiclass:
-        y = tf.one_hot([tup[2] for tup in inputs], max([tup[2] for tup in inputs]) + 1)
+        y = tf.one_hot([tup[2] for tup in inputs],
+                       max([tup[2] for tup in inputs]) + 1)
     else:
         y = np.array([tup[2] for tup in inputs],
-                    dtype=np.int32 if label_int else np.float)
+                     dtype=np.int32 if label_int else np.float)
 
     # Make sure our data are equal
     assert y.shape[0] == X.shape[0]
@@ -94,9 +95,9 @@ def create_ragged_data(inputs: list,
                                     seed=random_seed,
                                     reshuffle_each_iteration=True)
 
-    data_gen = data_gen.repeat(epochs)
+    data_gen = data_gen.batch(batch_size)
 
-    data_gen = data_gen.batch(batch_size, drop_remainder=True)
+    data_gen = data_gen.repeat(epochs)
 
     return data_gen
 
@@ -415,14 +416,11 @@ def LSTM(time_seq,
          n_classes=1,
          n_demog_bags=6,
          n_demog=32,
-         output_bias=0.0,
-         batch_size=32,
          weighted_average=True,
          ragged=True):
     # Input layer
     code_in = keras.Input(shape=(None if ragged else time_seq, None),
-                          ragged=ragged,
-                          batch_size=batch_size)
+                          ragged=ragged)
 
     # Feature Embeddings
     emb1 = keras.layers.Embedding(vocab_size,
@@ -461,7 +459,7 @@ def LSTM(time_seq,
                                    name="Recurrent")(avg)
 
     # Bringing in the demographic variables
-    demog_in = keras.Input(shape=(n_demog_bags, ), batch_size=batch_size)
+    demog_in = keras.Input(shape=(n_demog_bags, ))
 
     # Embedding the demographic variables
     demog_emb = keras.layers.Embedding(n_demog,
@@ -477,9 +475,10 @@ def LSTM(time_seq,
 
     # Running the embeddings through a final dense layer for prediction
     output = keras.layers.Dense(
-        n_classes,
+        # BUG: We use a single output for the binary case but 3 for the multiclass case
+        # so this should be able to account for that.
+        n_classes if n_classes > 2 else 1,
         activation="sigmoid",
-        bias_initializer=keras.initializers.Constant(output_bias),
         name="Output")(comb)
 
     return keras.Model([code_in, demog_in], output)

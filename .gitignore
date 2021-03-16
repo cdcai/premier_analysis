@@ -4,6 +4,7 @@
 *.csv
 *.npz
 *.RDS
+*.xlsx
 
 # VSCode settings
 .vscode/
