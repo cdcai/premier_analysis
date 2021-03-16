@@ -33,7 +33,7 @@ def mcnemar_test(true, pred, cc=True):
 # Calculates the Brier score for multiclass problems
 def brier_score(true, pred):
     n_classes = len(np.unique(true))
-    assert n_classes > 1
+
     if n_classes == 2:
         bs = np.sum((pred - true)**2) / true.shape[0]
     else:
