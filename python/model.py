@@ -212,7 +212,6 @@ if __name__ == "__main__":
 
         # %%
         train_gen = tk.create_ragged_data_gen([inputs[samp] for samp in train],
-                                              max_time=TIME_SEQ,
                                               max_demog=MAX_DEMOG,
                                               epochs=EPOCHS,
                                               multiclass=N_CLASS > 2,
@@ -221,7 +220,6 @@ if __name__ == "__main__":
 
         validation_gen = tk.create_ragged_data_gen(
             [inputs[samp] for samp in validation],
-            max_time=TIME_SEQ,
             max_demog=MAX_DEMOG,
             epochs=EPOCHS,
             shuffle=False,
@@ -231,7 +229,6 @@ if __name__ == "__main__":
 
         # NOTE: don't shuffle test data
         test_gen = tk.create_ragged_data_gen([inputs[samp] for samp in test],
-                                             max_time=TIME_SEQ,
                                              max_demog=MAX_DEMOG,
                                              epochs=1,
                                              multiclass=N_CLASS > 2,
