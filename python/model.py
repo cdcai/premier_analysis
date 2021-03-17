@@ -238,6 +238,7 @@ if __name__ == "__main__":
         keras.callbacks.EarlyStopping(monitor="val_loss",
                                       min_delta=0,
                                       patience=2,
+                                      restore_best_weights=True,
                                       mode="auto")
     ]
 
@@ -254,6 +255,7 @@ if __name__ == "__main__":
                                               epochs=1,
                                               multiclass=N_CLASS > 2,
                                               random_seed=RAND,
+                                              ragged=False,
                                               batch_size=BATCH_SIZE)
 
         validation_gen = tk.create_ragged_data_gen(
@@ -263,6 +265,7 @@ if __name__ == "__main__":
             shuffle=False,
             multiclass=N_CLASS > 2,
             random_seed=RAND,
+            ragged=False,
             batch_size=BATCH_SIZE)
 
         # NOTE: don't shuffle test data
@@ -271,6 +274,7 @@ if __name__ == "__main__":
                                              epochs=1,
                                              multiclass=N_CLASS > 2,
                                              shuffle=False,
+                                             ragged=False,
                                              random_seed=RAND,
                                              batch_size=BATCH_SIZE)
 
@@ -280,7 +284,7 @@ if __name__ == "__main__":
                         n_classes=N_CLASS,
                         n_demog=N_DEMOG,
                         n_demog_bags=MAX_DEMOG,
-                        ragged=True,
+                        ragged=False,
                         lstm_dropout=LSTM_DROPOUT,
                         recurrent_dropout=LSTM_RECURRENT_DROPOUT)
 

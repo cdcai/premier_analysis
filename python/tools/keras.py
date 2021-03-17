@@ -8,6 +8,8 @@ import kerastuner
 import tensorflow as tf
 import tensorflow_addons as tfa
 
+import cond_rnn
+
 from kerastuner import HyperModel
 from tensorflow import keras as keras
 from tensorflow.keras import backend as K
@@ -44,6 +46,7 @@ def create_ragged_data_gen(inputs: list,
     demog = tf.ragged.constant([dem for _, dem, _ in inputs])
 
     demog = demog.to_tensor(default_value=0, shape=(demog.shape[0], max_demog))
+
     if not ragged:
         # This will be an expensive operation
         # and will probably not work.
@@ -450,12 +453,6 @@ def LSTM(time_seq,
     else:
         avg = keras.backend.mean(emb1, axis=2)
 
-    # Running the sequences through the LSTM
-    lstm_layer = keras.layers.LSTM(lstm_dim,
-                                   dropout=lstm_dropout,
-                                   recurrent_dropout=recurrent_dropout,
-                                   name="Recurrent")(avg)
-
     # Bringing in the demographic variables
     demog_in = keras.Input(shape=(n_demog_bags, ))
 
@@ -468,8 +465,13 @@ def LSTM(time_seq,
     # Averaging the demographic variable embeddings
     demog_avg = keras.backend.mean(demog_emb, axis=2)
 
+    # Running the sequences through the LSTM
+    lstm_layer = cond_rnn.ConditionalRNN(lstm_dim, 
+                                   dropout=lstm_dropout,
+                                   recurrent_dropout=recurrent_dropout, name="Recurrent")([avg, demog_avg])
+
     # Concatenating the LSTM output and deemographic variable embeddings
-    comb = keras.layers.Concatenate()([lstm_layer, demog_avg])
+    dense_1 = keras.layers.Dense(20, activation = "relu", name = "pre_output")(lstm_layer)
 
     # Running the embeddings through a final dense layer for prediction
     output = keras.layers.Dense(
@@ -477,7 +479,7 @@ def LSTM(time_seq,
         # so this should be able to account for that.
         n_classes if n_classes > 2 else 1,
         activation="sigmoid",
-        name="Output")(comb)
+        name="Output")(dense_1)
 
     return keras.Model([code_in, demog_in], output)
 
