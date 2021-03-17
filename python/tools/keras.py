@@ -17,6 +17,16 @@ from tensorflow.keras.layers import (Dense, Embedding, Input, Multiply,
                                      Reshape)
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 
+def sequence_to_multihot_tensor(y, sparse=False):
+
+    max_feat = max([max(val) for val in y])
+
+    y_mat = np.zeros((len(y), max_feat))
+    for row, cols in enumerate(y):
+        for col in cols:
+            y_mat[row, col - 1] = 1
+
+    return tf.convert_to_tensor(y_mat)
 
 def create_ragged_data_gen(inputs: list,
                            max_demog: int,
@@ -43,9 +53,12 @@ def create_ragged_data_gen(inputs: list,
 
     # Making demographics dense
     # BUG: Model doesn't seem to like this when it's ragged. Figure it out eventually.
-    demog = tf.ragged.constant([dem for _, dem, _ in inputs])
+    # demog = tf.ragged.constant([dem for _, dem, _ in inputs])
 
-    demog = demog.to_tensor(default_value=0, shape=(demog.shape[0], max_demog))
+    demog = sequence_to_multihot_tensor([dem for _, dem, _ in inputs])
+
+    print(demog.shape)
+    # demog = demog.to_tensor(default_value=0, shape=(demog.shape[0], max_demog))
 
     if not ragged:
         # This will be an expensive operation
@@ -456,19 +469,19 @@ def LSTM(time_seq,
     # Bringing in the demographic variables
     demog_in = keras.Input(shape=(n_demog_bags, ))
 
-    # Embedding the demographic variables
-    demog_emb = keras.layers.Embedding(n_demog,
-                                       output_dim=lstm_dim,
-                                       mask_zero=True,
-                                       name="Demographic_Embeddings")(demog_in)
+    # # Embedding the demographic variables
+    # demog_emb = keras.layers.Embedding(n_demog,
+    #                                    output_dim=lstm_dim,
+    #                                    mask_zero=True,
+    #                                    name="Demographic_Embeddings")(demog_in)
 
-    # Averaging the demographic variable embeddings
-    demog_avg = keras.backend.mean(demog_emb, axis=2)
+    # # Averaging the demographic variable embeddings
+    # demog_avg = keras.backend.mean(demog_emb, axis=2)
 
     # Running the sequences through the LSTM
     lstm_layer = cond_rnn.ConditionalRNN(lstm_dim, 
                                    dropout=lstm_dropout,
-                                   recurrent_dropout=recurrent_dropout, name="Recurrent")([avg, demog_avg])
+                                   recurrent_dropout=recurrent_dropout, name="Recurrent")([avg, demog_in])
 
     # Concatenating the LSTM output and deemographic variable embeddings
     dense_1 = keras.layers.Dense(20, activation = "relu", name = "pre_output")(lstm_layer)

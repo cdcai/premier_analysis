@@ -173,7 +173,7 @@ if __name__ == "__main__":
     # Determining number of vocab entries
     N_VOCAB = len(vocab) + 1
     N_DEMOG = len(demog_lookup) + 1
-    MAX_DEMOG = max(len(x) for _, x, _ in inputs)
+    MAX_DEMOG = max(max(x) for _, x, _ in inputs)
     N_CLASS = max(x for _, _, x in inputs) + 1
 
     # Setting y here so it's stable
@@ -265,7 +265,6 @@ if __name__ == "__main__":
             shuffle=False,
             multiclass=N_CLASS > 2,
             random_seed=RAND,
-            ragged=False,
             batch_size=BATCH_SIZE)
 
         # NOTE: don't shuffle test data
@@ -274,7 +273,6 @@ if __name__ == "__main__":
                                              epochs=1,
                                              multiclass=N_CLASS > 2,
                                              shuffle=False,
-                                             ragged=False,
                                              random_seed=RAND,
                                              batch_size=BATCH_SIZE)
 
@@ -284,7 +282,6 @@ if __name__ == "__main__":
                         n_classes=N_CLASS,
                         n_demog=N_DEMOG,
                         n_demog_bags=MAX_DEMOG,
-                        ragged=False,
                         lstm_dropout=LSTM_DROPOUT,
                         recurrent_dropout=LSTM_RECURRENT_DROPOUT)
 
