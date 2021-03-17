@@ -59,6 +59,12 @@ run_lstm() {
     python "$PWD/python/model.py" --outcome=$outcome --all_days --model=lstm
 }
 
+compute_cis() {
+    # Compute Bootstrapped CIs
+    python "$PWD/python/analysis.py" --outcome=$outcome --all_days
+    python "$PWD/python/analysis.py" --outcome=$outcome --day_one
+}
+
 echo "Trimming sequences and appending labels >>"
 run_model_prep
 echo "Running Baselines >>"
@@ -67,3 +73,5 @@ echo "Running DAN >>"
 run_dan
 echo "Running LSTM >>"
 run_lstm
+echo "Computing Bootstrap CIs >>"
+compute_cis
