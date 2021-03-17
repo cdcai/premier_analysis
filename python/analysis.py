@@ -37,6 +37,9 @@ if __name__ == "__main__":
     output_dir = os.path.join(pwd, "..", "output", "")
     stats_dir = os.path.join(output_dir, "analysis", "")
 
+    # Path where the metrics will be written
+    ci_file = os.path.join(stats_dir, OUTCOME + "_cis.xlsx")
+
     # Importing the predictions
     preds = pd.read_csv(stats_dir + OUTCOME + "_preds.csv")
 
@@ -53,7 +56,7 @@ if __name__ == "__main__":
     ]
 
     # Writing the confidence intervals to disk
-    with pd.ExcelWriter(stats_dir + OUTCOME + '_cis.xlsx') as writer:
+    with pd.ExcelWriter(ci_file, mode = "a" if os.path.exists(ci_file) else "w") as writer:
         for i, obj in enumerate(cis):
             obj.cis.to_excel(writer, sheet_name=mods[i])
         writer.save()
