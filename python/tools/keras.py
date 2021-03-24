@@ -17,18 +17,16 @@ from tensorflow.keras.preprocessing.sequence import pad_sequences
 
 
 def create_ragged_data_gen(inputs: list,
-                       max_time: float,
-                       max_demog: int,
-                       epochs: int,
-                       multiclass: bool = False,
-                       batch_size: int = 32,
-                       random_seed: int = 1234,
-                       ragged: bool = True,
-                       pad_shape=None,
-                       resample: bool = False,
-                       resample_frac=[0.9, 0.1],
-                       label_int: bool = False,
-                       shuffle: bool = True) -> tf.data.Dataset:
+                           max_demog: int,
+                           epochs: int,
+                           multiclass: bool = False,
+                           batch_size: int = 32,
+                           random_seed: int = 1234,
+                           ragged: bool = True,
+                           resample: bool = False,
+                           resample_frac=[0.9, 0.1],
+                           label_int: bool = False,
+                           shuffle: bool = True) -> tf.data.Dataset:
     """A tf.dataset generator which handles both ragged and dense data accordingly"""
     # Check that empty lists are converted to zeros
     seq = [[(lambda x: [0] if x == [] else x)(bags) for bags in seq]
@@ -506,7 +504,12 @@ def DAN(vocab_size,
 
     # Dense layers
     dense = keras.layers.Dense(dense_size, name='dense_1')(embedding_avg)
-    output = keras.layers.Dense(n_classes, activation='sigmoid',
+    if n_classes > 1:
+        activation = 'softmax'
+    else:
+        activation = 'sigmoid'
+    output = keras.layers.Dense(n_classes,
+                                activation=activation,
                                 name='output')(dense)
 
     return keras.Model(input, output)

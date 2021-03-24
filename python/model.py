@@ -6,18 +6,15 @@ import csv
 import os
 import pickle as pkl
 import pandas as pd
-from datetime import datetime
 import argparse
 
 import numpy as np
 import tensorflow.keras as keras
-from sklearn.metrics import (roc_auc_score, average_precision_score)
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.callbacks import TensorBoard
 
 import tools.analysis as ta
 from tools import keras as tk
-from tools.analysis import grid_metrics
 import tools.preprocessing as tp
 
 # %% Globals
@@ -215,16 +212,14 @@ if __name__ == "__main__":
 
         # %%
         train_gen = tk.create_ragged_data_gen([inputs[samp] for samp in train],
-                                          max_time=TIME_SEQ,
-                                          max_demog=MAX_DEMOG,
-                                          epochs=EPOCHS,
-                                          multiclass=N_CLASS > 2,
-                                          random_seed=RAND,
-                                          batch_size=BATCH_SIZE)
+                                              max_demog=MAX_DEMOG,
+                                              epochs=EPOCHS,
+                                              multiclass=N_CLASS > 2,
+                                              random_seed=RAND,
+                                              batch_size=BATCH_SIZE)
 
         validation_gen = tk.create_ragged_data_gen(
             [inputs[samp] for samp in validation],
-            max_time=TIME_SEQ,
             max_demog=MAX_DEMOG,
             epochs=EPOCHS,
             shuffle=False,
@@ -234,13 +229,12 @@ if __name__ == "__main__":
 
         # NOTE: don't shuffle test data
         test_gen = tk.create_ragged_data_gen([inputs[samp] for samp in test],
-                                         max_time=TIME_SEQ,
-                                         max_demog=MAX_DEMOG,
-                                         epochs=1,
-                                         multiclass=N_CLASS > 2,
-                                         shuffle=False,
-                                         random_seed=RAND,
-                                         batch_size=BATCH_SIZE)
+                                             max_demog=MAX_DEMOG,
+                                             epochs=1,
+                                             multiclass=N_CLASS > 2,
+                                             shuffle=False,
+                                             random_seed=RAND,
+                                             batch_size=BATCH_SIZE)
 
         # %% Setting up the model
         model = tk.LSTM(time_seq=TIME_SEQ,
@@ -299,9 +293,9 @@ if __name__ == "__main__":
                                    test_preds,
                                    average="weighted",
                                    mod_name=MOD_NAME)
-            
+
             # Also take the probability of the predicted class
-            # to report out                     
+            # to report out
             test_probs = np.amax(test_probs, axis=1)
 
     elif MOD_NAME == "dan":
@@ -353,20 +347,19 @@ if __name__ == "__main__":
                 # TODO: Maybe parameterize? Ionno.
                 ragged=False,
                 input_length=TIME_SEQ,
-                n_classes = N_CLASS
-                )
-            
+                n_classes=N_CLASS)
+
             model.compile(optimizer="adam", loss=loss_fn, metrics=metrics)
 
             model.fit(X[train],
-                    y_one_hot[train],
-                    batch_size=BATCH_SIZE,
-                    epochs=EPOCHS,
-                    validation_data=(X[val], y_one_hot[val]),
-                    callbacks=callbacks)
+                      y_one_hot[train],
+                      batch_size=BATCH_SIZE,
+                      epochs=EPOCHS,
+                      validation_data=(X[val], y_one_hot[val]),
+                      callbacks=callbacks)
 
             test_probs = model.predict(X[test])
-            
+
             # In the multiclass case, take argmax
             test_preds = np.argmax(test_probs, axis=1)
 
@@ -376,7 +369,7 @@ if __name__ == "__main__":
                                    mod_name=MOD_NAME)
 
             # Also take the probability of the predicted class
-            # to report out                     
+            # to report out
             test_probs = np.amax(test_probs, axis=1)
         else:
             # Binary case
@@ -386,17 +379,16 @@ if __name__ == "__main__":
                 vocab_size=N_VOCAB,
                 # TODO: Maybe parameterize? Ionno.
                 ragged=False,
-                input_length=TIME_SEQ
-                )
+                input_length=TIME_SEQ)
 
             model.compile(optimizer="adam", loss=loss_fn, metrics=metrics)
 
             model.fit(X[train],
-                    y[train],
-                    batch_size=BATCH_SIZE,
-                    epochs=EPOCHS,
-                    validation_data=(X[val], y[val]),
-                    callbacks=callbacks)
+                      y[train],
+                      batch_size=BATCH_SIZE,
+                      epochs=EPOCHS,
+                      validation_data=(X[val], y[val]),
+                      callbacks=callbacks)
 
             # ---
             # Compute decision threshold cut from validation data using grid search
@@ -418,7 +410,7 @@ if __name__ == "__main__":
                                    preds_are_probs=True,
                                    cutpoint=f1_cut,
                                    mod_name=MOD_NAME)
-        
+
     # ---
     # Writing the results to disk
     # Optionally append results if file already exists
