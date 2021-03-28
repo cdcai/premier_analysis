@@ -238,7 +238,6 @@ if __name__ == "__main__":
         keras.callbacks.EarlyStopping(monitor="val_loss",
                                       min_delta=0,
                                       patience=2,
-                                      restore_best_weights=True,
                                       mode="auto")
     ]
 
@@ -282,6 +281,7 @@ if __name__ == "__main__":
                         n_classes=N_CLASS,
                         n_demog=N_DEMOG,
                         n_demog_bags=MAX_DEMOG,
+                        ragged=True,
                         lstm_dropout=LSTM_DROPOUT,
                         recurrent_dropout=LSTM_RECURRENT_DROPOUT)
 
