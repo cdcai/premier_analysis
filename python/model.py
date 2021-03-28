@@ -25,7 +25,7 @@ if __name__ == "__main__":
     parser.add_argument("--model",
                         type=str,
                         default="dan",
-                        choices=["dan", "lstm"],
+                        choices=["dan", "lstm", "hp_lstm"],
                         help="Type of Keras model to use")
     parser.add_argument("--max_seq",
                         type=int,
@@ -267,23 +267,30 @@ if __name__ == "__main__":
             batch_size=BATCH_SIZE)
 
         # NOTE: don't shuffle test data
-        test_gen = tk.create_ragged_data_gen([inputs[samp] for samp in test],
-                                             max_demog=MAX_DEMOG,
-                                             epochs=1,
-                                             multiclass=N_CLASS > 2,
-                                             shuffle=False,
-                                             random_seed=RAND,
-                                             batch_size=BATCH_SIZE)
-
-        # %% Setting up the model
-        model = tk.LSTM(time_seq=TIME_SEQ,
-                        vocab_size=N_VOCAB,
-                        n_classes=N_CLASS,
-                        n_demog=N_DEMOG,
-                        n_demog_bags=MAX_DEMOG,
-                        ragged=True,
-                        lstm_dropout=LSTM_DROPOUT,
-                        recurrent_dropout=LSTM_RECURRENT_DROPOUT)
+        test_gen = tk.create_ragged_data_gen(
+            [inputs[samp] for samp in test],
+            max_demog=MAX_DEMOG,
+            demog_multihot=MOD_NAME == "lstm_hp",
+            epochs=1,
+            multiclass=N_CLASS > 2,
+            shuffle=False,
+            random_seed=RAND,
+            batch_size=BATCH_SIZE)
+        if MOD_NAME == "lstm":
+            # %% Setting up the model
+            model = tk.LSTM(time_seq=TIME_SEQ,
+                            vocab_size=N_VOCAB,
+                            n_classes=N_CLASS,
+                            n_demog=N_DEMOG,
+                            n_demog_bags=MAX_DEMOG,
+                            ragged=True,
+                            lstm_dropout=LSTM_DROPOUT,
+                            recurrent_dropout=LSTM_RECURRENT_DROPOUT)
+        else:
+            model = keras.models.load_model(os.path.join(
+                tensorboard_dir, "new_lstm_topo", "best"),
+                                            custom_objects={'tf': tf},
+                                            compile=False)
 
         model.compile(optimizer="adam", loss=loss_fn, metrics=metrics)
 

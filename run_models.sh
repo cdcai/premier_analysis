@@ -62,6 +62,17 @@ run_lstm() {
     python "$PWD/python/model.py" --outcome=$outcome --weighted_loss --model=lstm
 }
 
+run_hp_lstm() {
+    # Run LSTM tuned by kerastuner
+    # TODO: This is only built/trained for multi_class, and will fail otherwise
+    python "$PWD/python/model.py" --outcome=$outcome --all_days --model=hp_lstm
+}
+
+compute_cis() {
+    # Compute Bootstrapped CIs
+    python "$PWD/python/analysis.py" --outcome=$outcome
+}
+
 echo "Trimming sequences and appending labels >>"
 run_model_prep
 echo "Running Baselines >>"
@@ -70,3 +81,9 @@ echo "Running DAN >>"
 run_dan
 echo "Running LSTM >>"
 run_lstm
+if [[ "$outcome" -eq "multi_class" ]]; then
+    echo "Running Hyperparameter-tuned LSTM >>"
+    run_hp_lstm
+fi
+echo "Computing Bootstrap CIs >>"
+compute_cis
