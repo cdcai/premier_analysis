@@ -123,7 +123,7 @@ tensorboard==2.3.0
 tensorboard-plugin-profile==2.3.0
 tensorboard-plugin-wit==1.7.0
 tensorflow==2.3.1
-tensorflow-addons==0.11.2
+tensorflow-addons==0.12.1
 tensorflow-estimator==2.3.0
 termcolor==1.1.0
 terminado==0.9.1
