@@ -158,7 +158,7 @@ if __name__ == '__main__':
                 metrics=metrics)
     mod.fit(X[train], y_mat[train],
             batch_size=32,
-            epochs=20,
+            epochs=30,
             validation_data=(X[val], y_mat[val]),
             callbacks=callbacks)
 
@@ -171,22 +171,26 @@ if __name__ == '__main__':
     if n_classes < 2:
         val_probs = mod.predict(X[val]).flatten()
         val_gm = ta.grid_metrics(y[val], val_probs)
-        f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
+        cutpoint = val_gm.cutoff.values[np.argmax(val_gm.f1)]
         test_probs = mod.predict(X[test]).flatten()
         out_probs = test_probs
-        test_preds = ta.threshold(test_probs, f1_cut)
+        test_preds = ta.threshold(test_probs, cutpoint)
         stats = ta.clf_metrics(y[test],
                                test_probs,
-                               preds_are_probs=True,
-                               cutpoint=f1_cut,
+                               cutpoint=cutpoint,
                                mod_name=mod_name)
     else:
+        cutpoint = 0.5
         test_probs = mod.predict(X[test])
         test_preds = np.argmax(test_probs, axis=1)
         out_probs = ta.max_probs(test_probs, maxes=test_preds)
         stats = ta.clf_metrics(y[test],
-                               test_preds,
+                               test_probs,
                                mod_name=mod_name)
+    
+    probs_file = 'probs/' + mod_name + '_' + OUTCOME + '.pkl'
+    prob_out = {'cutpoint': cutpoint, 'probs': test_probs}
+    pkl.dump(prob_out, open(stats_dir + probs_file, 'wb'))
 
     # Writing the results to disk
     ta.write_stats(stats, OUTCOME)

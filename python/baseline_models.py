@@ -189,13 +189,12 @@ if __name__ == '__main__':
             if binary:
                 val_probs = mod.predict_proba(X[val])[:, 1]
                 val_gm = ta.grid_metrics(y[val], val_probs)
-                f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
+                cutpoint = val_gm.cutoff.values[np.argmax(val_gm.f1)]
                 test_probs = mod.predict_proba(X[test])[:, 1]
-                test_preds = ta.threshold(test_probs, f1_cut)
+                test_preds = ta.threshold(test_probs, cutpoint)
                 stats = ta.clf_metrics(y[test],
                                        test_probs,
-                                       preds_are_probs=True,
-                                       cutpoint=f1_cut,
+                                       cutpoint=cutpoint,
                                        mod_name=mod_name,
                                        average=args.average)
                 ta.write_preds(preds=test_preds,
@@ -204,11 +203,11 @@ if __name__ == '__main__':
                                test_idx=test,
                                probs=test_probs)
             else:
+                cutpoint = None
                 test_probs = mod.predict_proba(X[test])
                 test_preds = mod.predict(X[test])
                 stats = ta.clf_metrics(y[test],
                                        test_probs,
-                                       preds_are_probs=True,
                                        mod_name=mod_name,
                                        average=args.average)
                 ta.write_preds(preds=test_preds,
@@ -217,7 +216,8 @@ if __name__ == '__main__':
                                mod_name=mod_name,
                                test_idx=test)
             probs_file = 'probs/' + mod_name + '_' + OUTCOME + '.pkl'
-            pkl.dump(test_probs, open(stats_dir + probs_file, 'wb'))
+            prob_out = {'cutpoint': cutpoint, 'probs': test_probs}
+            pkl.dump(prob_out, open(stats_dir + probs_file, 'wb'))
                 
         else:
             test_preds = mod.predict(X[test])
