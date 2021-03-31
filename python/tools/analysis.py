@@ -671,7 +671,7 @@ def write_preds(preds,
     preds_df[mod_name + '_pred'] = preds
     if probs is not None:
         if len(probs.shape) > 1:
-            probs = np.max(probs, axis=0)
+            probs = np.max(probs, axis=1)
         preds_df[mod_name + '_prob'] = probs
     preds_df.to_csv(stats_dir + preds_filename, index=False)
     return
