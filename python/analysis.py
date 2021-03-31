@@ -26,12 +26,13 @@ multi_cis = [ta.boot_cis(multi_preds.multi_class,
                          multi_preds[mod + '_pred'],
                          n=1000) 
              for mod in mods]
-cis = [death_cis, multi_cis]
+cis = [ta.merge_ci_list(death_cis, mod_names=mods), 
+       ta.merge_ci_list(multi_cis, mod_names=mods)]
 outcomes = ['death', 'multi']
 
 # Writing the confidence intervals to disk
+writer = pd.ExcelWriter(stats_dir +'cis.xlsx')
 for i, outcome in enumerate(outcomes):
-    writer = pd.ExcelWriter(stats_dir + outcome + '_cis.xlsx')
-    for i, obj in enumerate(cis[i]):
-        obj.cis.to_excel(writer, sheet_name=mods[i])
-    writer.save()
+    cis[i].to_excel(writer, sheet_name=outcome)
+
+writer.save()

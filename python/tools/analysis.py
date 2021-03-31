@@ -670,7 +670,31 @@ def write_preds(preds,
     
     preds_df[mod_name + '_pred'] = preds
     if probs is not None:
+        if len(probs.shape) > 1:
+            probs = np.max(probs, axis=0)
         preds_df[mod_name + '_prob'] = probs
     preds_df.to_csv(stats_dir + preds_filename, index=False)
     return
+
+
+# Converts a boot_cis['cis'] object to a single row
+def merge_cis(c, round=4, mod_name=''):
+    str_cis = c.round(round).astype(str)
+    str_paste = pd.DataFrame(str_cis.stat + ' (' + str_cis.lower + 
+                                 ', ' + str_cis.upper + ')',
+                                 columns=[mod_name]).transpose()
+    return str_paste
+
+
+def merge_ci_list(l, mod_names=None, round=4):
+    if type(l[0] != type(pd.DataFrame())):
+        l = [c.cis for c in l]
+    if mod_names is not None:
+        merged_cis = [merge_cis(l[i], round, mod_names[i])
+                      for i in range(len(l))]
+    else:
+        merged_cis = [merge_cis(c, round=round) for c in l]
+    
+    return pd.concat(merged_cis, axis=0)
+
 

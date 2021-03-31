@@ -204,15 +204,20 @@ if __name__ == '__main__':
                                test_idx=test,
                                probs=test_probs)
             else:
+                test_probs = mod.predict_proba(X[test])
                 test_preds = mod.predict(X[test])
                 stats = ta.clf_metrics(y[test],
-                                       test_preds,
+                                       test_probs,
+                                       preds_are_probs=True,
                                        mod_name=mod_name,
                                        average=args.average)
                 ta.write_preds(preds=test_preds,
+                               probs=np.max(test_probs, axis=1),
                                outcome=OUTCOME,
                                mod_name=mod_name,
                                test_idx=test)
+            probs_file = 'probs/' + mod_name + '_' + OUTCOME + '.pkl'
+            pkl.dump(test_probs, open(stats_dir + probs_file, 'wb'))
                 
         else:
             test_preds = mod.predict(X[test])
