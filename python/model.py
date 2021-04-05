@@ -1,21 +1,20 @@
 """
 Starter Keras model
 """
-# %%
+import argparse
 import csv
 import os
 import pickle as pkl
-import pandas as pd
-import argparse
 
 import numpy as np
+import pandas as pd
 import tensorflow.keras as keras
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.callbacks import TensorBoard
 
 import tools.analysis as ta
-from tools import keras as tk
 import tools.preprocessing as tp
+import tools.keras as tk
 
 # %% Globals
 if __name__ == "__main__":
@@ -93,11 +92,13 @@ if __name__ == "__main__":
         default=100,
         help="How frequently (in batches) should Tensorboard write diagnostics?"
     )
+
+    # Parse Args, assign to globals
     args = parser.parse_args()
 
     TIME_SEQ = args.max_seq
     MOD_NAME = args.model
-    TARGET = args.outcome
+    OUTCOME = args.outcome
     DEMOG = args.demog
     DAY_ONE_ONLY = args.day_one
     LSTM_DROPOUT = args.dropout
@@ -110,21 +111,28 @@ if __name__ == "__main__":
     RAND = args.rand_seed
     TB_UPDATE_FREQ = args.tb_update_freq
 
-    # DIRS / FILES
+    # DIRS
     output_dir = os.path.abspath(args.out_dir)
     tensorboard_dir = os.path.abspath(
         os.path.join(args.data_dir, "..", "model_checkpoints"))
     data_dir = os.path.abspath(args.data_dir)
     pkl_dir = os.path.join(output_dir, "pkl")
     stats_dir = os.path.join(output_dir, "analysis")
+    probs_dir = os.path.join(output_dir, "probs")
 
     # Create analysis dir if it doesn't exist
-    os.makedirs(stats_dir, exist_ok=True)
+    [
+        os.makedirs(directory, exist_ok=True)
+        for directory in [stats_dir, probs_dir]
+    ]
 
-    stats_filename = TARGET + "_stats.csv"
+    # FILES Created
+    stats_file = os.path.join(stats_dir, OUTCOME + "_stats.csv")
+    probs_file = os.path.join(probs_dir, MOD_NAME + "_" + OUTCOME + ".pkl")
+    preds_file = os.path.join(stats_dir, OUTCOME + "_preds.csv")
 
     # Data load
-    with open(os.path.join(pkl_dir, TARGET + "_trimmed_seqs.pkl"), "rb") as f:
+    with open(os.path.join(pkl_dir, OUTCOME + "_trimmed_seqs.pkl"), "rb") as f:
         inputs = pkl.load(f)
 
     with open(os.path.join(pkl_dir, "all_ftrs_dict.pkl"), "rb") as f:
@@ -154,7 +162,7 @@ if __name__ == "__main__":
     # Create some callbacks
     callbacks = [
         # TensorBoard(
-        #     log_dir=os.path.join(tensorboard_dir, TARGET,
+        #     log_dir=os.path.join(tensorboard_dir, OUTCOME,
         #                          datetime.now().strftime("%Y%m%d-%H%M%S")),
         #     histogram_freq=1,
         #     update_freq=TB_UPDATE_FREQ,
@@ -165,7 +173,7 @@ if __name__ == "__main__":
 
         # Create model checkpoint callback
         # keras.callbacks.ModelCheckpoint(filepath=os.path.join(
-        #     tensorboard_dir, TARGET,
+        #     tensorboard_dir, OUTCOME,
         #     "weights.{epoch:02d}-{val_loss:.2f}.hdf5"),
         #                                 save_weights_only=True,
         #                                 monitor="val_loss",
@@ -187,7 +195,7 @@ if __name__ == "__main__":
 
     # Define loss function
     # NOTE: We were experimenting with focal loss at one point, maybe we can try that again at some point
-    loss_fn = keras.losses.categorical_crossentropy if TARGET == "multi_class" else keras.losses.binary_crossentropy
+    loss_fn = keras.losses.categorical_crossentropy if OUTCOME == "multi_class" else keras.losses.binary_crossentropy
 
     # --- Model-specific code
     # TODO: Rework some sections to streamline input and label generation along with splitting
@@ -293,11 +301,6 @@ if __name__ == "__main__":
                                    test_preds,
                                    average="weighted",
                                    mod_name=MOD_NAME)
-
-            # Also take the probability of the predicted class
-            # to report out
-            test_probs = np.amax(test_probs, axis=1)
-
     elif MOD_NAME == "dan":
 
         if DAY_ONE_ONLY:
@@ -367,10 +370,6 @@ if __name__ == "__main__":
                                    test_preds,
                                    average="weighted",
                                    mod_name=MOD_NAME)
-
-            # Also take the probability of the predicted class
-            # to report out
-            test_probs = np.amax(test_probs, axis=1)
         else:
             # Binary case
 
@@ -412,25 +411,36 @@ if __name__ == "__main__":
                                    mod_name=MOD_NAME)
 
     # ---
+    # Writing preds to pkl for multiclass
+    if N_CLASS > 2:
+        prob_out = {'cutpoint': 0.5, 'probs': test_probs}
+
+        with open(probs_file, 'wb') as f:
+            pkl.dump(prob_out, f)
+
+        # Also take the probability of the predicted class
+        # to report out in the stats file
+        test_probs = np.amax(test_probs, axis=1)
+
+    # ---
     # Writing the results to disk
     # Optionally append results if file already exists
-    append_file = stats_filename in os.listdir(stats_dir)
-    preds_filename = TARGET + "_preds.csv"
+    append_file = os.path.exists(stats_file)
 
-    stats.to_csv(os.path.join(stats_dir, stats_filename),
+    stats.to_csv(stats_file,
                  mode="a" if append_file else "w",
                  header=False if append_file else True,
                  index=False)
 
     # Writing the test predictions to the test predictions CSV
 
-    if preds_filename in os.listdir(stats_dir):
-        preds_df = pd.read_csv(os.path.join(stats_dir, preds_filename))
+    if os.path.exists(preds_file):
+        preds_df = pd.read_csv(preds_file)
     else:
-        preds_df = pd.read_csv(os.path.join(output_dir,
-                                            TARGET + "_cohort.csv"))
+        preds_df = pd.read_csv(
+            os.path.join(output_dir, OUTCOME + "_cohort.csv"))
         preds_df = preds_df.iloc[test, :]
 
     preds_df[MOD_NAME + '_prob'] = test_probs
     preds_df[MOD_NAME + '_pred'] = test_preds
-    preds_df.to_csv(os.path.join(stats_dir, preds_filename), index=False)
+    preds_df.to_csv(preds_file, index=False)
