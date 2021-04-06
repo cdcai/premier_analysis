@@ -120,15 +120,16 @@ if __name__ == '__main__':
 
     # Splitting the data
     train, test = train_test_split(range(n_patients),
-                                   test_size=0.5,
+                                   test_size=0.2,
                                    stratify=y,
-                                   random_state=2020)
-
-    val, test = train_test_split(test,
-                                 test_size=0.5,
-                                 stratify=y[test],
-                                 random_state=2020)
-
+                                   random_state=2021)
+    
+    # Doing a validation split for threshold-picking on binary problems
+    train, val = train_test_split(train,
+                                  test_size=0.2,
+                                  stratify=y[train],
+                                  random_state=2021)
+    
     # Setting up the callbacks
     callbacks = [
         keras.callbacks.EarlyStopping(patience=2),

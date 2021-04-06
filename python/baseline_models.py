@@ -117,15 +117,15 @@ if __name__ == '__main__':
     
     # Splitting the data
     train, test = train_test_split(range(n_patients),
-                                   test_size=0.5,
+                                   test_size=0.2,
                                    stratify=y,
-                                   random_state=2020)
+                                   random_state=2021)
     
     # Doing a validation split for threshold-picking on binary problems
-    val, test = train_test_split(test,
-                                 test_size=0.5,
-                                 stratify=y[test],
-                                 random_state=2020)
+    train, val = train_test_split(train,
+                                  test_size=0.2,
+                                  stratify=y[train],
+                                  random_state=2021)
 
     # Fitting a logistic regression to the whole dataset
     lgr = LogisticRegression(max_iter=5000, multi_class='ovr')
