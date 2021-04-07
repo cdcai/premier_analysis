@@ -39,17 +39,16 @@ def brier_score(true, pred):
     else:
         y = onehot_matrix(true)
         row_diffs = np.diff((pred, y), axis=0)[0]
-        squared_diffs = row_diffs ** 2
-        row_sums = np.sum(squared_diffs, axis=1) 
+        squared_diffs = row_diffs**2
+        row_sums = np.sum(squared_diffs, axis=1)
         bs = row_sums.mean()
     return bs
 
 
 # Runs basic diagnostic stats on categorical predictions
-def clf_metrics(true, 
+def clf_metrics(true,
                 pred,
                 average='weighted',
-                preds_are_probs=False,
                 cutpoint=0.5,
                 mod_name=None,
                 round=4,
@@ -61,7 +60,9 @@ def clf_metrics(true,
     averaging_options = ["weighted", "macro", "micro"]
 
     if average not in averaging_options:
-        raise ValueError("value of 'average' is not a valid choice in {}".format(averaging_options))
+        raise ValueError(
+            "value of 'average' is not a valid choice in {}".format(
+                averaging_options))
 
     # Converting pd.Series to np.array
     stype = type(pd.Series())
@@ -69,27 +70,34 @@ def clf_metrics(true,
         pred = pred.values
     if type(true) == stype:
         true = true.values
-    
+
+    # Figuring out if the guesses are classes or probabilities
+    if np.any([0 < p < 1 for p in pred.flatten()]):
+        preds_are_probs = True
+    else:
+        preds_are_probs = False
+
     # Optional exit for doing averages with multiclass/label inputs
     if len(np.unique(true)) > 2:
         # Getting binary metrics for each set of results
         codes = np.unique(true)
-        
+
         # Argmaxing for when we have probabilities
         if preds_are_probs:
-            auc = roc_auc_score(true,
-                                pred,
-                                average=average,
-                                multi_class='ovr')
+            auc = roc_auc_score(true, pred, average=average, multi_class='ovr')
             brier = brier_score(true, pred)
             pred = np.argmax(pred, axis=argmax_axis)
-        
-        # Making lists of the binary predictions (OVR)    
-        y = [np.array([doc == code for doc in true], dtype=np.uint8)
-             for code in codes]
-        y_ = [np.array([doc == code for doc in pred], dtype=np.uint8)
-              for code in codes]
-        
+
+        # Making lists of the binary predictions (OVR)
+        y = [
+            np.array([doc == code for doc in true], dtype=np.uint8)
+            for code in codes
+        ]
+        y_ = [
+            np.array([doc == code for doc in pred], dtype=np.uint8)
+            for code in codes
+        ]
+
         # Getting the stats for each set of binary predictions
         stats = [clf_metrics(y[i], y_[i], round=16) for i in range(len(y))]
         stats = pd.concat(stats, axis=0)
@@ -98,35 +106,31 @@ def clf_metrics(true,
 
         # Calculating the averaged metrics
         if average == 'weighted':
-            weighted = np.average(stats, 
-                                  weights=stats.true_prev,
-                                  axis=0)
+            weighted = np.average(stats, weights=stats.true_prev, axis=0)
             out = pd.DataFrame(weighted).transpose()
             out.columns = cols
         elif average == 'macro':
             out = pd.DataFrame(stats.mean()).transpose()
         elif average == 'micro':
-            out = clf_metrics(np.concatenate(y),
-                              np.concatenate(y_))
-        
+            out = clf_metrics(np.concatenate(y), np.concatenate(y_))
+
         # Adding AUC and AP for when we have probabilities
         if preds_are_probs:
             out.auc = auc
             out.brier = brier
-        
+
         # Rounding things off
         out = out.round(round)
         count_cols = [
-                      'tp', 'fp', 'tn', 'fn', 'true_prev',
-                      'pred_prev', 'prev_diff'
+            'tp', 'fp', 'tn', 'fn', 'true_prev', 'pred_prev', 'prev_diff'
         ]
         out[count_cols] = out[count_cols].round()
-        
+
         if mod_name is not None:
             out['model'] = mod_name
-        
+
         return out
-    
+
     # Thresholding the probabilities, if provided
     if preds_are_probs:
         auc = roc_auc_score(true, pred)
@@ -135,7 +139,7 @@ def clf_metrics(true,
         pred = threshold(pred, cutpoint)
     else:
         brier = np.round(brier_score(true, pred), round)
-    
+
     # Constructing the 2x2 table
     confmat = confusion_matrix(true, pred)
     tp = confmat[1, 1]
@@ -158,24 +162,25 @@ def clf_metrics(true,
 
     # Calculating Youden's J and the Brier score
     j = sens + spec - 1
-    
+
     # Rolling everything so far into a dataframe
     outmat = np.array(
         [tp, fp, tn, fn, sens, spec, ppv, npv, j, f1, mcc,
          brier]).reshape(-1, 1)
     out = pd.DataFrame(outmat.transpose(),
-                       columns=['tp', 'fp', 'tn', 
-                                'fn', 'sens', 'spec', 'ppv',
-                                'npv', 'j', 'f1', 'mcc', 'brier'])
-    
+                       columns=[
+                           'tp', 'fp', 'tn', 'fn', 'sens', 'spec', 'ppv',
+                           'npv', 'j', 'f1', 'mcc', 'brier'
+                       ])
+
     # Optionally tacking on stats from the raw probabilities
     if preds_are_probs:
         out['auc'] = auc
         out['ap'] = ap
     else:
-        out['auc'] = np.nan
-        out['ap'] = np.nan
-    
+        out['auc'] = 0.0
+        out['ap'] = 0.0
+
     # Calculating some additional measures based on positive calls
     true_prev = int(np.sum(true == 1))
     pred_prev = int(np.sum(pred == 1))
@@ -195,7 +200,7 @@ def clf_metrics(true,
     # Optionally dropping the mcnemar p-val
     if mcnemar:
         out['mcnemar'] = pval
-    
+
     # And finally tacking on the model name
     if mod_name is not None:
         out['model'] = mod_name
@@ -203,37 +208,35 @@ def clf_metrics(true,
     return out
 
 
-def jackknife_metrics(targets, 
-                      guesses, 
-                      average='weighted'):
+def jackknife_metrics(targets, guesses, average='weighted'):
     # Replicates of the dataset with one row missing from each
     rows = np.array(list(range(targets.shape[0])))
     j_rows = [np.delete(rows, row) for row in rows]
 
     # using a pool to get the metrics across each
-    scores = [clf_metrics(targets[idx],
-                          guesses[idx],
-                          average=average) for idx in j_rows]
+    scores = [
+        clf_metrics(targets[idx], guesses[idx], average=average)
+        for idx in j_rows
+    ]
     scores = pd.concat(scores, axis=0)
     means = scores.mean()
-    
+
     return scores, means
 
 
 # Calculates bootstrap confidence intervals for an estimator
 class boot_cis:
-    def __init__(
-        self,
-        targets,
-        guesses,
-        n=100,
-        a=0.05,
-        method="bca",
-        interpolation="nearest",
-        average='weighted',
-        weighted=True,
-        mcnemar=False,
-        seed=10221983):
+    def __init__(self,
+                 targets,
+                 guesses,
+                 n=100,
+                 a=0.05,
+                 method="bca",
+                 interpolation="nearest",
+                 average='weighted',
+                 weighted=True,
+                 mcnemar=False,
+                 seed=10221983):
         # Converting everything to NumPy arrays, just in case
         stype = type(pd.Series())
         if type(targets) == stype:
@@ -242,9 +245,7 @@ class boot_cis:
             guesses = guesses.values
 
         # Getting the point estimates
-        stat = clf_metrics(targets,
-                           guesses,
-                           average=average,
+        stat = clf_metrics(targets, guesses, average=average,
                            mcnemar=mcnemar).transpose()
 
         # Pulling out the column names to pass to the bootstrap dataframes
@@ -262,9 +263,9 @@ class boot_cis:
 
         # Generating the bootstrap samples and metrics
         boots = [boot_sample(targets, seed=seed) for seed in seeds]
-        scores = [clf_metrics(targets[b], 
-                              guesses[b], 
-                              average=average) for b in boots]
+        scores = [
+            clf_metrics(targets[b], guesses[b], average=average) for b in boots
+        ]
         scores = pd.concat(scores, axis=0)
 
         # Calculating the confidence intervals
@@ -358,8 +359,8 @@ class boot_cis:
         return
 
 
-def average_pvals(p_vals, 
-                  w=None, 
+def average_pvals(p_vals,
+                  w=None,
                   method='harmonic',
                   smooth=True,
                   smooth_val=1e-7):
@@ -566,24 +567,6 @@ def x_at_y(x, y, yval, grid):
     return best_x
 
 
-# Converts a boot_cis['cis'] object to a single row
-def merge_cis(df, stats, round=4):
-    df = deepcopy(df)
-    for stat in stats:
-        lower = stat + '.lower'
-        upper = stat + '.upper'
-        new = stat + '.ci'
-        l = df[lower].values.round(round)
-        u = df[upper].values.round(round)
-        strs = [
-            pd.Series('(' + str(l[i]) + ', ' + str(u[i]) + ')')
-            for i in range(df.shape[0])
-        ]
-        df[new] = pd.concat(strs, axis=0)
-        df = df.drop([lower, upper], axis=1)
-    return df
-
-
 def unique_combo(c):
     if len(np.intersect1d(c[0], c[1])) == 0:
         return c
@@ -635,9 +618,7 @@ def max_probs(arr, maxes=None, axis=1):
     return np.array(out)
 
 
-def write_stats(stats,
-                outcome,
-                stats_dir='output/analysis/'):
+def write_stats(stats, outcome, stats_dir='output/analysis/'):
     stats_filename = outcome + '_stats.csv'
     if stats_filename in os.listdir(stats_dir):
         stats_df = pd.read_csv(stats_dir + stats_filename)
@@ -666,6 +647,30 @@ def write_preds(preds,
 
     preds_df[mod_name + '_pred'] = preds
     if probs is not None:
+        if len(probs.shape) > 1:
+            probs = np.max(probs, axis=1)
         preds_df[mod_name + '_prob'] = probs
     preds_df.to_csv(stats_dir + preds_filename, index=False)
     return
+
+
+# Converts a boot_cis['cis'] object to a single row
+def merge_cis(c, round=4, mod_name=''):
+    str_cis = c.round(round).astype(str)
+    str_paste = pd.DataFrame(str_cis.stat + ' (' + str_cis.lower + ', ' +
+                             str_cis.upper + ')',
+                             columns=[mod_name]).transpose()
+    return str_paste
+
+
+def merge_ci_list(l, mod_names=None, round=4):
+    if type(l[0] != type(pd.DataFrame())):
+        l = [c.cis for c in l]
+    if mod_names is not None:
+        merged_cis = [
+            merge_cis(l[i], round, mod_names[i]) for i in range(len(l))
+        ]
+    else:
+        merged_cis = [merge_cis(c, round=round) for c in l]
+
+    return pd.concat(merged_cis, axis=0)
