@@ -42,14 +42,6 @@ if __name__ == '__main__':
                         default='weighted',
                         choices=['micro', 'macro', 'weighted'],
                         help='how to average stats for multiclass predictions')
-    parser.add_argument('--out_dir',
-                        type=str,
-                        default='output/',
-                        help='output directory')
-    parser.add_argument('--data_dir',
-                        type=str,
-                        default='..data/data/',
-                        help='path to the Premier data')
     parser.add_argument("--test_split",
                         type=float,
                         default=0.2,
@@ -71,11 +63,18 @@ if __name__ == '__main__':
     RAND = args.rand_seed
 
     # Setting the directories and importing the data
-    output_dir = os.path.abspath(args.out_dir) + '/'
-    data_dir = os.path.abspath(args.data_dir) + '/'
+    pwd = os.path.abspath(os.path.dirname(__file__))
+    output_dir = os.path.join(pwd, "..", "output", "")
+    data_dir = os.path.join(pwd, "..", "data", "data", "")
     pkl_dir = os.path.join(output_dir, "pkl", "")
     stats_dir = os.path.join(output_dir, "analysis", "")
     probs_dir = os.path.join(stats_dir, "probs", "")
+
+    # Create analysis dirs if it doesn't exist
+    [
+        os.makedirs(directory, exist_ok=True)
+        for directory in [stats_dir, probs_dir, pkl_dir]
+    ]
 
     with open(pkl_dir + OUTCOME + "_trimmed_seqs.pkl", "rb") as f:
         inputs = pkl.load(f)
