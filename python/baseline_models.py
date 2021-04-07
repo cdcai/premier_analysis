@@ -130,16 +130,15 @@ if __name__ == '__main__':
 
     # Splitting the data
     train, test = train_test_split(range(n_patients),
-                                   test_size=TEST_SPLIT,
+                                   test_size=0.2,
                                    stratify=y,
-                                   random_state=RAND)
-
+                                   random_state=2021)
+    
     # Doing a validation split for threshold-picking on binary problems
-    if binary:
-        val, train = train_test_split(train,
-                                      test_size=VAL_SPLIT,
-                                      stratify=y[train],
-                                      random_state=RAND)
+    train, val = train_test_split(train,
+                                  test_size=0.2,
+                                  stratify=y[train],
+                                  random_state=2021)
 
     # Fitting a logistic regression to the whole dataset
     lgr = LogisticRegression(max_iter=5000, multi_class='ovr')
@@ -200,13 +199,12 @@ if __name__ == '__main__':
             if binary:
                 val_probs = mod.predict_proba(X[val])[:, 1]
                 val_gm = ta.grid_metrics(y[val], val_probs)
-                f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
+                cutpoint = val_gm.cutoff.values[np.argmax(val_gm.f1)]
                 test_probs = mod.predict_proba(X[test])[:, 1]
-                test_preds = ta.threshold(test_probs, f1_cut)
+                test_preds = ta.threshold(test_probs, cutpoint)
                 stats = ta.clf_metrics(y[test],
                                        test_probs,
-                                       preds_are_probs=True,
-                                       cutpoint=f1_cut,
+                                       cutpoint=cutpoint,
                                        mod_name=mod_name,
                                        average=args.average)
                 ta.write_preds(preds=test_preds,
@@ -215,16 +213,22 @@ if __name__ == '__main__':
                                test_idx=test,
                                probs=test_probs)
             else:
+                cutpoint = None
+                test_probs = mod.predict_proba(X[test])
                 test_preds = mod.predict(X[test])
                 stats = ta.clf_metrics(y[test],
-                                       test_preds,
+                                       test_probs,
                                        mod_name=mod_name,
                                        average=args.average)
                 ta.write_preds(preds=test_preds,
+                               probs=np.max(test_probs, axis=1),
                                outcome=OUTCOME,
                                mod_name=mod_name,
                                test_idx=test)
-
+            probs_file = 'probs/' + mod_name + '_' + OUTCOME + '.pkl'
+            prob_out = {'cutpoint': cutpoint, 'probs': test_probs}
+            pkl.dump(prob_out, open(stats_dir + probs_file, 'wb'))
+                
         else:
             test_preds = mod.predict(X[test])
             stats = ta.clf_metrics(y[test],

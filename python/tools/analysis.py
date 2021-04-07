@@ -49,26 +49,24 @@ def brier_score(true, pred):
 def clf_metrics(true, 
                 pred,
                 average='weighted',
-                preds_are_probs=False,
                 cutpoint=0.5,
                 mod_name=None,
                 round=4,
                 round_pval=False,
                 mcnemar=False,
                 argmax_axis=1):
-    '''Runs basic diagnostic stats on binary (only) predictions'''
-
-    averaging_options = ["weighted", "macro", "micro"]
-
-    if average not in averaging_options:
-        raise ValueError("value of 'average' is not a valid choice in {}".format(averaging_options))
-
     # Converting pd.Series to np.array
     stype = type(pd.Series())
     if type(pred) == stype:
         pred = pred.values
     if type(true) == stype:
         true = true.values
+    
+    # Figuring out if the guesses are classes or probabilities
+    if np.any([0 < p < 1 for p in pred.flatten()]):
+        preds_are_probs = True
+    else:
+        preds_are_probs = False
     
     # Optional exit for doing averages with multiclass/label inputs
     if len(np.unique(true)) > 2:
@@ -173,8 +171,8 @@ def clf_metrics(true,
         out['auc'] = auc
         out['ap'] = ap
     else:
-        out['auc'] = np.nan
-        out['ap'] = np.nan
+        out['auc'] = 0.0
+        out['ap'] = 0.0
     
     # Calculating some additional measures based on positive calls
     true_prev = int(np.sum(true == 1))
@@ -204,7 +202,7 @@ def clf_metrics(true,
 
 
 def jackknife_metrics(targets, 
-                      guesses, 
+                      guesses,
                       average='weighted'):
     # Replicates of the dataset with one row missing from each
     rows = np.array(list(range(targets.shape[0])))
@@ -263,7 +261,7 @@ class boot_cis:
         # Generating the bootstrap samples and metrics
         boots = [boot_sample(targets, seed=seed) for seed in seeds]
         scores = [clf_metrics(targets[b], 
-                              guesses[b], 
+                              guesses[b],
                               average=average) for b in boots]
         scores = pd.concat(scores, axis=0)
 
@@ -312,7 +310,8 @@ class boot_cis:
             z0[np.where(np.isinf(z0))[0]] = 0.0
 
             # Estiamating the acceleration factor
-            j = jackknife_metrics(targets, guesses)
+            j = jackknife_metrics(targets, 
+                                  guesses)
             diffs = j[1] - j[0]
             numer = np.sum(np.power(diffs, 3))
             denom = 6 * np.power(np.sum(np.power(diffs, 2)), 3 / 2)
@@ -666,6 +665,31 @@ def write_preds(preds,
 
     preds_df[mod_name + '_pred'] = preds
     if probs is not None:
+        if len(probs.shape) > 1:
+            probs = np.max(probs, axis=1)
         preds_df[mod_name + '_prob'] = probs
     preds_df.to_csv(stats_dir + preds_filename, index=False)
     return
+
+
+# Converts a boot_cis['cis'] object to a single row
+def merge_cis(c, round=4, mod_name=''):
+    str_cis = c.round(round).astype(str)
+    str_paste = pd.DataFrame(str_cis.stat + ' (' + str_cis.lower + 
+                                 ', ' + str_cis.upper + ')',
+                                 columns=[mod_name]).transpose()
+    return str_paste
+
+
+def merge_ci_list(l, mod_names=None, round=4):
+    if type(l[0] != type(pd.DataFrame())):
+        l = [c.cis for c in l]
+    if mod_names is not None:
+        merged_cis = [merge_cis(l[i], round, mod_names[i])
+                      for i in range(len(l))]
+    else:
+        merged_cis = [merge_cis(c, round=round) for c in l]
+    
+    return pd.concat(merged_cis, axis=0)
+
+
