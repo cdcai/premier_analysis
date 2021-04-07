@@ -315,7 +315,7 @@ if __name__ == "__main__":
             # to report out
             test_probs = np.amax(test_probs, axis=1)
 
-    elif MOD_NAME == "dan":
+    elif "dan" in MOD_NAME:
 
         if DAY_ONE_ONLY:
             # Optionally limiting the features to only those from the first day
