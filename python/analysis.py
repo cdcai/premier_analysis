@@ -71,13 +71,16 @@ if __name__ == "__main__":
             if mod_prob_file in prob_files:
                 # In the multi_class case, we've been writing pkls
                 with open(probs_dir + mod_prob_file, 'rb') as f:
-                    guesses = pickle.load(f)
+                    probs_dict = pickle.load(f)
+
+                    guesses = probs_dict["probs"]
             else:
                 # Otherwise the probs will be in the excel file
                 guesses = preds[mod + '_pred']
 
             # Compute CIs model-by-model
             ci = ta.boot_cis(targets=preds[outcome], guesses=guesses, n=100)
+
             # Append to outcome CI list
             outcome_cis.append(ci)
 
