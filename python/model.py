@@ -118,7 +118,7 @@ if __name__ == "__main__":
     data_dir = os.path.abspath(args.data_dir)
     pkl_dir = os.path.join(output_dir, "pkl")
     stats_dir = os.path.join(output_dir, "analysis")
-    probs_dir = os.path.join(output_dir, "probs")
+    probs_dir = os.path.join(stats_dir, "probs")
 
     # Create analysis dir if it doesn't exist
     [
