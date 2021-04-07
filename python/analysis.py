@@ -70,7 +70,7 @@ if __name__ == "__main__":
 
             if mod_prob_file in prob_files:
                 # In the multi_class case, we've been writing pkls
-                with open(probs_dir + mod_probs, 'rb') as f:
+                with open(probs_dir + mod_prob_file, 'rb') as f:
                     guesses = pickle.load(f)
             else:
                 # Otherwise the probs will be in the excel file
