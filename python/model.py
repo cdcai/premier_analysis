@@ -11,6 +11,7 @@ import argparse
 import numpy as np
 import tensorflow.keras as keras
 from sklearn.model_selection import train_test_split
+from sklearn.utils.class_weight import compute_class_weight
 from tensorflow.keras.callbacks import TensorBoard
 
 import tools.analysis as ta
@@ -66,6 +67,11 @@ if __name__ == "__main__":
                         type=int,
                         default=32,
                         help="Mini batch size")
+    parser.add_argument("--weighted_loss",
+                        help="Weight loss to account for class imbalance",
+                        dest='weighted_loss',
+                        action='store_true')
+    parser.set_defaults(weighted_loss=False)
     parser.add_argument("--epochs",
                         type=int,
                         default=20,
@@ -76,7 +82,7 @@ if __name__ == "__main__":
                         help="output directory")
     parser.add_argument("--data_dir",
                         type=str,
-                        default="data/data/",
+                        default="../data/data/",
                         help="path to the Premier data")
     parser.add_argument("--test_split",
                         type=float,
@@ -104,6 +110,7 @@ if __name__ == "__main__":
     LSTM_RECURRENT_DROPOUT = args.recurrent_dropout
     N_LSTM = args.n_cells
     BATCH_SIZE = args.batch_size
+    WEIGHTED_LOSS = args.weighted_loss
     EPOCHS = args.epochs
     TEST_SPLIT = args.test_split
     VAL_SPLIT = args.validation_split
@@ -150,6 +157,9 @@ if __name__ == "__main__":
     N_DEMOG = len(demog_lookup) + 1
     MAX_DEMOG = max(len(x) for _, x, _ in inputs)
     N_CLASS = max(x for _, _, x in inputs) + 1
+    
+    # Setting y here so it's stable
+    y = np.array([l[2] for l in inputs])
 
     # Create some callbacks
     callbacks = [
@@ -188,23 +198,34 @@ if __name__ == "__main__":
     # Define loss function
     # NOTE: We were experimenting with focal loss at one point, maybe we can try that again at some point
     loss_fn = keras.losses.categorical_crossentropy if TARGET == "multi_class" else keras.losses.binary_crossentropy
-
+    
+    # Splitting the data
+    train, test = train_test_split(
+        range(len(inputs)),
+        test_size=TEST_SPLIT,
+        stratify=y,
+        random_state=RAND)
+    
+    train, validation = train_test_split(
+        train,
+        test_size=VAL_SPLIT,
+        stratify=y[train],
+        random_state=RAND)
+    
+    # Optional weighting
+    if WEIGHTED_LOSS:
+        MOD_NAME += '_w'
+        classes = np.unique(y)
+        weights = compute_class_weight('balanced',
+                                       classes=classes,
+                                       y=y[train])
+        weight_dict = {c: weights[i] for i, c in enumerate(classes)}
+    else:
+        weight_dict = None
+    
     # --- Model-specific code
     # TODO: Rework some sections to streamline input and label generation along with splitting
-    if MOD_NAME == "lstm":
-        # Splitting the data
-        train, test = train_test_split(
-            range(len(inputs)),
-            test_size=TEST_SPLIT,
-            stratify=[labs for _, _, labs in inputs],
-            random_state=RAND)
-
-        train, validation = train_test_split(
-            train,
-            test_size=VAL_SPLIT,
-            stratify=[samp[2] for i, samp in enumerate(inputs) if i in train],
-            random_state=RAND)
-
+    if "lstm" in MOD_NAME:
         # %% Compute steps-per-epoch
         # NOTE: Sometimes it can't determine this properly from tf.data
         STEPS_PER_EPOCH = np.ceil(len(train) / BATCH_SIZE)
@@ -213,7 +234,7 @@ if __name__ == "__main__":
         # %%
         train_gen = tk.create_ragged_data_gen([inputs[samp] for samp in train],
                                               max_demog=MAX_DEMOG,
-                                              epochs=EPOCHS,
+                                              epochs=1,
                                               multiclass=N_CLASS > 2,
                                               random_seed=RAND,
                                               batch_size=BATCH_SIZE)
@@ -221,7 +242,7 @@ if __name__ == "__main__":
         validation_gen = tk.create_ragged_data_gen(
             [inputs[samp] for samp in validation],
             max_demog=MAX_DEMOG,
-            epochs=EPOCHS,
+            epochs=1,
             shuffle=False,
             multiclass=N_CLASS > 2,
             random_seed=RAND,
@@ -235,7 +256,7 @@ if __name__ == "__main__":
                                              shuffle=False,
                                              random_seed=RAND,
                                              batch_size=BATCH_SIZE)
-
+        
         # %% Setting up the model
         model = tk.LSTM(time_seq=TIME_SEQ,
                         vocab_size=N_VOCAB,
@@ -254,21 +275,17 @@ if __name__ == "__main__":
                             validation_data=validation_gen,
                             validation_steps=VALID_STEPS_PER_EPOCH,
                             epochs=EPOCHS,
-                            callbacks=callbacks)
+                            callbacks=callbacks,
+                            class_weight=weight_dict)
 
         # ---
         # Compute decision threshold cut from validation data using grid search
         # then apply threshold to test data to compute metrics
-        val_probs = model.predict(validation_gen, steps=VALID_STEPS_PER_EPOCH)
+        val_probs = model.predict(validation_gen)
         test_probs = model.predict(test_gen)
 
-        val_labs = np.array(
-            [samp[2] for i, samp in enumerate(inputs) if i in validation])
-        test_labs = np.array(
-            [samp[2] for i, samp in enumerate(inputs) if i in test])
-
-        val_probs = val_probs[range(val_labs.shape[0])]
-        test_probs = test_probs[range(test_labs.shape[0])]
+        val_labs = y[validation]
+        test_labs = y[test]
 
         if N_CLASS <= 2:
             # If we are in the binary case, compute grid metrics on validation data
@@ -322,19 +339,7 @@ if __name__ == "__main__":
         X = keras.preprocessing.sequence.pad_sequences(features,
                                                        maxlen=225,
                                                        padding='post')
-        y = np.array([t[2] for t in inputs], dtype=np.uint8)
-
-        # Splitting the data
-        train, test = train_test_split(range(len(features)),
-                                       test_size=TEST_SPLIT,
-                                       stratify=y,
-                                       random_state=RAND)
-
-        train, val = train_test_split(train,
-                                      test_size=VAL_SPLIT,
-                                      stratify=y[train],
-                                      random_state=RAND)
-
+        
         # Handle multiclass case
         if N_CLASS > 2:
             # We have to pass one-hot labels for model fit, but CLF metrics will take indices
@@ -416,7 +421,7 @@ if __name__ == "__main__":
     # Optionally append results if file already exists
     append_file = stats_filename in os.listdir(stats_dir)
     preds_filename = TARGET + "_preds.csv"
-
+    
     stats.to_csv(os.path.join(stats_dir, stats_filename),
                  mode="a" if append_file else "w",
                  header=False if append_file else True,
