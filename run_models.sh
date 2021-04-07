@@ -61,7 +61,6 @@ run_lstm() {
 
 compute_cis() {
     # Compute Bootstrapped CIs
-    python "$PWD/python/analysis.py" --outcome=$outcome --all_days
     python "$PWD/python/analysis.py" --outcome=$outcome --day_one
 }
 
