@@ -197,7 +197,10 @@ if __name__ == "__main__":
 
     # Define loss function
     # NOTE: We were experimenting with focal loss at one point, maybe we can try that again at some point
-    loss_fn = keras.losses.categorical_crossentropy if TARGET == "multi_class" else keras.losses.binary_crossentropy
+    if TARGET ==  'multi_class':
+        loss_fn = keras.losses.categorical_crossentropy
+    else:
+        loss_fn = keras.losses.binary_crossentropy
     
     # Splitting the data
     train, test = train_test_split(
@@ -206,7 +209,7 @@ if __name__ == "__main__":
         stratify=y,
         random_state=RAND)
     
-    train, validation = train_test_split(
+    train, val = train_test_split(
         train,
         test_size=VAL_SPLIT,
         stratify=y[train],
@@ -229,7 +232,7 @@ if __name__ == "__main__":
         # %% Compute steps-per-epoch
         # NOTE: Sometimes it can't determine this properly from tf.data
         STEPS_PER_EPOCH = np.ceil(len(train) / BATCH_SIZE)
-        VALID_STEPS_PER_EPOCH = np.ceil(len(validation) / BATCH_SIZE)
+        VALID_STEPS_PER_EPOCH = np.ceil(len(val) / BATCH_SIZE)
 
         # %%
         train_gen = tk.create_ragged_data_gen([inputs[samp] for samp in train],
@@ -240,7 +243,7 @@ if __name__ == "__main__":
                                               batch_size=BATCH_SIZE)
 
         validation_gen = tk.create_ragged_data_gen(
-            [inputs[samp] for samp in validation],
+            [inputs[samp] for samp in val],
             max_demog=MAX_DEMOG,
             epochs=1,
             shuffle=False,
@@ -277,44 +280,8 @@ if __name__ == "__main__":
                             epochs=EPOCHS,
                             callbacks=callbacks,
                             class_weight=weight_dict)
-
-        # ---
-        # Compute decision threshold cut from validation data using grid search
-        # then apply threshold to test data to compute metrics
-        val_probs = model.predict(validation_gen)
-        test_probs = model.predict(test_gen)
-
-        val_labs = y[validation]
-        test_labs = y[test]
-
-        if N_CLASS <= 2:
-            # If we are in the binary case, compute grid metrics on validation data
-            # and compute the cutpoint for the test set.
-            val_gm = ta.grid_metrics(val_labs, val_probs)
-
-            # Computed threshold cutpoint based on F1
-            # NOTE: we could change that too. Maybe that's not the best objective
-            f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
-            test_preds = ta.threshold(test_probs, f1_cut)
-
-            stats = ta.clf_metrics(test_labs,
-                                   test_probs,
-                                   preds_are_probs=True,
-                                   cutpoint=f1_cut,
-                                   mod_name=MOD_NAME)
-        else:
-            # In the multiclass case, take argmax
-            test_preds = np.argmax(test_probs, axis=1)
-
-            stats = ta.clf_metrics(test_labs,
-                                   test_preds,
-                                   average="weighted",
-                                   mod_name=MOD_NAME)
-
-            # Also take the probability of the predicted class
-            # to report out
-            test_probs = np.amax(test_probs, axis=1)
-
+                            '''
+        
     elif "dan" in MOD_NAME:
 
         if DAY_ONE_ONLY:
@@ -342,7 +309,8 @@ if __name__ == "__main__":
         
         # Handle multiclass case
         if N_CLASS > 2:
-            # We have to pass one-hot labels for model fit, but CLF metrics will take indices
+            # We have to pass one-hot labels for model fit, but CLF metrics 
+            # will take indices
             n_values = np.max(y) + 1
             y_one_hot = np.eye(n_values)[y]
 
@@ -362,23 +330,8 @@ if __name__ == "__main__":
                       epochs=EPOCHS,
                       validation_data=(X[val], y_one_hot[val]),
                       callbacks=callbacks)
-
-            test_probs = model.predict(X[test])
-
-            # In the multiclass case, take argmax
-            test_preds = np.argmax(test_probs, axis=1)
-
-            stats = ta.clf_metrics(y[test],
-                                   test_preds,
-                                   average="weighted",
-                                   mod_name=MOD_NAME)
-
-            # Also take the probability of the predicted class
-            # to report out
-            test_probs = np.amax(test_probs, axis=1)
+        
         else:
-            # Binary case
-
             # Produce DAN model to fit
             model = tk.DAN(
                 vocab_size=N_VOCAB,
@@ -393,29 +346,57 @@ if __name__ == "__main__":
                       batch_size=BATCH_SIZE,
                       epochs=EPOCHS,
                       validation_data=(X[val], y[val]),
-                      callbacks=callbacks)
+                      callbacks=callbacks)            
 
-            # ---
-            # Compute decision threshold cut from validation data using grid search
-            # then apply threshold to test data to compute metrics
-            val_probs = model.predict(X[val]).flatten()
-            test_probs = model.predict(X[test]).flatten()
+    # ---
+    # Compute decision threshold cut from validation data using grid search
+    # then apply threshold to test data to compute metrics
+    val_probs = model.predict(validation_gen)
+    test_probs = model.predict(test_gen)
+    
+    model.save(output_dir + '/' + MOD_NAME)
+    
+    if N_CLASS <= 2:
+        # If we are in the binary case, compute grid metrics on validation data
+        # and compute the cutpoint for the test set.
+        val_gm = ta.grid_metrics(y[val], val_probs)
 
-            # If we are in the binary case, compute grid metrics on validation data
-            # and compute the cutpoint for the test set.
-            val_gm = ta.grid_metrics(y[val], val_probs)
-
-            # Computed threshold cutpoint based on F1
-            # NOTE: we could change that too. Maybe that's not the best objective
-            f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
-            test_preds = ta.threshold(test_probs, f1_cut)
-
-            stats = ta.clf_metrics(y[test],
-                                   test_probs,
-                                   preds_are_probs=True,
-                                   cutpoint=f1_cut,
-                                   mod_name=MOD_NAME)
-
+        # Computed threshold cutpoint based on F1
+        # NOTE: we could change that too. Maybe that's not the best objective
+        cutpoint = val_gm.cutoff.values[np.argmax(val_gm.f1)]
+        
+        # Getting the stats
+        stats = ta.clf_metrics(y[test],
+                               test_probs,
+                               cutpoint=cutpoint,
+                               mod_name=MOD_NAME)
+        
+        # Writing the predicted probabilities to disk
+        probs_file = '/probs/' + MOD_NAME + '_' + TARGET + '.pkl'
+        prob_out = {'cutpoint': cutpoint, 'probs': test_probs}
+        pkl.dump(prob_out, open(stats_dir + probs_file, 'wb'))
+        
+        # Getting the test predictions
+        test_preds = ta.threshold(test_probs, cutpoint)
+        
+    else:
+        # Getting the stats
+        stats = ta.clf_metrics(y[test],
+                               test_probs,
+                               average="weighted",
+                               mod_name=MOD_NAME)
+        
+        # Writing the predicted probabilities to disk
+        probs_file = '/probs/' + MOD_NAME + '_' + TARGET + '.pkl'
+        prob_out = {'cutpoint': 0.5, 'probs': test_probs}
+        pkl.dump(prob_out, open(stats_dir + probs_file, 'wb'))
+        
+        # Getting the test predictions
+        test_preds = np.argmax(test_probs, axis=1)
+        
+        # Saving the max from each row for writing to CSV
+        test_probs = np.amax(test_probs, axis=1)
+    
     # ---
     # Writing the results to disk
     # Optionally append results if file already exists
@@ -428,7 +409,6 @@ if __name__ == "__main__":
                  index=False)
 
     # Writing the test predictions to the test predictions CSV
-
     if preds_filename in os.listdir(stats_dir):
         preds_df = pd.read_csv(os.path.join(stats_dir, preds_filename))
     else:
