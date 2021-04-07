@@ -43,7 +43,7 @@ if __name__ == "__main__":
     pwd = os.path.abspath(os.path.dirname(__file__))
     output_dir = os.path.join(pwd, "..", "output", "")
     stats_dir = os.path.join(output_dir, "analysis", "")
-    probs_dir = os.path.join(stats_dir, "probs". "")
+    probs_dir = os.path.join(stats_dir, "probs", "")
 
     # Path where the metrics will be written
     ci_file = os.path.join(stats_dir, "cis.xlsx")
