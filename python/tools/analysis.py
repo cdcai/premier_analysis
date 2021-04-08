@@ -73,6 +73,10 @@ def clf_metrics(true,
         # Getting binary metrics for each set of results
         codes = np.unique(true)
         
+        # Softmaxing the probabilities if it hasn't already been done
+        if np.sum(pred[0]) > 1:
+            pred = np.array([np.exp(p) / np.sum(np.exp(p)) for p in pred])
+        
         # Argmaxing for when we have probabilities
         if preds_are_probs:
             auc = roc_auc_score(true,

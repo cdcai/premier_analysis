@@ -282,7 +282,6 @@ if __name__ == "__main__":
                             class_weight=weight_dict)
         
     elif "dan" in MOD_NAME:
-
         if DAY_ONE_ONLY:
             # Optionally limiting the features to only those from the first day
             # of the actual COVID visit
