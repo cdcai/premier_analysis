@@ -280,7 +280,6 @@ if __name__ == "__main__":
                             epochs=EPOCHS,
                             callbacks=callbacks,
                             class_weight=weight_dict)
-                            '''
         
     elif "dan" in MOD_NAME:
 
