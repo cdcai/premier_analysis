@@ -353,7 +353,7 @@ if __name__ == "__main__":
     val_probs = model.predict(validation_gen)
     test_probs = model.predict(test_gen)
     
-    model.save(output_dir + '/' + MOD_NAME)
+    # model.save(output_dir + '/' + MOD_NAME)
     
     if N_CLASS <= 2:
         # If we are in the binary case, compute grid metrics on validation data
