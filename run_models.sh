@@ -50,18 +50,16 @@ run_dan() {
     # Run DAN
     echo "-- Day one model --"
     python "${PWD}/python/model.py" --outcome=$outcome --day_one --model=dan
+    python "${PWD}/python/model.py" --outcome=$outcome --day_one --weighted_loss --model=dan
     echo "-- All day model --"
     python "$PWD/python/model.py" --outcome=$outcome --all_days --model=dan
+    python "$PWD/python/model.py" --outcome=$outcome --all_days --weighted_loss --model=dan
 }
 
 run_lstm() {
     # Run LSTM
-    python "$PWD/python/model.py" --outcome=$outcome --all_days --model=lstm
-}
-
-compute_cis() {
-    # Compute Bootstrapped CIs
-    python "$PWD/python/analysis.py" --outcome=$outcome --day_one
+    python "$PWD/python/model.py" --outcome=$outcome --model=lstm
+    python "$PWD/python/model.py" --outcome=$outcome --weighted_loss --model=lstm
 }
 
 echo "Trimming sequences and appending labels >>"
@@ -72,5 +70,3 @@ echo "Running DAN >>"
 run_dan
 echo "Running LSTM >>"
 run_lstm
-echo "Computing Bootstrap CIs >>"
-compute_cis
