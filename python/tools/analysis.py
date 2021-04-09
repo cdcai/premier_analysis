@@ -207,6 +207,7 @@ def clf_metrics(true,
 
 def jackknife_metrics(targets, 
                       guesses,
+                      cutpoint=0.5,
                       average='weighted'):
     # Replicates of the dataset with one row missing from each
     rows = np.array(list(range(targets.shape[0])))
@@ -215,6 +216,7 @@ def jackknife_metrics(targets,
     # using a pool to get the metrics across each
     scores = [clf_metrics(targets[idx],
                           guesses[idx],
+                          cutpoint=cutpoint,
                           average=average) for idx in j_rows]
     scores = pd.concat(scores, axis=0)
     means = scores.mean()
@@ -233,7 +235,7 @@ class boot_cis:
         method="bca",
         interpolation="nearest",
         average='weighted',
-        weighted=True,
+        cutpoint=0.5,
         mcnemar=False,
         seed=10221983):
         # Converting everything to NumPy arrays, just in case
@@ -246,6 +248,7 @@ class boot_cis:
         # Getting the point estimates
         stat = clf_metrics(targets,
                            guesses,
+                           cutpoint=cutpoint,
                            average=average,
                            mcnemar=mcnemar).transpose()
 
@@ -266,6 +269,7 @@ class boot_cis:
         boots = [boot_sample(targets, seed=seed) for seed in seeds]
         scores = [clf_metrics(targets[b], 
                               guesses[b],
+                              cutpoint=cutpoint,
                               average=average) for b in boots]
         scores = pd.concat(scores, axis=0)
 
@@ -314,8 +318,10 @@ class boot_cis:
             z0[np.where(np.isinf(z0))[0]] = 0.0
 
             # Estiamating the acceleration factor
-            j = jackknife_metrics(targets, 
-                                  guesses)
+            j = jackknife_metrics(targets=targets, 
+                                  guesses=guesses,
+                                  cutpoint=cutpoint,
+                                  average=average)
             diffs = j[1] - j[0]
             numer = np.sum(np.power(diffs, 3))
             denom = 6 * np.power(np.sum(np.power(diffs, 2)), 3 / 2)
