@@ -9,29 +9,19 @@ import os
 import tools.analysis as ta
 import tools.multi as tm
 
+import re
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument(
-        '--day_one',
-        help=
-        "Also include models that only evaluated first inpatient day's worth of features",
-        dest='day_one',
-        action='store_true')
-    parser.add_argument(
-        '--all_days',
-        help=
-        "Only compute CIs for models that used all features in lookback period",
-        dest='day_one',
-        action='store_false')
     parser.add_argument(
         '--parallel',
         help=
         "Compute BCa CIs in parallel (can speed up execution time but requires more memory and CPU usage)",
         dest='parallel',
         action='store_true')
-    parser.set_defaults(day_one=True, parallel=False)
+    parser.set_defaults(parallel=False)
     parser.add_argument("--outcome",
                         type=str,
                         default=["misa_pt", "multi_class", "death"],
@@ -41,7 +31,6 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    DAY_ONE = args.day_one
     OUTCOME = args.outcome
     PARALLEL = args.parallel
 
@@ -50,9 +39,9 @@ if __name__ == "__main__":
 
     # Setting the directories
     pwd = os.path.abspath(os.path.dirname(__file__))
-    output_dir = os.path.join(pwd, "..", "output", "")
-    stats_dir = os.path.join(output_dir, "analysis", "")
-    probs_dir = os.path.join(stats_dir, "probs", "")
+    output_dir = os.path.abspath(os.path.join(pwd, "..", "output", ""))
+    stats_dir = os.path.abspath(os.path.join(output_dir, "analysis", ""))
+    probs_dir = os.path.abspath(os.path.join(stats_dir, "probs", ""))
 
     # Path where the metrics will be written
     ci_file = os.path.join(stats_dir, "cis.xlsx")
@@ -66,13 +55,12 @@ if __name__ == "__main__":
         outcome_cis = []
 
         # Importing the predictions
-        preds = pd.read_csv(stats_dir + outcome + '_preds.csv')
+        preds = pd.read_csv(os.path.join(stats_dir, outcome + '_preds.csv'))
 
-        # Setting the models to look at
-        mods = ['lgr', 'rf', 'gbc', 'svm', 'dan', 'lstm']
+        # Pulling a list of all models from the preds file
 
-        if DAY_ONE:
-            mods += [mod + "_d1" for mod in mods if mod != "lstm"]
+        mods = [col for col in preds.columns if "_pred" in col]
+        mods = [re.sub("_pred", "", mod) for mod in mods]
 
         for mod in mods:
             mod_prob_file = mod + '_' + outcome + '.pkl'
