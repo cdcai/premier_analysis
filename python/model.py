@@ -294,6 +294,10 @@ if __name__ == "__main__":
                             epochs=EPOCHS,
                             callbacks=callbacks,
                             class_weight=weight_dict)
+        
+        # Produce validation and test predictions
+        val_probs = model.predict(validation_gen)
+        test_probs = model.predict(test_gen)
 
     # === Deep Averaging Network
     elif "dan" in MOD_NAME:
