@@ -77,11 +77,9 @@ if __name__ == "__main__":
                         help="Maximum epochs to run")
     parser.add_argument("--out_dir",
                         type=str,
-                        default="output/",
                         help="output directory")
     parser.add_argument("--data_dir",
                         type=str,
-                        default="../data/data/",
                         help="path to the Premier data")
     parser.add_argument("--test_split",
                         type=float,
@@ -104,6 +102,8 @@ if __name__ == "__main__":
 
     TIME_SEQ = args.max_seq
     MOD_NAME = args.model
+    if WEIGHTED_LOSS:
+        MOD_NAME += '_w'
     OUTCOME = args.outcome
     DEMOG = args.demog
     DAY_ONE_ONLY = args.day_one
@@ -119,10 +119,20 @@ if __name__ == "__main__":
     TB_UPDATE_FREQ = args.tb_update_freq
 
     # DIRS
-    output_dir = os.path.abspath(args.out_dir)
+    pwd = os.path.dirname(__file__)
+
+    # If no args are passed to overwrite these values, use repo structure to construct
+    data_dir = os.path.abspath(os.path.join(pwd, "..", "data", "data", ""))
+    output_dir = os.path.abspath(os.path.join(pwd, "..", "output", ""))
+
+    if args.data_dir is not None:
+        data_dir = os.path.abspath(args.data_dir)
+    
+    if args.out_dir is not None:
+        output_dir = os.path.abspath(args.out_dir)
+    
     tensorboard_dir = os.path.abspath(
-        os.path.join(args.data_dir, "..", "model_checkpoints"))
-    data_dir = os.path.abspath(args.data_dir)
+        os.path.join(data_dir, "..", "model_checkpoints"))
     pkl_dir = os.path.join(output_dir, "pkl")
     stats_dir = os.path.join(output_dir, "analysis")
     probs_dir = os.path.join(stats_dir, "probs")
@@ -198,7 +208,6 @@ if __name__ == "__main__":
 
     # Optional weighting
     if WEIGHTED_LOSS:
-        MOD_NAME += '_w'
         classes = np.unique(y)
         weights = compute_class_weight('balanced', classes=classes, y=y[train])
         weight_dict = {c: weights[i] for i, c in enumerate(classes)}
