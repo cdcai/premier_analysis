@@ -75,7 +75,7 @@ if __name__ == "__main__":
             else:
                 # Otherwise the probs will be in the excel file
                 cutpoint = 0.5
-                guesses = pred_dfs[i][mod + '_pred']
+                guesses = preds[mod + '_pred']
 
             # Compute CIs model-by-model
             ci = boot_cis(targets=preds[outcome],
