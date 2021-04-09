@@ -25,7 +25,13 @@ if __name__ == "__main__":
         "Only compute CIs for models that used all features in lookback period",
         dest='day_one',
         action='store_false')
-    parser.set_defaults(day_one=True)
+    parser.add_argument(
+        '--parallel',
+        help=
+        "Compute BCa CIs in parallel (can speed up execution time but requires more memory and CPU usage)",
+        dest='parallel',
+        action='store_true')
+    parser.set_defaults(day_one=True, parallel=False)
     parser.add_argument("--outcome",
                         type=str,
                         default=["misa_pt", "multi_class", "death"],
@@ -37,6 +43,10 @@ if __name__ == "__main__":
 
     DAY_ONE = args.day_one
     OUTCOME = args.outcome
+    PARALLEL = args.parallel
+
+    # Choose which CI function to use
+    boot_cis = tm.boot_cis if PARALLEL else ta.boot_cis
 
     # Setting the directories
     pwd = os.path.abspath(os.path.dirname(__file__))
@@ -80,10 +90,10 @@ if __name__ == "__main__":
                 guesses = pred_dfs[i][mod + '_pred']
 
             # Compute CIs model-by-model
-            ci = ta.boot_cis(targets=preds[outcome],
-                             guesses=guesses,
-                             cutpoint=cutpoint,
-                             n=100)
+            ci = boot_cis(targets=preds[outcome],
+                          guesses=guesses,
+                          cutpoint=cutpoint,
+                          n=100)
             # Append to outcome CI list
             outcome_cis.append(ci)
 

@@ -66,13 +66,14 @@ def get_times(df,
     return out
 
 
-def jackknife_metrics(targets, guesses, average="weighted"):
+def jackknife_metrics(targets, guesses, cutpoint=0.5, average="weighted"):
     # Replicates of the dataset with one row missing from each
     rows = np.array(list(range(targets.shape[0])))
     j_rows = [np.delete(rows, row) for row in rows]
 
     # using a pool to get the metrics across each
-    inputs = [(targets[idx], guesses[idx], average) for idx in j_rows]
+    inputs = [(targets[idx], guesses[idx], cutpoint, average)
+              for idx in j_rows]
 
     with Pool() as p:
         stat_list = p.starmap(ta.clf_metrics, inputs)
@@ -90,13 +91,12 @@ class boot_cis:
     def __init__(self,
                  targets,
                  guesses,
-                 sample_by=None,
                  n=100,
                  a=0.05,
                  method="bca",
                  interpolation="nearest",
                  average='weighted',
-                 weighted=True,
+                 cutpoint=0.5
                  mcnemar=False,
                  seed=10221983):
         # Converting everything to NumPy arrays, just in case
@@ -109,6 +109,7 @@ class boot_cis:
         # Getting the point estimates
         stat = ta.clf_metrics(targets,
                               guesses,
+                              cutpoint=cutpoint,
                               average=average,
                               mcnemar=mcnemar).transpose()
 
@@ -122,14 +123,15 @@ class boot_cis:
         # Setting the seed
         if seed is None:
             seed = np.random.randint(0, 1e6, 1)
+
         np.random.seed(seed)
         seeds = np.random.randint(0, 1e6, n)
 
         # Generating the bootstrap samples and metrics
         with Pool() as p:
-            boot_input = [(targets, sample_by, None, seed) for seed in seeds]
+            boot_input = [(targets, None, None, seed) for seed in seeds]
             boots = p.starmap(ta.boot_sample, boot_input)
-            inputs = [(targets[boot], guesses[boot], average)
+            inputs = [(targets[boot], guesses[boot], cutpoint, average)
                       for boot in boots]
 
             # Getting the bootstrapped metrics from the Pool
@@ -182,7 +184,7 @@ class boot_cis:
             z0[np.where(np.isinf(z0))[0]] = 0.0
 
             # Estiamating the acceleration factor
-            j = jackknife_metrics(targets, guesses)
+            j = jackknife_metrics(targets, guesses, cutpoint, average)
             diffs = j[1] - j[0]
             numer = np.sum(np.power(diffs, 3))
             denom = 6 * np.power(np.sum(np.power(diffs, 2)), 3 / 2)
