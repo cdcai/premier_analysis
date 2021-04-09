@@ -169,6 +169,9 @@ if __name__ == "__main__":
     # Setting y here so it's stable
     y = np.array([l[2] for l in inputs])
 
+    # Setting y here so it's stable
+    y = np.array([l[2] for l in inputs])
+
     # Create some metrics
     metrics = [
         keras.metrics.AUC(num_thresholds=int(1e5), name="ROC-AUC"),

@@ -134,11 +134,10 @@ if __name__ == '__main__':
                                    random_state=RAND)
 
     # Doing a validation split for threshold-picking on binary problems
-    if binary:
-        val, train = train_test_split(train,
-                                      test_size=VAL_SPLIT,
-                                      stratify=y[train],
-                                      random_state=RAND)
+    train, val = train_test_split(train,
+                                  test_size=VAL_SPLIT,
+                                  stratify=y[train],
+                                  random_state=RAND)
 
     # Fitting a logistic regression to the whole dataset
     lgr = LogisticRegression(max_iter=5000, multi_class='ovr')
