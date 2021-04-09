@@ -64,7 +64,7 @@ if __name__ == "__main__":
                         help="Number of cells in the hidden layer")
     parser.add_argument("--batch_size",
                         type=int,
-                        default=32,
+                        default=128,
                         help="Mini batch size")
     parser.add_argument("--weighted_loss",
                         help="Weight loss to account for class imbalance",
