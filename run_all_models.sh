@@ -2,7 +2,7 @@
 # == Automate running all models for every outcome
 
 # Define outcomes
-declare -a Outcomes=("death", "misa_pt", "multi_class")
+declare -a Outcomes=("death" "misa_pt" "multi_class")
 
 # Check if virtualenv present, and if so activate it
 venv_path="${PWD}/venv/Scripts/activate"
@@ -25,7 +25,7 @@ run_model_prep() {
 }
 
 run_models() {
-    source "${PWD}/run_models" --outcome=$1
+    source "${PWD}/run_models.sh" $1
 }
 
 compute_cis() {
