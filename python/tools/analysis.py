@@ -33,8 +33,8 @@ def mcnemar_test(true, pred, cc=True):
 # Calculates the Brier score for multiclass problems
 def brier_score(true, pred):
     n_classes = len(np.unique(true))
-
     if n_classes == 2:
+        pred = pred.flatten()
         bs = np.sum((pred - true)**2) / true.shape[0]
     else:
         y = onehot_matrix(true)
@@ -81,6 +81,10 @@ def clf_metrics(true,
     if len(np.unique(true)) > 2:
         # Getting binary metrics for each set of results
         codes = np.unique(true)
+
+        # Softmaxing the probabilities if it hasn't already been done
+        if np.sum(pred[0]) > 1:
+            pred = np.array([np.exp(p) / np.sum(np.exp(p)) for p in pred])
 
         # Argmaxing for when we have probabilities
         if preds_are_probs:
@@ -208,15 +212,17 @@ def clf_metrics(true,
     return out
 
 
-def jackknife_metrics(targets, guesses, average='weighted'):
+def jackknife_metrics(targets, guesses, cutpoint=0.5, average='weighted'):
     # Replicates of the dataset with one row missing from each
     rows = np.array(list(range(targets.shape[0])))
     j_rows = [np.delete(rows, row) for row in rows]
 
     # using a pool to get the metrics across each
     scores = [
-        clf_metrics(targets[idx], guesses[idx], average=average)
-        for idx in j_rows
+        clf_metrics(targets[idx],
+                    guesses[idx],
+                    cutpoint=cutpoint,
+                    average=average) for idx in j_rows
     ]
     scores = pd.concat(scores, axis=0)
     means = scores.mean()
@@ -234,7 +240,7 @@ class boot_cis:
                  method="bca",
                  interpolation="nearest",
                  average='weighted',
-                 weighted=True,
+                 cutpoint=0.5,
                  mcnemar=False,
                  seed=10221983):
         # Converting everything to NumPy arrays, just in case
@@ -245,7 +251,10 @@ class boot_cis:
             guesses = guesses.values
 
         # Getting the point estimates
-        stat = clf_metrics(targets, guesses, average=average,
+        stat = clf_metrics(targets,
+                           guesses,
+                           cutpoint=cutpoint,
+                           average=average,
                            mcnemar=mcnemar).transpose()
 
         # Pulling out the column names to pass to the bootstrap dataframes
@@ -264,7 +273,10 @@ class boot_cis:
         # Generating the bootstrap samples and metrics
         boots = [boot_sample(targets, seed=seed) for seed in seeds]
         scores = [
-            clf_metrics(targets[b], guesses[b], average=average) for b in boots
+            clf_metrics(targets[b],
+                        guesses[b],
+                        cutpoint=cutpoint,
+                        average=average) for b in boots
         ]
         scores = pd.concat(scores, axis=0)
 
@@ -313,7 +325,10 @@ class boot_cis:
             z0[np.where(np.isinf(z0))[0]] = 0.0
 
             # Estiamating the acceleration factor
-            j = jackknife_metrics(targets, guesses)
+            j = jackknife_metrics(targets=targets,
+                                  guesses=guesses,
+                                  cutpoint=cutpoint,
+                                  average=average)
             diffs = j[1] - j[0]
             numer = np.sum(np.power(diffs, 3))
             denom = 6 * np.power(np.sum(np.power(diffs, 2)), 3 / 2)
@@ -565,6 +580,24 @@ def x_at_y(x, y, yval, grid):
     good_y = np.where(y >= yval)[0]
     best_x = np.max(x[good_y])
     return best_x
+
+
+# Converts a boot_cis['cis'] object to a single row
+def merge_cis(df, stats, round=4):
+    df = deepcopy(df)
+    for stat in stats:
+        lower = stat + '.lower'
+        upper = stat + '.upper'
+        new = stat + '.ci'
+        l = df[lower].values.round(round)
+        u = df[upper].values.round(round)
+        strs = [
+            pd.Series('(' + str(l[i]) + ', ' + str(u[i]) + ')')
+            for i in range(df.shape[0])
+        ]
+        df[new] = pd.concat(strs, axis=0)
+        df = df.drop([lower, upper], axis=1)
+    return df
 
 
 def unique_combo(c):

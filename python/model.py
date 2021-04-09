@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import tensorflow.keras as keras
 from sklearn.model_selection import train_test_split
+from sklearn.utils.class_weight import compute_class_weight
 from tensorflow.keras.callbacks import TensorBoard
 
 import tools.analysis as ta
@@ -65,6 +66,11 @@ if __name__ == "__main__":
                         type=int,
                         default=32,
                         help="Mini batch size")
+    parser.add_argument("--weighted_loss",
+                        help="Weight loss to account for class imbalance",
+                        dest='weighted_loss',
+                        action='store_true')
+    parser.set_defaults(weighted_loss=False)
     parser.add_argument("--epochs",
                         type=int,
                         default=20,
@@ -75,7 +81,7 @@ if __name__ == "__main__":
                         help="output directory")
     parser.add_argument("--data_dir",
                         type=str,
-                        default="data/data/",
+                        default="../data/data/",
                         help="path to the Premier data")
     parser.add_argument("--test_split",
                         type=float,
@@ -105,6 +111,7 @@ if __name__ == "__main__":
     LSTM_RECURRENT_DROPOUT = args.recurrent_dropout
     N_LSTM = args.n_cells
     BATCH_SIZE = args.batch_size
+    WEIGHTED_LOSS = args.weighted_loss
     EPOCHS = args.epochs
     TEST_SPLIT = args.test_split
     VAL_SPLIT = args.validation_split
@@ -159,33 +166,8 @@ if __name__ == "__main__":
     MAX_DEMOG = max(len(x) for _, x, _ in inputs)
     N_CLASS = max(x for _, _, x in inputs) + 1
 
-    # Create some callbacks
-    callbacks = [
-        # TensorBoard(
-        #     log_dir=os.path.join(tensorboard_dir, OUTCOME,
-        #                          datetime.now().strftime("%Y%m%d-%H%M%S")),
-        #     histogram_freq=1,
-        #     update_freq=TB_UPDATE_FREQ,
-        #     embeddings_freq=5,
-        #     embeddings_metadata=os.path.join(tensorboard_dir,
-        #                                      "emb_metadata.tsv"),
-        # ),
-
-        # Create model checkpoint callback
-        # keras.callbacks.ModelCheckpoint(filepath=os.path.join(
-        #     tensorboard_dir, OUTCOME,
-        #     "weights.{epoch:02d}-{val_loss:.2f}.hdf5"),
-        #                                 save_weights_only=True,
-        #                                 monitor="val_loss",
-        #                                 mode="max",
-        #                                 save_best_only=True),
-
-        # Create early stopping callback
-        keras.callbacks.EarlyStopping(monitor="val_loss",
-                                      min_delta=0,
-                                      patience=2,
-                                      mode="auto")
-    ]
+    # Setting y here so it's stable
+    y = np.array([l[2] for l in inputs])
 
     # Create some metrics
     metrics = [
@@ -195,41 +177,77 @@ if __name__ == "__main__":
 
     # Define loss function
     # NOTE: We were experimenting with focal loss at one point, maybe we can try that again at some point
-    loss_fn = keras.losses.categorical_crossentropy if OUTCOME == "multi_class" else keras.losses.binary_crossentropy
+    if OUTCOME == 'multi_class':
+        loss_fn = keras.losses.categorical_crossentropy
+    else:
+        loss_fn = keras.losses.binary_crossentropy
 
-    # --- Model-specific code
-    # TODO: Rework some sections to streamline input and label generation along with splitting
-    if MOD_NAME == "lstm":
-        # Splitting the data
-        train, test = train_test_split(
-            range(len(inputs)),
-            test_size=TEST_SPLIT,
-            stratify=[labs for _, _, labs in inputs],
-            random_state=RAND)
+    # Splitting the data
+    train, test = train_test_split(range(len(inputs)),
+                                   test_size=TEST_SPLIT,
+                                   stratify=y,
+                                   random_state=RAND)
 
-        train, validation = train_test_split(
-            train,
-            test_size=VAL_SPLIT,
-            stratify=[samp[2] for i, samp in enumerate(inputs) if i in train],
-            random_state=RAND)
+    train, val = train_test_split(train,
+                                  test_size=VAL_SPLIT,
+                                  stratify=y[train],
+                                  random_state=RAND)
 
-        # %% Compute steps-per-epoch
+    # Optional weighting
+    if WEIGHTED_LOSS:
+        MOD_NAME += '_w'
+        classes = np.unique(y)
+        weights = compute_class_weight('balanced', classes=classes, y=y[train])
+        weight_dict = {c: weights[i] for i, c in enumerate(classes)}
+    else:
+        weight_dict = None
+
+# Create some callbacks
+    callbacks = [
+        TensorBoard(
+            log_dir=os.path.join(tensorboard_dir, OUTCOME, MOD_NAME),
+            histogram_freq=1,
+            update_freq=TB_UPDATE_FREQ,
+            embeddings_freq=5,
+            embeddings_metadata=os.path.join(tensorboard_dir,
+                                             "emb_metadata.tsv"),
+        ),
+
+        # Create model checkpoint callback
+        keras.callbacks.ModelCheckpoint(filepath=os.path.join(
+            tensorboard_dir, OUTCOME, MOD_NAME,
+            "weights.{epoch:02d}-{val_loss:.2f}.hdf5"),
+                                        save_weights_only=True,
+                                        monitor="val_loss",
+                                        mode="max",
+                                        save_best_only=True),
+
+        # Create early stopping callback
+        keras.callbacks.EarlyStopping(monitor="val_loss",
+                                      min_delta=0,
+                                      patience=2,
+                                      mode="auto")
+    ]
+
+    # === Long short-term memory model
+    if "lstm" in MOD_NAME:
+        # Compute steps-per-epoch
         # NOTE: Sometimes it can't determine this properly from tf.data
         STEPS_PER_EPOCH = np.ceil(len(train) / BATCH_SIZE)
-        VALID_STEPS_PER_EPOCH = np.ceil(len(validation) / BATCH_SIZE)
+        VALID_STEPS_PER_EPOCH = np.ceil(len(val) / BATCH_SIZE)
 
-        # %%
+        #
         train_gen = tk.create_ragged_data_gen([inputs[samp] for samp in train],
                                               max_demog=MAX_DEMOG,
-                                              epochs=EPOCHS,
+                                              epochs=1,
                                               multiclass=N_CLASS > 2,
                                               random_seed=RAND,
                                               batch_size=BATCH_SIZE)
 
         validation_gen = tk.create_ragged_data_gen(
-            [inputs[samp] for samp in validation],
+            [inputs[samp] for samp in val],
             max_demog=MAX_DEMOG,
-            epochs=EPOCHS,
+            epochs=1,
             shuffle=False,
             multiclass=N_CLASS > 2,
             random_seed=RAND,
@@ -262,47 +280,11 @@ if __name__ == "__main__":
                             validation_data=validation_gen,
                             validation_steps=VALID_STEPS_PER_EPOCH,
                             epochs=EPOCHS,
-                            callbacks=callbacks)
+                            callbacks=callbacks,
+                            class_weight=weight_dict)
 
-        # ---
-        # Compute decision threshold cut from validation data using grid search
-        # then apply threshold to test data to compute metrics
-        val_probs = model.predict(validation_gen, steps=VALID_STEPS_PER_EPOCH)
-        test_probs = model.predict(test_gen)
-
-        val_labs = np.array(
-            [samp[2] for i, samp in enumerate(inputs) if i in validation])
-        test_labs = np.array(
-            [samp[2] for i, samp in enumerate(inputs) if i in test])
-
-        val_probs = val_probs[range(val_labs.shape[0])]
-        test_probs = test_probs[range(test_labs.shape[0])]
-
-        if N_CLASS <= 2:
-            # If we are in the binary case, compute grid metrics on validation data
-            # and compute the cutpoint for the test set.
-            val_gm = ta.grid_metrics(val_labs, val_probs)
-
-            # Computed threshold cutpoint based on F1
-            # NOTE: we could change that too. Maybe that's not the best objective
-            f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
-            test_preds = ta.threshold(test_probs, f1_cut)
-
-            stats = ta.clf_metrics(test_labs,
-                                   test_probs,
-                                   preds_are_probs=True,
-                                   cutpoint=f1_cut,
-                                   mod_name=MOD_NAME)
-        else:
-            # In the multiclass case, take argmax
-            test_preds = np.argmax(test_probs, axis=1)
-
-            stats = ta.clf_metrics(test_labs,
-                                   test_preds,
-                                   average="weighted",
-                                   mod_name=MOD_NAME)
-    elif MOD_NAME == "dan":
-
+    # === Deep Averaging Network
+    elif "dan" in MOD_NAME:
         if DAY_ONE_ONLY:
             # Optionally limiting the features to only those from the first day
             # of the actual COVID visit
@@ -325,32 +307,19 @@ if __name__ == "__main__":
         X = keras.preprocessing.sequence.pad_sequences(features,
                                                        maxlen=225,
                                                        padding='post')
-        y = np.array([t[2] for t in inputs], dtype=np.uint8)
-
-        # Splitting the data
-        train, test = train_test_split(range(len(features)),
-                                       test_size=TEST_SPLIT,
-                                       stratify=y,
-                                       random_state=RAND)
-
-        train, val = train_test_split(train,
-                                      test_size=VAL_SPLIT,
-                                      stratify=y[train],
-                                      random_state=RAND)
 
         # Handle multiclass case
         if N_CLASS > 2:
-            # We have to pass one-hot labels for model fit, but CLF metrics will take indices
+            # We have to pass one-hot labels for model fit, but CLF metrics
+            # will take indices
             n_values = np.max(y) + 1
             y_one_hot = np.eye(n_values)[y]
 
             # Produce DAN model to fit
-            model = tk.DAN(
-                vocab_size=N_VOCAB,
-                # TODO: Maybe parameterize? Ionno.
-                ragged=False,
-                input_length=TIME_SEQ,
-                n_classes=N_CLASS)
+            model = tk.DAN(vocab_size=N_VOCAB,
+                           ragged=False,
+                           input_length=TIME_SEQ,
+                           n_classes=N_CLASS)
 
             model.compile(optimizer="adam", loss=loss_fn, metrics=metrics)
 
@@ -359,26 +328,14 @@ if __name__ == "__main__":
                       batch_size=BATCH_SIZE,
                       epochs=EPOCHS,
                       validation_data=(X[val], y_one_hot[val]),
-                      callbacks=callbacks)
+                      callbacks=callbacks,
+                      class_weight=weight_dict)
 
-            test_probs = model.predict(X[test])
-
-            # In the multiclass case, take argmax
-            test_preds = np.argmax(test_probs, axis=1)
-
-            stats = ta.clf_metrics(y[test],
-                                   test_preds,
-                                   average="weighted",
-                                   mod_name=MOD_NAME)
         else:
-            # Binary case
-
             # Produce DAN model to fit
-            model = tk.DAN(
-                vocab_size=N_VOCAB,
-                # TODO: Maybe parameterize? Ionno.
-                ragged=False,
-                input_length=TIME_SEQ)
+            model = tk.DAN(vocab_size=N_VOCAB,
+                           ragged=False,
+                           input_length=TIME_SEQ)
 
             model.compile(optimizer="adam", loss=loss_fn, metrics=metrics)
 
@@ -387,43 +344,52 @@ if __name__ == "__main__":
                       batch_size=BATCH_SIZE,
                       epochs=EPOCHS,
                       validation_data=(X[val], y[val]),
-                      callbacks=callbacks)
+                      callbacks=callbacks,
+                      class_weight=weight_dict)
 
-            # ---
-            # Compute decision threshold cut from validation data using grid search
-            # then apply threshold to test data to compute metrics
-            val_probs = model.predict(X[val]).flatten()
-            test_probs = model.predict(X[test]).flatten()
+        # Produce DAN predictions on validation and test sets
+        val_probs = model.predict(X[val])
+        test_probs = model.predict(X[test])
 
-            # If we are in the binary case, compute grid metrics on validation data
-            # and compute the cutpoint for the test set.
-            val_gm = ta.grid_metrics(y[val], val_probs)
+    # === All model metrics, preds, and probs handling
+    if N_CLASS <= 2:
+        # If we are in the binary case, compute grid metrics on validation data
+        # and compute the cutpoint for the test set.
+        val_gm = ta.grid_metrics(y[val], val_probs)
 
-            # Computed threshold cutpoint based on F1
-            # NOTE: we could change that too. Maybe that's not the best objective
-            f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
-            test_preds = ta.threshold(test_probs, f1_cut)
+        # Computed threshold cutpoint based on F1
+        # NOTE: we could change that too. Maybe that's not the best objective
+        cutpoint = val_gm.cutoff.values[np.argmax(val_gm.f1)]
 
-            stats = ta.clf_metrics(y[test],
-                                   test_probs,
-                                   preds_are_probs=True,
-                                   cutpoint=f1_cut,
-                                   mod_name=MOD_NAME)
+        # Getting the stats
+        stats = ta.clf_metrics(y[test],
+                               test_probs,
+                               cutpoint=cutpoint,
+                               mod_name=MOD_NAME)
 
-    # ---
-    # Writing preds to pkl for multiclass
-    if N_CLASS > 2:
+        # Creating probability dict to save
+        prob_out = {'cutpoint': cutpoint, 'probs': test_probs}
+
+        # Getting the test predictions
+        test_preds = ta.threshold(test_probs, cutpoint)
+
+    else:
+        # Getting the stats
+        stats = ta.clf_metrics(y[test],
+                               test_probs,
+                               average="weighted",
+                               mod_name=MOD_NAME)
+
+        # Creating probability dict to save
         prob_out = {'cutpoint': 0.5, 'probs': test_probs}
 
-        with open(probs_file, 'wb') as f:
-            pkl.dump(prob_out, f)
+        # Getting the test predictions
+        test_preds = np.argmax(test_probs, axis=1)
 
-        # Also take the probability of the predicted class
-        # to report out in the stats file
+        # Saving the max from each row for writing to CSV
         test_probs = np.amax(test_probs, axis=1)
 
-    # ---
-    # Writing the results to disk
+    # --- Writing the metrics results to disk
     # Optionally append results if file already exists
     append_file = os.path.exists(stats_file)
 
@@ -432,7 +398,11 @@ if __name__ == "__main__":
                  header=False if append_file else True,
                  index=False)
 
-    # Writing the test predictions to the test predictions CSV
+    # --- Writing the predicted probabilities to disk
+    with open(probs_file, "wb") as f:
+        pkl.dump(prob_out, f)
+
+    # --- Writing the test predictions to the test predictions CSV
 
     if os.path.exists(preds_file):
         preds_df = pd.read_csv(preds_file)

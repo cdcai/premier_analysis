@@ -1,7 +1,7 @@
+'''This script generates bootstrap CIs for the models and metrics'''
 import argparse
 import os
 
-import numpy as np
 import pandas as pd
 import pickle
 import os
@@ -31,7 +31,6 @@ if __name__ == "__main__":
                         default=["misa_pt", "multi_class", "death"],
                         nargs="+",
                         choices=["misa_pt", "multi_class", "death"],
-                        
                         help="which outcome to compute CIs for (default: all)")
 
     args = parser.parse_args()
@@ -73,19 +72,23 @@ if __name__ == "__main__":
                 with open(probs_dir + mod_prob_file, 'rb') as f:
                     probs_dict = pickle.load(f)
 
-                    guesses = probs_dict["probs"]
+                    cutpoint = probs_dict['cutpoint']
+                    guesses = probs_dict['probs']
             else:
                 # Otherwise the probs will be in the excel file
-                guesses = preds[mod + '_pred']
+                cutpoint = 0.5
+                guesses = pred_dfs[i][mod + '_pred']
 
             # Compute CIs model-by-model
-            ci = ta.boot_cis(targets=preds[outcome], guesses=guesses, n=100)
-
+            ci = ta.boot_cis(targets=preds[outcome],
+                             guesses=guesses,
+                             cutpoint=cutpoint,
+                             n=100)
             # Append to outcome CI list
             outcome_cis.append(ci)
 
         # Append all outcome CIs to master list
-        cis.append(ta.merge_ci_list(outcome_cis, mod_names=mods))
+        cis.append(ta.merge_ci_list(outcome_cis, mod_names=mods, round=2))
 
     # Writing all the confidence intervals to disk
     with pd.ExcelWriter(
