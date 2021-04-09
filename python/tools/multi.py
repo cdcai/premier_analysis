@@ -4,12 +4,9 @@ Multiprocessing-enabled versions of functions from tools.py
 
 import pandas as pd
 import numpy as np
-import pickle
 
-from sklearn.metrics import confusion_matrix, roc_curve
-from sklearn.model_selection import StratifiedKFold, cross_val_predict
-from scipy.stats import chi2, norm
-from copy import deepcopy
+from sklearn.metrics import roc_curve
+from scipy.stats import norm
 from multiprocessing import Pool
 
 import tools.preprocessing as tp
@@ -96,7 +93,7 @@ class boot_cis:
                  method="bca",
                  interpolation="nearest",
                  average='weighted',
-                 cutpoint=0.5
+                 cutpoint=0.5,
                  mcnemar=False,
                  seed=10221983):
         # Converting everything to NumPy arrays, just in case

@@ -4,10 +4,8 @@ import os
 
 from sklearn.metrics import confusion_matrix
 from sklearn.metrics import roc_auc_score, average_precision_score
-from sklearn.model_selection import StratifiedKFold, cross_val_predict
-from scipy.stats import binom, chi2, norm
+from scipy.stats import chi2, norm
 from copy import deepcopy
-from multiprocessing import Pool
 
 
 # Quick function for thresholding probabilities
