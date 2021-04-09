@@ -102,6 +102,7 @@ if __name__ == "__main__":
 
     TIME_SEQ = args.max_seq
     MOD_NAME = args.model
+    WEIGHTED_LOSS = args.weighted_loss
     if WEIGHTED_LOSS:
         MOD_NAME += '_w'
     OUTCOME = args.outcome
@@ -111,7 +112,6 @@ if __name__ == "__main__":
     LSTM_RECURRENT_DROPOUT = args.recurrent_dropout
     N_LSTM = args.n_cells
     BATCH_SIZE = args.batch_size
-    WEIGHTED_LOSS = args.weighted_loss
     EPOCHS = args.epochs
     TEST_SPLIT = args.test_split
     VAL_SPLIT = args.validation_split
