@@ -45,7 +45,9 @@ for i, outcome in enumerate(outcomes):
                          cutpoint=cutpoint,
                          n=100)
         outcome_cis.append(ci)
-    cis.append(ta.merge_ci_list(outcome_cis, mod_names=mods))
+    cis.append(ta.merge_ci_list(outcome_cis, 
+                                mod_names=mods,
+                                round=2))
 
 # Writing the confidence intervals to disk
 writer = pd.ExcelWriter(stats_dir +'cis.xlsx')
