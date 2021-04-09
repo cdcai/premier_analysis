@@ -69,7 +69,7 @@ def jackknife_metrics(targets, guesses, cutpoint=0.5, average="weighted"):
     j_rows = [np.delete(rows, row) for row in rows]
 
     # using a pool to get the metrics across each
-    inputs = [(targets[idx], guesses[idx], cutpoint, average)
+    inputs = [(targets[idx], guesses[idx], average, cutpoint)
               for idx in j_rows]
 
     with Pool() as p:
@@ -128,7 +128,7 @@ class boot_cis:
         with Pool() as p:
             boot_input = [(targets, None, None, seed) for seed in seeds]
             boots = p.starmap(ta.boot_sample, boot_input)
-            inputs = [(targets[boot], guesses[boot], cutpoint, average)
+            inputs = [(targets[boot], guesses[boot], average, cutpoint)
                       for boot in boots]
 
             # Getting the bootstrapped metrics from the Pool
