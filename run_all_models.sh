@@ -42,3 +42,4 @@ done
 
 echo "Computing Bootstrapped CIs"
 compute_cis
+echo "Done!"
