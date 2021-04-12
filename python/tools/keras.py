@@ -15,7 +15,8 @@ from tensorflow.keras.layers import (Dense, Embedding, Input, Multiply,
                                      Reshape)
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 
-def sequence_to_multihot_tensor(y, sparse=False):
+
+def sequence_to_multihot_tensor(y: list):
 
     max_feat = max([max(val) for val in y])
 
@@ -26,11 +27,21 @@ def sequence_to_multihot_tensor(y, sparse=False):
 
     return tf.convert_to_tensor(y_mat)
 
+def sequence_to_onehot_tensor(y: list):
+    max_feat = max([max(val) for val in y])
+
+    feat_ragged = tf.ragged.constant(y)
+
+    feat_one_hot = tf.one_hot(feat_ragged, max_feat)
+    
+    return feat_one_hot
+
+
 def create_ragged_data_gen(inputs: list,
                            max_demog: int,
                            epochs: int,
                            multiclass: bool = False,
-                           demog_multihot: bool = False,
+                           demog_output: str = "one-hot",
                            batch_size: int = 32,
                            random_seed: int = 1234,
                            ragged: bool = True,
@@ -51,12 +62,15 @@ def create_ragged_data_gen(inputs: list,
     assert X.shape.as_list() == [len(seq), None, None]
 
     # Making demographics dense
-    if demog_multihot:
+    if demog_output == "multi-hot":
         demog = sequence_to_multihot_tensor([dem for _, dem, _ in inputs])
+    elif demog_output == "one-hot":
+        demog = sequence_to_onehot_tensor([dem for _, dem, _ in inputs])
     else:
         # BUG: Model doesn't seem to like this when it's ragged. Figure it out eventually.
         demog = tf.ragged.constant([dem for _, dem, _ in inputs])
-        demog = demog.to_tensor(default_value=0, shape=(demog.shape[0], max_demog))
+        demog = demog.to_tensor(default_value=0,
+                                shape=(demog.shape[0], max_demog))
 
     if not ragged:
         # This will be an expensive operation
