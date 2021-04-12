@@ -77,10 +77,10 @@ if __name__ == "__main__":
                         help="Maximum epochs to run")
     parser.add_argument("--out_dir",
                         type=str,
-                        help="output directory")
+                        help="output directory (optional)")
     parser.add_argument("--data_dir",
                         type=str,
-                        help="path to the Premier data")
+                        help="path to the Premier data (optional)")
     parser.add_argument("--test_split",
                         type=float,
                         default=0.2,
@@ -127,10 +127,10 @@ if __name__ == "__main__":
 
     if args.data_dir is not None:
         data_dir = os.path.abspath(args.data_dir)
-    
+
     if args.out_dir is not None:
         output_dir = os.path.abspath(args.out_dir)
-    
+
     tensorboard_dir = os.path.abspath(
         os.path.join(data_dir, "..", "model_checkpoints"))
     pkl_dir = os.path.join(output_dir, "pkl")
@@ -294,7 +294,7 @@ if __name__ == "__main__":
                             epochs=EPOCHS,
                             callbacks=callbacks,
                             class_weight=weight_dict)
-        
+
         # Produce validation and test predictions
         val_probs = model.predict(validation_gen)
         test_probs = model.predict(test_gen)
