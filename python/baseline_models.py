@@ -42,6 +42,12 @@ if __name__ == '__main__':
                         default='weighted',
                         choices=['micro', 'macro', 'weighted'],
                         help='how to average stats for multiclass predictions')
+    parser.add_argument("--out_dir",
+                        type=str,
+                        help="output directory (optional)")
+    parser.add_argument("--data_dir",
+                        type=str,
+                        help="path to the Premier data (optional)")
     parser.add_argument("--test_split",
                         type=float,
                         default=0.2,
@@ -64,8 +70,17 @@ if __name__ == '__main__':
 
     # Setting the directories and importing the data
     pwd = os.path.abspath(os.path.dirname(__file__))
-    output_dir = os.path.join(pwd, "..", "output", "")
-    data_dir = os.path.join(pwd, "..", "data", "data", "")
+
+    # If no args are passed to overwrite these values, use repo structure to construct
+    data_dir = os.path.abspath(os.path.join(pwd, "..", "data", "data", ""))
+    output_dir = os.path.abspath(os.path.join(pwd, "..", "output", ""))
+
+    if args.data_dir is not None:
+        data_dir = os.path.abspath(args.data_dir)
+
+    if args.out_dir is not None:
+        output_dir = os.path.abspath(args.out_dir)
+
     pkl_dir = os.path.join(output_dir, "pkl", "")
     stats_dir = os.path.join(output_dir, "analysis", "")
     probs_dir = os.path.join(stats_dir, "probs", "")

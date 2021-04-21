@@ -21,6 +21,9 @@ if __name__ == "__main__":
         "Compute BCa CIs in parallel (can speed up execution time but requires more memory and CPU usage)",
         dest='parallel',
         action='store_true')
+    parser.add_argument("--out_dir",
+                        type=str,
+                        help="output directory (optional)")
     parser.set_defaults(parallel=False)
     parser.add_argument("--outcome",
                         type=str,
@@ -40,6 +43,11 @@ if __name__ == "__main__":
     # Setting the directories
     pwd = os.path.abspath(os.path.dirname(__file__))
     output_dir = os.path.abspath(os.path.join(pwd, "..", "output", ""))
+
+    # Over-ride default path if one is provided
+    if args.out_dir is not None:
+        output_dir = os.path.abspath(args.out_dir)
+
     stats_dir = os.path.abspath(os.path.join(output_dir, "analysis", ""))
     probs_dir = os.path.abspath(os.path.join(stats_dir, "probs", ""))
 
