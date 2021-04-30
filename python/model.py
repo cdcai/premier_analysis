@@ -8,6 +8,8 @@ import pickle as pkl
 
 import numpy as np
 import pandas as pd
+import tensorflow as tf
+import tensorflow_addons as tfa
 import tensorflow.keras as keras
 from sklearn.model_selection import train_test_split
 from sklearn.utils.class_weight import compute_class_weight
@@ -270,13 +272,18 @@ if __name__ == "__main__":
         test_gen = tk.create_ragged_data_gen(
             [inputs[samp] for samp in test],
             max_demog=MAX_DEMOG,
-            demog_multihot=MOD_NAME == "lstm_hp",
             epochs=1,
             multiclass=N_CLASS > 2,
             shuffle=False,
             random_seed=RAND,
             batch_size=BATCH_SIZE)
-        if MOD_NAME == "lstm":
+
+        if MOD_NAME == "lstm_hp":
+            model = keras.models.load_model(os.path.join(
+                tensorboard_dir, "new_lstm_topo", "best"),
+                                            custom_objects={'tf': tf},
+                                            compile=True)
+        else:
             # %% Setting up the model
             model = tk.LSTM(time_seq=TIME_SEQ,
                             vocab_size=N_VOCAB,
@@ -286,13 +293,7 @@ if __name__ == "__main__":
                             ragged=True,
                             lstm_dropout=LSTM_DROPOUT,
                             recurrent_dropout=LSTM_RECURRENT_DROPOUT)
-        else:
-            model = keras.models.load_model(os.path.join(
-                tensorboard_dir, "new_lstm_topo", "best"),
-                                            custom_objects={'tf': tf},
-                                            compile=False)
-
-        model.compile(optimizer="adam", loss=loss_fn, metrics=metrics)
+            model.compile(optimizer="adam", loss=loss_fn, metrics=metrics)
 
         # Train
         fitting = model.fit(train_gen,
