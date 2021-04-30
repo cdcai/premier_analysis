@@ -466,10 +466,10 @@ def LSTM(time_seq,
                                        name="Demographic_Embeddings")(demog_in)
 
     # Averaging the demographic variable embeddings
-    demog_avg = keras.backend.mean(demog_emb, axis=2)
+    demog_flat = keras.layers.Flatten()(demog_emb)
 
     # Concatenating the LSTM output and deemographic variable embeddings
-    comb = keras.layers.Concatenate()([lstm_layer, demog_avg])
+    comb = keras.layers.Concatenate()([lstm_layer, demog_flat])
 
     # Running the embeddings through a final dense layer for prediction
     output = keras.layers.Dense(
