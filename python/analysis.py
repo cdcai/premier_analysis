@@ -1,62 +1,104 @@
+'''This script generates bootstrap CIs for the models and metrics'''
 import argparse
 import os
 
-import numpy as np
 import pandas as pd
+import pickle
+import os
 
 import tools.analysis as ta
 import tools.multi as tm
+
+import re
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        '--day_one',
-        help="Use only first inpatient day's worth of features (DAN only)",
-        dest='day_one',
+        '--parallel',
+        help=
+        "Compute BCa CIs in parallel (can speed up execution time but requires more memory and CPU usage)",
+        dest='parallel',
         action='store_true')
-    parser.add_argument('--all_days',
-                        help="Use all features in lookback period (DAN only)",
-                        dest='day_one',
-                        action='store_false')
-    parser.set_defaults(day_one=True)
+    parser.add_argument("--out_dir",
+                        type=str,
+                        help="output directory (optional)")
+    parser.set_defaults(parallel=False)
     parser.add_argument("--outcome",
                         type=str,
-                        default="misa_pt",
+                        default=["misa_pt", "multi_class", "death"],
+                        nargs="+",
                         choices=["misa_pt", "multi_class", "death"],
-                        help="which outcome to use as the prediction target")
+                        help="which outcome to compute CIs for (default: all)")
 
     args = parser.parse_args()
 
-    DAY_ONE = args.day_one
     OUTCOME = args.outcome
+    PARALLEL = args.parallel
+
+    # Choose which CI function to use
+    boot_cis = tm.boot_cis if PARALLEL else ta.boot_cis
 
     # Setting the directories
     pwd = os.path.abspath(os.path.dirname(__file__))
-    output_dir = os.path.join(pwd, "..", "output", "")
-    stats_dir = os.path.join(output_dir, "analysis", "")
+    output_dir = os.path.abspath(os.path.join(pwd, "..", "output", ""))
+
+    # Over-ride default path if one is provided
+    if args.out_dir is not None:
+        output_dir = os.path.abspath(args.out_dir)
+
+    stats_dir = os.path.abspath(os.path.join(output_dir, "analysis", ""))
+    probs_dir = os.path.abspath(os.path.join(stats_dir, "probs", ""))
 
     # Path where the metrics will be written
-    ci_file = os.path.join(stats_dir, OUTCOME + "_cis.xlsx")
+    ci_file = os.path.join(stats_dir, "cis.xlsx")
 
-    # Importing the predictions
-    preds = pd.read_csv(stats_dir + OUTCOME + "_preds.csv")
+    # Checking prob files
+    prob_files = os.listdir(probs_dir)
 
-    # Setting the models to look at
-    mods = ['lgr', 'rf', 'gbc', 'svm', 'dan', 'lstm']
+    cis = []
 
-    if DAY_ONE:
-        mods = [mod + "_d1" for mod in mods if mod != "lstm"]
+    for i, outcome in enumerate(OUTCOME):
+        outcome_cis = []
 
-    # Running the single confidence intervals (this takes a little time)
-    cis = [
-        tm.boot_cis(preds[OUTCOME], preds[mod + '_pred'], n=1000)
-        for mod in mods
-    ]
+        # Importing the predictions
+        preds = pd.read_csv(os.path.join(stats_dir, outcome + '_preds.csv'))
 
-    # Writing the confidence intervals to disk
-    with pd.ExcelWriter(ci_file, mode = "a" if os.path.exists(ci_file) else "w") as writer:
-        for i, obj in enumerate(cis):
-            obj.cis.to_excel(writer, sheet_name=mods[i])
+        # Pulling a list of all models from the preds file
+
+        mods = [col for col in preds.columns if "_pred" in col]
+        mods = [re.sub("_pred", "", mod) for mod in mods]
+
+        for mod in mods:
+            mod_prob_file = mod + '_' + outcome + '.pkl'
+
+            if mod_prob_file in prob_files:
+                # In the multi_class case, we've been writing pkls
+                with open(os.path.join(probs_dir, mod_prob_file), 'rb') as f:
+                    probs_dict = pickle.load(f)
+
+                    cutpoint = probs_dict['cutpoint']
+                    guesses = probs_dict['probs']
+            else:
+                # Otherwise the probs will be in the excel file
+                cutpoint = 0.5
+                guesses = preds[mod + '_pred']
+
+            # Compute CIs model-by-model
+            ci = boot_cis(targets=preds[outcome],
+                          guesses=guesses,
+                          cutpoint=cutpoint,
+                          n=100)
+            # Append to outcome CI list
+            outcome_cis.append(ci)
+
+        # Append all outcome CIs to master list
+        cis.append(ta.merge_ci_list(outcome_cis, mod_names=mods, round=2))
+
+    # Writing all the confidence intervals to disk
+    with pd.ExcelWriter(
+            ci_file, mode="a" if os.path.exists(ci_file) else "w") as writer:
+        for i, outcome in enumerate(OUTCOME):
+            cis[i].to_excel(writer, sheet_name=outcome)
         writer.save()

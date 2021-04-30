@@ -476,7 +476,7 @@ def LSTM(time_seq,
         # BUG: We use a single output for the binary case but 3 for the multiclass case
         # so this should be able to account for that.
         n_classes if n_classes > 2 else 1,
-        activation="sigmoid",
+        activation="softmax" if n_classes > 2 else "sigmoid",
         name="Output")(comb)
 
     return keras.Model([code_in, demog_in], output)

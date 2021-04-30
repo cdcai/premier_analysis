@@ -6,7 +6,6 @@ from importlib import reload
 
 import numpy as np
 import pandas as pd
-import scipy
 from scipy.sparse import lil_matrix
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import (Lasso, LogisticRegression, Ridge,
@@ -43,14 +42,12 @@ if __name__ == '__main__':
                         default='weighted',
                         choices=['micro', 'macro', 'weighted'],
                         help='how to average stats for multiclass predictions')
-    parser.add_argument('--out_dir',
+    parser.add_argument("--out_dir",
                         type=str,
-                        default='output/',
-                        help='output directory')
-    parser.add_argument('--data_dir',
+                        help="output directory (optional)")
+    parser.add_argument("--data_dir",
                         type=str,
-                        default='..data/data/',
-                        help='path to the Premier data')
+                        help="path to the Premier data (optional)")
     parser.add_argument("--test_split",
                         type=float,
                         default=0.2,
@@ -72,10 +69,27 @@ if __name__ == '__main__':
     RAND = args.rand_seed
 
     # Setting the directories and importing the data
-    output_dir = os.path.abspath(args.out_dir) + '/'
-    data_dir = os.path.abspath(args.data_dir) + '/'
-    pkl_dir = output_dir + "pkl/"
-    stats_dir = output_dir + 'analysis/'
+    pwd = os.path.abspath(os.path.dirname(__file__))
+
+    # If no args are passed to overwrite these values, use repo structure to construct
+    data_dir = os.path.abspath(os.path.join(pwd, "..", "data", "data", ""))
+    output_dir = os.path.abspath(os.path.join(pwd, "..", "output", ""))
+
+    if args.data_dir is not None:
+        data_dir = os.path.abspath(args.data_dir)
+
+    if args.out_dir is not None:
+        output_dir = os.path.abspath(args.out_dir)
+
+    pkl_dir = os.path.join(output_dir, "pkl", "")
+    stats_dir = os.path.join(output_dir, "analysis", "")
+    probs_dir = os.path.join(stats_dir, "probs", "")
+
+    # Create analysis dirs if it doesn't exist
+    [
+        os.makedirs(directory, exist_ok=True)
+        for directory in [stats_dir, probs_dir, pkl_dir]
+    ]
 
     with open(pkl_dir + OUTCOME + "_trimmed_seqs.pkl", "rb") as f:
         inputs = pkl.load(f)
@@ -135,11 +149,10 @@ if __name__ == '__main__':
                                    random_state=RAND)
 
     # Doing a validation split for threshold-picking on binary problems
-    if binary:
-        val, train = train_test_split(train,
-                                      test_size=VAL_SPLIT,
-                                      stratify=y[train],
-                                      random_state=RAND)
+    train, val = train_test_split(train,
+                                  test_size=VAL_SPLIT,
+                                  stratify=y[train],
+                                  random_state=RAND)
 
     # Fitting a logistic regression to the whole dataset
     lgr = LogisticRegression(max_iter=5000, multi_class='ovr')
@@ -200,13 +213,12 @@ if __name__ == '__main__':
             if binary:
                 val_probs = mod.predict_proba(X[val])[:, 1]
                 val_gm = ta.grid_metrics(y[val], val_probs)
-                f1_cut = val_gm.cutoff.values[np.argmax(val_gm.f1)]
+                cutpoint = val_gm.cutoff.values[np.argmax(val_gm.f1)]
                 test_probs = mod.predict_proba(X[test])[:, 1]
-                test_preds = ta.threshold(test_probs, f1_cut)
+                test_preds = ta.threshold(test_probs, cutpoint)
                 stats = ta.clf_metrics(y[test],
                                        test_probs,
-                                       preds_are_probs=True,
-                                       cutpoint=f1_cut,
+                                       cutpoint=cutpoint,
                                        mod_name=mod_name,
                                        average=args.average)
                 ta.write_preds(preds=test_preds,
@@ -215,15 +227,25 @@ if __name__ == '__main__':
                                test_idx=test,
                                probs=test_probs)
             else:
+                cutpoint = None
+                test_probs = mod.predict_proba(X[test])
                 test_preds = mod.predict(X[test])
                 stats = ta.clf_metrics(y[test],
-                                       test_preds,
+                                       test_probs,
                                        mod_name=mod_name,
                                        average=args.average)
                 ta.write_preds(preds=test_preds,
+                               probs=np.max(test_probs, axis=1),
                                outcome=OUTCOME,
                                mod_name=mod_name,
                                test_idx=test)
+
+            # Write out multiclass probs as pkl
+            probs_file = mod_name + '_' + OUTCOME + '.pkl'
+            prob_out = {'cutpoint': cutpoint, 'probs': test_probs}
+
+            with open(probs_dir + probs_file, 'wb') as f:
+                pkl.dump(prob_out, f)
 
         else:
             test_preds = mod.predict(X[test])
