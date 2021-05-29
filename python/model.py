@@ -181,9 +181,6 @@ if __name__ == "__main__":
     # Setting y here so it's stable
     y = np.array([l[2] for l in inputs])
 
-    # Setting y here so it's stable
-    y = np.array([l[2] for l in inputs])
-
     # Create some metrics
     metrics = [
         keras.metrics.AUC(num_thresholds=int(1e5), name="ROC-AUC"),
@@ -269,14 +266,13 @@ if __name__ == "__main__":
             batch_size=BATCH_SIZE)
 
         # NOTE: don't shuffle test data
-        test_gen = tk.create_ragged_data_gen(
-            [inputs[samp] for samp in test],
-            max_demog=MAX_DEMOG,
-            epochs=1,
-            multiclass=N_CLASS > 2,
-            shuffle=False,
-            random_seed=RAND,
-            batch_size=BATCH_SIZE)
+        test_gen = tk.create_ragged_data_gen([inputs[samp] for samp in test],
+                                             max_demog=MAX_DEMOG,
+                                             epochs=1,
+                                             multiclass=N_CLASS > 2,
+                                             shuffle=False,
+                                             random_seed=RAND,
+                                             batch_size=BATCH_SIZE)
 
         if MOD_NAME == "lstm_hp":
             model = keras.models.load_model(os.path.join(

@@ -27,13 +27,14 @@ def sequence_to_multihot_tensor(y: list):
 
     return tf.convert_to_tensor(y_mat)
 
+
 def sequence_to_onehot_tensor(y: list):
     max_feat = max([max(val) for val in y])
 
     feat_ragged = tf.ragged.constant(y)
 
     feat_one_hot = tf.one_hot(feat_ragged, max_feat)
-    
+
     return feat_one_hot
 
 
@@ -70,8 +71,7 @@ def create_ragged_data_gen(inputs: list,
     # Take as sequence
     # BUG: Model doesn't seem to like this when it's ragged. Figure it out eventually.
     demog = tf.ragged.constant([dem for _, dem, _ in inputs])
-    demog = demog.to_tensor(default_value=0,
-                            shape=(demog.shape[0], max_demog))
+    demog = demog.to_tensor(default_value=0, shape=(demog.shape[0], max_demog))
 
     if not ragged:
         # This will be an expensive operation
@@ -267,6 +267,7 @@ class DataGenerator(keras.utils.Sequence):
 
         return X, y
 
+
 # Hyperparameter Model builder
 class LSTMHyper(kerastuner.HyperModel):
     """LSTM model with hyperparameter tuning.
@@ -285,7 +286,13 @@ class LSTMHyper(kerastuner.HyperModel):
             the demog layer
         n_demog_bags (int): Maximum size of "bag" containing all demog feautures for a single sample
     """
-    def __init__(self, vocab_size, metrics, loss = None, n_classes=1, n_demog=32, n_demog_bags=6):
+    def __init__(self,
+                 vocab_size,
+                 metrics,
+                 loss=None,
+                 n_classes=1,
+                 n_demog=32,
+                 n_demog_bags=6):
         self.vocab_size = vocab_size
         self.n_classes = n_classes
         self.n_demog = n_demog
@@ -321,25 +328,26 @@ class LSTMHyper(kerastuner.HyperModel):
         emb_l2 = hp.Choice("Feature Embedding L2", reg_vals)
 
         emb_n = hp.Int("Embedding Dimension",
-                                    min_value=64,
-                                    max_value=512,
-                                    default=64,
-                                    step=64)
+                       min_value=64,
+                       max_value=512,
+                       default=64,
+                       step=64)
 
         # Demog Embedding
         demog_emb_n = hp.Int("Demographics Embedding Dimension",
-                            min_value=1,
-                            max_value=64,
-                            default=self.n_demog
-                            )
+                             min_value=1,
+                             max_value=64,
+                             default=self.n_demog)
 
         # Average Embedding Params
-        avg_l1 = hp.Choice("Average Embedding L1", reg_vals,
-                                    parent_name = "Feature Weighting",
-                                    parent_values = [True])
-        avg_l2 = hp.Choice("Average Embedding L2", reg_vals,
-                                    parent_name = "Feature Weighting",
-                                    parent_values = [True])
+        avg_l1 = hp.Choice("Average Embedding L1",
+                           reg_vals,
+                           parent_name="Feature Weighting",
+                           parent_values=[True])
+        avg_l2 = hp.Choice("Average Embedding L2",
+                           reg_vals,
+                           parent_name="Feature Weighting",
+                           parent_values=[True])
 
         # LSTM Params
         lstm_n = hp.Int("LSTM Units",
@@ -353,63 +361,70 @@ class LSTMHyper(kerastuner.HyperModel):
                                 default=0.4,
                                 step=0.01)
         lstm_recurrent_dropout = hp.Float("LSTM Recurrent Dropout",
-                                            min_value=0.0,
-                                            max_value=0.9,
-                                            default=0.4,
-                                            step=0.01)
+                                          min_value=0.0,
+                                          max_value=0.9,
+                                          default=0.4,
+                                          step=0.01)
         lstm_l1 = hp.Choice("LSTM weights L1", reg_vals)
         lstm_l2 = hp.Choice("LSTM weights L2", reg_vals)
-        
+
         # Final dense layer
         dense_n = hp.Int("Dense Units",
                          min_value=2,
                          max_value=128,
                          sampling="log",
                          parent_name="Final Dense Layer",
-                         parent_values=[True]
-                         )
+                         parent_values=[True])
         # Model code
         feat_input = keras.Input(shape=(None, None), ragged=True)
         demog_input = keras.Input(shape=(self.n_demog_bags, ))
 
-        demog_emb = keras.layers.Embedding(self.n_demog,
-                                        output_dim=demog_emb_n,
-                                        mask_zero=True,
-                                       name="Demographic_Embeddings"
-        )(demog_input)
+        demog_emb = keras.layers.Embedding(
+            self.n_demog,
+            output_dim=demog_emb_n,
+            mask_zero=True,
+            name="Demographic_Embeddings")(demog_input)
 
         demog_avg = keras.layers.Flatten()(demog_emb)
 
-        emb1 = keras.layers.Embedding(self.vocab_size,
-                                    output_dim=emb_n,
-                                    embeddings_regularizer=keras.regularizers.l1_l2(emb_l1, emb_l2),
-                                    mask_zero=True,
-                                    name="Feature_Embeddings")(feat_input)
-        
+        emb1 = keras.layers.Embedding(
+            self.vocab_size,
+            output_dim=emb_n,
+            embeddings_regularizer=keras.regularizers.l1_l2(emb_l1, emb_l2),
+            mask_zero=True,
+            name="Feature_Embeddings")(feat_input)
+
         if weighting:
-            emb2 = keras.layers.Embedding(self.vocab_size,
-                                          output_dim=1,
-                                          embeddings_regularizer=keras.regularizers.l1_l2(avg_l1, avg_l2),
-                                          mask_zero=True,
-                                          name="Average_Embeddings")(feat_input)
+            emb2 = keras.layers.Embedding(
+                self.vocab_size,
+                output_dim=1,
+                embeddings_regularizer=keras.regularizers.l1_l2(
+                    avg_l1, avg_l2),
+                mask_zero=True,
+                name="Average_Embeddings")(feat_input)
 
             # Multiplying the code embeddings by their respective weights
-            mult = keras.layers.Multiply(name="Embeddings_by_Average")([emb1, emb2])
-            avg = keras.layers.Lambda(lambda x: tf.math.reduce_mean(x, axis=2), name="Averaging")(mult)
+            mult = keras.layers.Multiply(name="Embeddings_by_Average")(
+                [emb1, emb2])
+            avg = keras.layers.Lambda(lambda x: tf.math.reduce_mean(x, axis=2),
+                                      name="Averaging")(mult)
         else:
-            avg = keras.layers.Lambda(lambda x: tf.math.reduce_mean(x, axis=2), name="Averaging")(emb1)
-        
+            avg = keras.layers.Lambda(lambda x: tf.math.reduce_mean(x, axis=2),
+                                      name="Averaging")(emb1)
 
-        lstm_layer = keras.layers.LSTM(lstm_n, 
-                               dropout=lstm_dropout,
-                               recurrent_dropout=lstm_recurrent_dropout,
-                               recurrent_regularizer=keras.regularizers.l1_l2(lstm_l1, lstm_l2),
-                               name="Recurrent")(avg)
-        
+        lstm_layer = keras.layers.LSTM(
+            lstm_n,
+            dropout=lstm_dropout,
+            recurrent_dropout=lstm_recurrent_dropout,
+            recurrent_regularizer=keras.regularizers.l1_l2(lstm_l1, lstm_l2),
+            name="Recurrent")(avg)
+
         lstm_layer = keras.layers.Concatenate()([lstm_layer, demog_avg])
 
         if final_dense:
-            lstm_layer = keras.layers.Dense(dense_n, activation = "relu", name = "pre_output")(lstm_layer)
+            lstm_layer = keras.layers.Dense(dense_n,
+                                            activation="relu",
+                                            name="pre_output")(lstm_layer)
 
         activation_fn = "softmax" if self.n_classes > 2 else "sigmoid"
         output = keras.layers.Dense(
@@ -420,10 +435,12 @@ class LSTMHyper(kerastuner.HyperModel):
         model = keras.Model([feat_input, demog_input], output)
 
         # --- Learning rate and momentum
-        lr = hp.Choice("Learning Rate", [1e-6, 5e-6, 1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2, 1e-1])
+        lr = hp.Choice(
+            "Learning Rate",
+            [1e-6, 5e-6, 1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2, 1e-1])
         momentum = hp.Float("Momentum", min_value=0.0, max_value=0.9, step=0.1)
         opt = keras.optimizers.SGD(lr, momentum=momentum)
-        
+
         # --- Loss FN
         # NOTE: I was messing around with focal loss here, but I think that's
         # harder to justify and explain in this context
@@ -432,10 +449,133 @@ class LSTMHyper(kerastuner.HyperModel):
                 loss_fn = keras.losses.categorical_crossentropy
             else:
                 loss_fn = keras.losses.binary_crossentropy
-        
-        model.compile(optimizer = opt, loss=self.loss, metrics=self.metrics)
+
+        model.compile(optimizer=opt, loss=self.loss, metrics=self.metrics)
 
         return model
+
+
+class DANHyper(kerastuner.HyperModel):
+    """DAN model with hyperparameter tuning.
+
+    Input is assumed to be dense.
+
+    Args:
+        vocab_size (int): Vocabulary size for embedding layer
+        input_size (int): size of inner-most dimension being passed into input layer
+        metrics: a keras metric or list of keras metrics to compile with
+        loss: a keras loss function to minimize (optional)
+        n_classes: Number of classes being predicted
+    """
+    def __init__(self,
+                 vocab_size,
+                 input_size,
+                 metrics,
+                 loss=None,
+                 n_classes=1):
+        self.vocab_size = vocab_size
+        self.input_size = input_size
+        self.n_classes = n_classes
+        self.metrics = metrics
+        self.loss = loss
+
+    def build(self, hp: kerastuner.HyperParameters) -> keras.Model:
+        """Build DAN model
+
+        Notes:
+            This is normally called within a HyperModel context.
+        Args:
+            hp (:obj:`HyperParameters`): `HyperParameters` instance
+
+        Returns:
+            A built/compiled keras model ready for hyperparameter tuning
+        """
+
+        # L1/L2 vals
+        reg_vals = [0.0, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1]
+
+        # --- Model Topology
+
+        # Feature Embedding Params
+        emb_l1 = hp.Choice("Feature Embedding L1", reg_vals)
+        emb_l2 = hp.Choice("Feature Embedding L2", reg_vals)
+
+        emb_n = hp.Int("Embedding Dimension",
+                       min_value=64,
+                       max_value=512,
+                       default=64,
+                       step=64)
+        emb_dropout = hp.Float("Dropout from Embeddings",
+                               min_value=0.0,
+                               max_value=0.9,
+                               step=0.05,
+                               default=0.0)
+
+        final_dropout = hp.Float("Dropout before prediction",
+                                 min_value=0.0,
+                                 max_value=0.9,
+                                 step=0.05,
+                                 default=0.0)
+
+        # Final dense layer
+        dense_size = hp.Int("Dense Units",
+                            min_value=2,
+                            max_value=128,
+                            sampling="log",
+                            default=32)
+
+        # --- Model
+        feat_input = keras.Input(shape=(self.input_size, ))
+
+        # Feature Embeddings
+        embeddings = keras.layers.Embedding(
+            self.vocab_size,
+            output_dim=emb_n,
+            embeddings_regularizer=keras.regularizers.l1_l2(emb_l1, emb_l2),
+            mask_zero=True,
+            name="Feature_Embeddings")(feat_input)
+
+        dropout_1 = keras.layers.Dropout(emb_dropout)(embeddings)
+
+        # Averaging the embeddings
+        embedding_avg = keras.backend.mean(dropout_1, 1)
+
+        # Dense layers
+        dense = keras.layers.Dense(dense_size, name='dense_1')(embedding_avg)
+
+        dropout_2 = keras.layers.Dropout(final_dropout)(dense)
+
+        # drop_out = keras.layers.Dropout(emb_dropout)(dense)
+
+        activation_fn = "softmax" if self.n_classes > 2 else "sigmoid"
+
+        output = keras.layers.Dense(
+            self.n_classes if self.n_classes > 2 else 1,
+            activation=activation_fn,
+            name="Output")(dropout_2)
+
+        model = keras.Model(feat_input, output)
+
+        # --- Learning rate and momentum
+        lr = hp.Choice(
+            "Learning Rate",
+            [1e-6, 5e-6, 1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2, 1e-1])
+        momentum = hp.Float("Momentum", min_value=0.0, max_value=0.9, step=0.1)
+        opt = keras.optimizers.SGD(lr, momentum=momentum)
+
+        # --- Loss FN
+        # NOTE: I was messing around with focal loss here, but I think that's
+        # harder to justify and explain in this context
+        if self.loss is None:
+            if self.n_classes > 2:
+                loss_fn = keras.losses.categorical_crossentropy
+            else:
+                loss_fn = keras.losses.binary_crossentropy
+
+        model.compile(optimizer=opt, loss=self.loss, metrics=self.metrics)
+
+        return model
+
 
 def LSTM(time_seq,
          vocab_size,
@@ -546,10 +686,14 @@ def DAN(vocab_size,
 
     return keras.Model(input, output)
 
+
 # Jacked from https://github.com/Tony607/Focal_Loss_Keras/blob/master/src/keras_focal_loss.ipynb
 class FocalLoss(keras.losses.Loss):
-    def __init__(self, gamma=2., alpha=4.,
-                 reduction=keras.losses.Reduction.AUTO, name='focal_loss'):
+    def __init__(self,
+                 gamma=2.,
+                 alpha=4.,
+                 reduction=keras.losses.Reduction.AUTO,
+                 name='focal_loss'):
         """Focal loss for multi-classification
         FL(p_t)=-alpha(1-p_t)^{gamma}ln(p_t)
         Notice: y_pred is probability after softmax
@@ -562,8 +706,7 @@ class FocalLoss(keras.losses.Loss):
             gamma {float} -- (default: {2.0})
             alpha {float} -- (default: {4.0})
         """
-        super(FocalLoss, self).__init__(reduction=reduction,
-                                        name=name)
+        super(FocalLoss, self).__init__(reduction=reduction, name=name)
         self.gamma = float(gamma)
         self.alpha = float(alpha)
 
@@ -582,9 +725,9 @@ class FocalLoss(keras.losses.Loss):
 
         model_out = tf.add(y_pred, epsilon)
         ce = tf.multiply(y_true, -tf.math.log(model_out))
-        weight = tf.multiply(y_true, tf.pow(
-            tf.subtract(1., model_out), self.gamma))
+        weight = tf.multiply(y_true,
+                             tf.pow(tf.subtract(1., model_out), self.gamma))
         fl = tf.multiply(self.alpha, tf.multiply(weight, ce))
         reduced_fl = tf.reduce_max(fl, axis=1)
-        
+
         return tf.reduce_mean(reduced_fl)
