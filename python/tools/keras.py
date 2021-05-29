@@ -429,9 +429,9 @@ class LSTMHyper(kerastuner.HyperModel):
         # harder to justify and explain in this context
         if self.loss is None:
             if self.n_classes > 2:
-            loss_fn = keras.losses.categorical_crossentropy
-                else:
-            loss_fn = keras.losses.binary_crossentropy
+                loss_fn = keras.losses.categorical_crossentropy
+            else:
+                loss_fn = keras.losses.binary_crossentropy
         
         model.compile(optimizer = opt, loss=self.loss, metrics=self.metrics)
 
