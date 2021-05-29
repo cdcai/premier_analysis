@@ -267,32 +267,31 @@ class DataGenerator(keras.utils.Sequence):
 
         return X, y
 
-
-class LSTMHyperModel(HyperModel):
+# Hyperparameter Model builder
+class LSTMHyper(kerastuner.HyperModel):
     """LSTM model with hyperparameter tuning.
 
     This is the first-draft LSTM model with a single embedding layer
     and LSTM layer.
 
+    Input is assumed to be ragged on inner 2 dims.
+
     Args:
-        ragged (bool): Should the input be treated as ragged or dense?
-        n_timesteps (int): length of time sequence
         vocab_size (int): Vocabulary size for embedding layer
-        batch_size (int): Training batch size
-        bias_init (float): Starting bias of the output layer (optional)
+        metrics: a keras metric or list of keras metrics to compile with
+        loss: a keras loss function to minimize (optional)
+        n_classes: Number of classes being predicted
+        n_demog (int): Maximum number of demographic or non-time-varying features to be fed into
+            the demog layer
+        n_demog_bags (int): Maximum size of "bag" containing all demog feautures for a single sample
     """
-    def __init__(self,
-                 ragged: bool,
-                 n_timesteps: int,
-                 vocab_size: int,
-                 batch_size: int,
-                 bias_init: float = None):
-        # Capture model parameters at init
-        self.ragged = ragged
-        self.n_timesteps = n_timesteps
+    def __init__(self, vocab_size, metrics, loss = None, n_classes=1, n_demog=32, n_demog_bags=6):
         self.vocab_size = vocab_size
-        self.batch_size = batch_size
-        self.bias_init = bias_init if bias_init is not None else 0.0
+        self.n_classes = n_classes
+        self.n_demog = n_demog
+        self.n_demog_bags = n_demog_bags
+        self.metrics = metrics
+        self.loss = loss
 
     def build(self, hp: kerastuner.HyperParameters) -> keras.Model:
         """Build LSTM model
@@ -306,133 +305,137 @@ class LSTMHyperModel(HyperModel):
             A built/compiled keras model ready for hyperparameter tuning
         """
 
-        inp = Input(
-            shape=(None if self.ragged else self.n_timesteps, None),
-            ragged=self.ragged,
-            batch_size=self.batch_size,
-            name="Input",
-        )
-        emb1 = Embedding(
-            input_dim=self.vocab_size,
-            mask_zero=True,
-            embeddings_regularizer=keras.regularizers.l1_l2(
-                l1=hp.Float("Feature Embedding L1",
-                            min_value=0.0,
-                            max_value=0.1,
-                            step=0.01),
-                l2=hp.Float("Feature Embedding L2",
-                            min_value=0.0,
-                            max_value=0.1,
-                            step=0.01)),
-            output_dim=hp.Int("Embedding Dimension",
-                              min_value=64,
-                              max_value=512,
-                              default=64,
-                              step=64),
-            name="Feature_Embeddings",
-        )(inp)
-        emb2 = Embedding(input_dim=self.vocab_size,
-                         output_dim=1,
-                         mask_zero=True,
-                         embeddings_regularizer=keras.regularizers.l1_l2(
-                             l1=hp.Float("Average Embedding L1",
-                                         min_value=0.0,
-                                         max_value=0.1,
-                                         step=0.01),
-                             l2=hp.Float("Average Embedding L2",
-                                         min_value=0.0,
-                                         max_value=0.1,
-                                         step=0.01)),
-                         name="Average_Embeddings")(inp)
-        if self.ragged:
-            mult = keras.layers.Multiply(name="Embeddings_by_Average")(
-                [emb1, emb2])
-            avg = keras.layers.Lambda(lambda x: tf.math.reduce_mean(x, axis=2),
-                                      name="Averaging")(mult)
+        # L1/L2 vals
+        reg_vals = [0.0, 1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1]
+
+        # Model Topology
+
+        # Should we multiply the feature embeddings by their averages?
+        weighting = hp.Boolean("Feature Weighting")
+
+        # Should we add a dense layer between RNN and output?
+        final_dense = hp.Boolean("Final Dense Layer")
+
+        # Feature Embedding Params
+        emb_l1 = hp.Choice("Feature Embedding L1", reg_vals)
+        emb_l2 = hp.Choice("Feature Embedding L2", reg_vals)
+
+        emb_n = hp.Int("Embedding Dimension",
+                                    min_value=64,
+                                    max_value=512,
+                                    default=64,
+                                    step=64)
+
+        # Demog Embedding
+        demog_emb_n = hp.Int("Demographics Embedding Dimension",
+                            min_value=1,
+                            max_value=64,
+                            default=self.n_demog
+                            )
+
+        # Average Embedding Params
+        avg_l1 = hp.Choice("Average Embedding L1", reg_vals,
+                                    parent_name = "Feature Weighting",
+                                    parent_values = [True])
+        avg_l2 = hp.Choice("Average Embedding L2", reg_vals,
+                                    parent_name = "Feature Weighting",
+                                    parent_values = [True])
+
+        # LSTM Params
+        lstm_n = hp.Int("LSTM Units",
+                        min_value=32,
+                        max_value=512,
+                        default=32,
+                        step=32)
+        lstm_dropout = hp.Float("LSTM Dropout",
+                                min_value=0.0,
+                                max_value=0.9,
+                                default=0.4,
+                                step=0.01)
+        lstm_recurrent_dropout = hp.Float("LSTM Recurrent Dropout",
+                                            min_value=0.0,
+                                            max_value=0.9,
+                                            default=0.4,
+                                            step=0.01)
+        lstm_l1 = hp.Choice("LSTM weights L1", reg_vals)
+        lstm_l2 = hp.Choice("LSTM weights L2", reg_vals)
+        
+        # Final dense layer
+        dense_n = hp.Int("Dense Units",
+                         min_value=2,
+                         max_value=128,
+                         sampling="log",
+                         parent_name="Final Dense Layer",
+                         parent_values=[True]
+                         )
+        # Model code
+        feat_input = keras.Input(shape=(None, None), ragged=True)
+        demog_input = keras.Input(shape=(self.n_demog_bags, ))
+
+        demog_emb = keras.layers.Embedding(self.n_demog,
+                                        output_dim=demog_emb_n,
+                                        mask_zero=True,
+                                       name="Demographic_Embeddings"
+        )(demog_input)
+
+        demog_avg = keras.layers.Flatten()(demog_emb)
+
+        emb1 = keras.layers.Embedding(self.vocab_size,
+                                    output_dim=emb_n,
+                                    embeddings_regularizer=keras.regularizers.l1_l2(emb_l1, emb_l2),
+                                    mask_zero=True,
+                                    name="Feature_Embeddings")(feat_input)
+        
+        if weighting:
+            emb2 = keras.layers.Embedding(self.vocab_size,
+                                          output_dim=1,
+                                          embeddings_regularizer=keras.regularizers.l1_l2(avg_l1, avg_l2),
+                                          mask_zero=True,
+                                          name="Average_Embeddings")(feat_input)
+
+            # Multiplying the code embeddings by their respective weights
+            mult = keras.layers.Multiply(name="Embeddings_by_Average")([emb1, emb2])
+            avg = keras.layers.Lambda(lambda x: tf.math.reduce_mean(x, axis=2), name="Averaging")(mult)
         else:
-            mult = Multiply(name="Embeddings_by_Average")([emb1, emb2])
-            avg = K.mean(mult, axis=2)
+            avg = keras.layers.Lambda(lambda x: tf.math.reduce_mean(x, axis=2), name="Averaging")(emb1)
+        
 
-        lstm = keras.layers.LSTM(units=hp.Int("LSTM Units",
-                                              min_value=32,
-                                              max_value=512,
-                                              default=32,
-                                              step=32),
-                                 dropout=hp.Float("LSTM Dropout",
-                                                  min_value=0.0,
-                                                  max_value=0.9,
-                                                  default=0.4,
-                                                  step=0.01),
-                                 recurrent_dropout=hp.Float(
-                                     "LSTM Recurrent Dropout",
-                                     min_value=0.0,
-                                     max_value=0.9,
-                                     default=0.4,
-                                     step=0.01),
-                                 activity_regularizer=keras.regularizers.l1_l2(
-                                     l1=hp.Float("LSTM Activation L1",
-                                                 min_value=0.0,
-                                                 max_value=0.1,
-                                                 step=0.01),
-                                     l2=hp.Float("LSTM Activation L2",
-                                                 min_value=0.0,
-                                                 max_value=0.1,
-                                                 step=0.01)),
-                                 kernel_regularizer=keras.regularizers.l1_l2(
-                                     l1=hp.Float("LSTM weights L1",
-                                                 min_value=0.0,
-                                                 max_value=0.1,
-                                                 step=0.01),
-                                     l2=hp.Float("LSTM weights L2",
-                                                 min_value=0.0,
-                                                 max_value=0.1,
-                                                 step=0.01)),
-                                 name="Recurrent")(avg)
-        output = Dense(1,
-                       activation="sigmoid",
-                       name="Output",
-                       bias_initializer=tf.keras.initializers.Constant(
-                           self.bias_init.item()))(lstm)
+        lstm_layer = keras.layers.LSTM(lstm_n, 
+                               dropout=lstm_dropout,
+                               recurrent_dropout=lstm_recurrent_dropout,
+                               recurrent_regularizer=keras.regularizers.l1_l2(lstm_l1, lstm_l2),
+                               name="Recurrent")(avg)
+        
+        lstm_layer = keras.layers.Concatenate()([lstm_layer, demog_avg])
 
-        model = keras.Model(inp, output, name="LSTM-Hyper")
+        if final_dense:
+            lstm_layer = keras.layers.Dense(dense_n, activation = "relu", name = "pre_output")(lstm_layer)
 
-        lr = hp.Choice("Learning Rate", [1e-2, 1e-3, 1e-4])
-        momentum = hp.Choice("Momentum", [0.0, 0.2, 0.4, 0.6, 0.8, 0.9])
+        activation_fn = "softmax" if self.n_classes > 2 else "sigmoid"
+        output = keras.layers.Dense(
+            self.n_classes if self.n_classes > 2 else 1,
+            activation=activation_fn,
+            name="Output")(lstm_layer)
 
-        model.compile(
-            optimizer=keras.optimizers.SGD(learning_rate=lr,
-                                           momentum=momentum),
-            # NOTE: TFA version won't run in kerastuner for some reason
-            # loss=tfa.losses.SigmoidFocalCrossEntropy()
-            #     alpha=hp.Float("Balancing Factor",
-            #                    min_value=0.25,
-            #                    max_value=0.74,
-            #                    step=0.25),
-            #     gamma=hp.Float("Modulating Factor",
-            #                    min_value=0.0,
-            #                    max_value=5.0,
-            #                    step=0.5,
-            #                    default=2.0)),
-            # NOTE: For gamma = 0 & alpha = 1, Focal loss = binary_crossentropy
-            loss=BinaryFocalLoss(gamma=hp.Float("Modulating Factor",
-                                                min_value=0.0,
-                                                max_value=5.0,
-                                                step=1.0,
-                                                default=2.0),
-                                 pos_weight=hp.Float("Balancing Factor",
-                                                     min_value=0.0,
-                                                     max_value=1.0,
-                                                     default=0.25,
-                                                     step=0.25)),
-            metrics=[
-                keras.metrics.AUC(num_thresholds=int(1e4), name="ROC-AUC"),
-                keras.metrics.AUC(num_thresholds=int(1e4),
-                                  curve="PR",
-                                  name="PR-AUC")
-            ])
+        model = keras.Model([feat_input, demog_input], output)
+
+        # --- Learning rate and momentum
+        lr = hp.Choice("Learning Rate", [1e-6, 5e-6, 1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2, 1e-1])
+        momentum = hp.Float("Momentum", min_value=0.0, max_value=0.9, step=0.1)
+        opt = keras.optimizers.SGD(lr, momentum=momentum)
+        
+        # --- Loss FN
+        # NOTE: I was messing around with focal loss here, but I think that's
+        # harder to justify and explain in this context
+        if self.loss is None:
+            if self.n_classes > 2:
+            loss_fn = keras.losses.categorical_crossentropy
+                else:
+            loss_fn = keras.losses.binary_crossentropy
+        
+        model.compile(optimizer = opt, loss=self.loss, metrics=self.metrics)
 
         return model
-
 
 def LSTM(time_seq,
          vocab_size,
