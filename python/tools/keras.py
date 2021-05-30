@@ -505,6 +505,7 @@ class DANHyper(kerastuner.HyperModel):
                        max_value=512,
                        default=64,
                        step=64)
+
         emb_dropout = hp.Float("Dropout from Embeddings",
                                min_value=0.0,
                                max_value=0.9,
@@ -529,28 +530,26 @@ class DANHyper(kerastuner.HyperModel):
 
         # Feature Embeddings
         embeddings = keras.layers.Embedding(
-            self.vocab_size,
+            input_dim=self.vocab_size,
             output_dim=emb_n,
             embeddings_regularizer=keras.regularizers.l1_l2(emb_l1, emb_l2),
             mask_zero=True,
             name="Feature_Embeddings")(feat_input)
 
-        dropout_1 = keras.layers.Dropout(emb_dropout)(embeddings)
+        dropout_1 = keras.layers.Dropout(rate=emb_dropout)(embeddings)
 
         # Averaging the embeddings
-        embedding_avg = keras.backend.mean(dropout_1, 1)
+        embedding_avg = keras.backend.mean(embeddings, 1)
 
         # Dense layers
         dense = keras.layers.Dense(dense_size, activation="relu", name='dense_1')(embedding_avg)
 
         dropout_2 = keras.layers.Dropout(final_dropout)(dense)
 
-        # drop_out = keras.layers.Dropout(emb_dropout)(dense)
-
         activation_fn = "softmax" if self.n_classes > 2 else "sigmoid"
 
         output = keras.layers.Dense(
-            self.n_classes if self.n_classes > 2 else 1,
+            units=self.n_classes if self.n_classes > 2 else 1,
             activation=activation_fn,
             name="Output")(dropout_2)
 
@@ -571,8 +570,9 @@ class DANHyper(kerastuner.HyperModel):
                 loss_fn = keras.losses.categorical_crossentropy
             else:
                 loss_fn = keras.losses.binary_crossentropy
-
-        model.compile(optimizer=opt, loss=self.loss, metrics=self.metrics)
+        else:
+            loss_fn = self.loss
+        model.compile(optimizer=opt, loss=loss_fn, metrics=self.metrics)
 
         return model
 
