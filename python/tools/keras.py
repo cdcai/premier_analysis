@@ -541,7 +541,7 @@ class DANHyper(kerastuner.HyperModel):
         embedding_avg = keras.backend.mean(dropout_1, 1)
 
         # Dense layers
-        dense = keras.layers.Dense(dense_size, name='dense_1')(embedding_avg)
+        dense = keras.layers.Dense(dense_size, activation="relu", name='dense_1')(embedding_avg)
 
         dropout_2 = keras.layers.Dropout(final_dropout)(dense)
 
