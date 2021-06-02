@@ -542,7 +542,9 @@ class DANHyper(kerastuner.HyperModel):
         embedding_avg = keras.backend.mean(embeddings, 1)
 
         # Dense layers
-        dense = keras.layers.Dense(dense_size, activation="relu", name='dense_1')(embedding_avg)
+        dense = keras.layers.Dense(dense_size,
+                                   activation="relu",
+                                   name='dense_1')(embedding_avg)
 
         dropout_2 = keras.layers.Dropout(final_dropout)(dense)
 
@@ -637,8 +639,8 @@ def LSTM(time_seq,
                                        mask_zero=True,
                                        name="Demographic_Embeddings")(demog_in)
 
-    # # Averaging the demographic variable embeddings
-    demog_avg = keras.backend.mean(demog_emb, axis=2)
+    # Reshaping the demographic variable embeddings
+    demog_avg = keras.layers.Flatten()(demog_emb)
 
     # Concatenating the LSTM output and deemographic variable embeddings
     comb = keras.layers.Concatenate()([lstm_layer, demog_avg])
