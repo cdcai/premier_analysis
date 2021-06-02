@@ -140,7 +140,7 @@ transformers==3.3.1
 typed-ast==1.4.1
 typeguard==2.10.0
 typing-extensions==3.7.4.3
-urllib3==1.25.11
+urllib3==1.26.5
 wcwidth==0.2.5
 webencodings==0.5.1
 Werkzeug==1.0.1
