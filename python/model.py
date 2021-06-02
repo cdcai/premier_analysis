@@ -54,11 +54,11 @@ if __name__ == "__main__":
                         help="Should the model include patient demographics?")
     parser.add_argument("--dropout",
                         type=float,
-                        default=0.4,
+                        default=0.0,
                         help="Amount of dropout to apply")
     parser.add_argument("--recurrent_dropout",
                         type=float,
-                        default=0.4,
+                        default=0.0,
                         help="Amount of recurrent dropout (if LSTM)")
     parser.add_argument("--n_cells",
                         type=int,
@@ -66,7 +66,7 @@ if __name__ == "__main__":
                         help="Number of cells in the hidden layer")
     parser.add_argument("--batch_size",
                         type=int,
-                        default=128,
+                        default=32,
                         help="Mini batch size")
     parser.add_argument("--weighted_loss",
                         help="Weight loss to account for class imbalance",
@@ -110,6 +110,10 @@ if __name__ == "__main__":
     OUTCOME = args.outcome
     DEMOG = args.demog
     DAY_ONE_ONLY = args.day_one
+    if DAY_ONE_ONLY:
+        # Optionally limiting the features to only those from the first day
+        # of the actual COVID visit
+        MOD_NAME += "_d1"
     LSTM_DROPOUT = args.dropout
     LSTM_RECURRENT_DROPOUT = args.recurrent_dropout
     N_LSTM = args.n_cells
@@ -309,7 +313,6 @@ if __name__ == "__main__":
         if DAY_ONE_ONLY:
             # Optionally limiting the features to only those from the first day
             # of the actual COVID visit
-            MOD_NAME += "_d1"
             features = [l[0][-1] for l in inputs]
         else:
             features = [tp.flatten(l[0]) for l in inputs]
