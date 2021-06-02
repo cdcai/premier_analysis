@@ -1,0 +1,617 @@
+---
+title: MIS-A Targets - Premier
+author: Karen Wong <kwong@cdc.gov>
+date: "Last updated: `r format(Sys.time(), '%d %b %Y %I:%M %p %Z')`"
+output:
+  rmarkdown::html_document:
+    toc: yes
+    toc_float: yes
+    theme: readable
+    df_print: paged
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(
+  fig.width = 6, fig.height = 4,
+  echo = FALSE, warning = FALSE, message = FALSE,
+  dev = "CairoSVG"
+)
+```
+
+```{r}
+setwd("C:/Users/vij4/OneDrive - CDC/2019nCoV/premier_analysis")
+```
+
+
+```{r packages_setup}
+#Clear existing data and graphics
+rm(list=ls())
+graphics.off()
+
+library(bit64)
+library(dplyr)
+library(arrow)
+library(tidyr)
+library(readr)
+library(lubridate)
+library(janitor)
+library(DT)
+library(icd)
+library(multidplyr)
+
+# NOTE: Preferable, but slow.
+# I've not downloaded all the new data
+# use_aws <- FALSE
+```
+
+This version implements the case def (using ≥2 complication categories) in the Github environment. 
+
+```{r disc_load, eval = !use_aws}
+
+# Single parquet
+# covid_data <- read_parquet("data/data/vw_covid_pat/vw_covid_pat_1.parquet") %>%
+#   mutate_if(is.integer64, as.integer)
+# covid_lab_res <- read_parquet("data/data/vw_covid_lab_res/vw_covid_lab_res_1.parquet") %>%
+#   mutate_if(is.integer64, as.integer)
+
+# Multi-part parquet
+read_multi_parquet <- function(dir){
+  s <- open_dataset(dir) 
+  return(s %>% collect() %>% mutate_if(is.integer64, as.integer))
+}
+
+covid_lab_res <- read_multi_parquet("data/data/vw_covid_lab_res")
+covid_data <- read_multi_parquet("data/data/vw_covid_pat")
+covid_meds <- read_multi_parquet("data/data/vw_covid_bill_pharm")
+covid_oth_bill <- read_multi_parquet("data/data/vw_covid_bill_oth")
+covid_genlab <- read_multi_parquet("data/data/vw_covid_genlab")
+covid_vitals <- read_multi_parquet("data/data/vw_covid_vitals")
+covid_icd_diag <- read_multi_parquet("data/data/vw_covid_paticd_diag")
+
+```
+
+```{r}
+# NOTE: ICD POA is giving some grief. Just drop now and de-dupe
+covid_data <- covid_data %>%
+  # select(-icd_poa_sum_desc) %>%
+  distinct() %>%
+  filter(pat_type==8) %>%
+  filter(age>=21) %>%
+  mutate(adm_month = substr(adm_mon, 6, 7), 
+         adm_year = substr(adm_mon, 1, 4), 
+         disc_month = substr(disc_mon, 6, 7), 
+         disc_year = substr(disc_mon, 1, 4)) %>%
+  select(-c(adm_mon, disc_mon)) %>%
+  mutate(adm_dt = ymd(paste0(adm_year, "-", adm_month, "-01"))) %>%
+  mutate(disc_dt = ymd(paste0(disc_year, "-", disc_month, "-01"))) %>%
+  # mutate(age_gp = as.factor(case_when(
+  #   age < 5 ~ "0 to 4", 
+  #   age >=5 & age <18 ~ "5 to 17", 
+  #   age >=18 & age <50 ~ "18 to 49",
+  #   age >=50 & age <65 ~ "50 to 64",
+  #   age >=65 ~ "65+",
+  # ))) %>%
+  # mutate(age_gp = factor(age_gp, levels(age_gp)[c(1, 3, 2, 4, 5)])) %>%
+  filter(adm_dt >= "2020-03-01") %>%
+  distinct(pat_key, medrec_key, disc_dt, disc_mon_seq, age)
+
+covid_genlab = covid_genlab %>%
+  select(pat_key, lab_test_loinc_desc, result_unit, numeric_value) %>%
+  inner_join(covid_data %>% distinct(pat_key))
+
+covid_meds = covid_meds %>%
+  select(pat_key, clin_dtl_desc, serv_day) %>%
+  inner_join(covid_data %>% distinct(pat_key))
+
+covid_vitals = covid_vitals %>%
+  inner_join(covid_data %>% distinct(pat_key)) 
+
+covid_oth_bill = covid_oth_bill %>%
+  select(pat_key, clin_sum_code) %>% 
+  inner_join(covid_data %>% distinct(pat_key)) 
+
+covid_icd_diag = covid_icd_diag %>%
+  select(pat_key, icd_code) %>% 
+  inner_join(covid_data %>% distinct(pat_key))
+```
+
+
+## Lab evidence of inflammation
+
+All of these criteria should be within the same encounter
+
+## IL-6, CRP, ferritin, ESR, fibrinogen
+
+### IL-6 > 2 pg/mL
+```{r}
+il6_crit <- covid_genlab %>% 
+  filter(grepl("interleukin 6", lab_test_loinc_desc, ignore.case = T)) %>%
+  left_join(covid_data %>%
+              select(pat_key, medrec_key)) %>%
+  group_by(medrec_key, pat_key) %>%
+  summarize(max_il6 = max(numeric_value, na.rm=T))
+
+```
+
+### CRP >= 10 mg/L
+
+```{r}
+crp_crit <- covid_genlab %>% 
+  filter(grepl("C reactive", lab_test_loinc_desc, ignore.case = T)) %>%
+  mutate(numeric_value = ifelse(grepl("dl", result_unit, ignore.case = T), 
+                                10*numeric_value, numeric_value)) %>%
+  left_join(covid_data %>%
+              select(pat_key, medrec_key)) %>%
+  group_by(medrec_key, pat_key) %>%
+  summarize(max_crp = max(numeric_value, na.rm=T))
+```
+
+### Ferritin >=400 ng/dL
+
+```{r}
+ferritin_crit <- covid_genlab %>% 
+  filter(grepl("ferritin", lab_test_loinc_desc, ignore.case = T)) %>%
+  left_join(covid_data %>%
+              select(pat_key, medrec_key)) %>%
+  group_by(medrec_key, pat_key) %>%
+  summarize(max_ferritin = max(numeric_value, na.rm=T))
+```
+
+### ESR > 20
+```{r}
+esr_crit = covid_genlab %>% 
+  filter(grepl("erythrocyte sed", lab_test_loinc_desc, ignore.case = T)) %>%
+  filter(numeric_value != -Inf) %>%
+  left_join(covid_data %>%
+              select(pat_key, medrec_key)) %>%
+  group_by(medrec_key, pat_key) %>%
+  summarize(max_esr = max(numeric_value, na.rm=T))
+```
+
+### Procalcitonin >0.1 ng/mL
+
+```{r}
+procal_crit = covid_genlab %>% 
+  filter(grepl("procal", lab_test_loinc_desc, ignore.case = T)) %>%
+  left_join(covid_data %>%
+              select(pat_key, medrec_key)) %>%
+  group_by(medrec_key, pat_key) %>%
+  summarize(max_procal = max(numeric_value, na.rm=T))
+```
+
+### All inflammatory criteria
+
+Number of ENCOUNTERS who had at least 2 inflammatory marker checked within an encounter
+
+```{r, eval=FALSE}
+infl_denom = covid_data %>%
+  select(medrec_key, pat_key) %>%
+  left_join(il6_crit) %>%
+  left_join(crp_crit) %>%
+  left_join(ferritin_crit) %>%
+  left_join(esr_crit) %>%
+  # left_join(fibrinogen_crit) %>%
+  left_join(procal_crit) %>%
+  mutate(not_missing = rowSums(!is.na(select(., -medrec_key, -pat_key)))) %>%
+  filter(not_missing >= 1) %>%  
+  distinct(medrec_key) %>% 
+  count()
+
+infl_denom
+```
+
+Number ENCOUNTERS who meet at least 1 inflammatory criteria
+
+Proportion out of those who have at least 1 inflammatory markers checked
+
+```{r}
+infl_crit_pts = covid_data %>%
+  select(medrec_key, pat_key) %>%
+  left_join(il6_crit) %>%
+  left_join(crp_crit) %>%
+  left_join(ferritin_crit) %>%
+  left_join(esr_crit) %>%
+  left_join(procal_crit) %>%
+  mutate(crit_il6 = ifelse(max_il6 > 2, 1, 0), 
+         crit_crp = ifelse(max_crp >= 10, 1, 0), 
+         crit_ferritin = ifelse(max_ferritin >= 400, 1, 0), 
+         crit_esr = ifelse(max_esr > 20, 1, 0), 
+         crit_procal = ifelse(max_procal >= 0.1, 1, 0)
+         ) %>%
+  mutate(infl_crit = rowSums(select(., crit_il6:crit_procal), na.rm = T)) 
+
+```
+
+## Complications
+
+### Cardiac complications
+
+```{r ICD cardiac}
+# Do not include heart failure
+
+icd_cardiac_crit <- covid_icd_diag %>%
+  filter(grepl("B33.22|I40.[089]|I51.4|I30.[0189]|I25.41", icd_code, ignore.case = T)) %>% 
+  select(pat_key) %>%
+  distinct() %>%
+  mutate(icd_cardiac = 1)
+```
+
+### Mucocutaneous
+```{r}
+icd_muco_crit <- covid_icd_diag %>%
+  filter(grepl("R21|B30.[89]|H10.3[03]|H10.89|H10.9", icd_code, ignore.case = T)) %>% 
+  select(pat_key) %>%
+  distinct() %>%
+  mutate(icd_muco = 1)
+```
+
+### Hypotension / shock
+
+```{r ICD shock}
+# R57 Shock
+# R65.21 Septic shock
+# I95 Hypotension
+
+icd_shock_crit = covid_icd_diag %>%
+  filter(grepl("R57.[089]|R65.2[01]|I95.[089]", icd_code, ignore.case = T)) %>%
+  select(pat_key) %>%
+  distinct() %>%
+  mutate(icd_shock = 1)
+
+```
+
+```{r meds vasopressors}
+vasopressors_crit = covid_meds %>% 
+  filter(grepl("EPINEPH|PHENYLEPH|^EPHEDRINE|DOPAMINE|DOBUTAMINE|ISOPROTERENOL|MILRINONE|NITROPRUSSIDE|NOREPINEPHRINE|VASOPRESSIN", clin_dtl_desc, ignore.case = T)) %>%
+  distinct(pat_key, serv_day) %>%
+  group_by(pat_key) %>% 
+  count() %>%
+  filter(n>=2) %>%
+  distinct(pat_key) %>%
+  mutate(vasopressors = 1)
+```
+
+```{r combine shock}
+compl_shock = covid_data %>% 
+  select(pat_key, medrec_key) %>%
+  # left_join(sbp_lt90_crit) %>%
+  left_join(icd_shock_crit) %>%
+  left_join(vasopressors_crit) %>%
+  mutate(shock_crit = ifelse((icd_shock==1 | vasopressors==1), 1, 0))
+```
+
+### GI symptoms
+
+o	R10.0 – Abdominal and pelvic pain
+o	R19.7 – Diarrhea, unspecified
+o	A09 - Infectious gastroenteritis and colitis, unspecified
+o	A08.39 – Other viral enteritis
+o	A08.4 – Viral intestinal infection, unspecified
+o	R11.2 – Nausea with vomiting, unspecified
+o	R11.10 – Vomiting unspecified
+
+```{r GI sx}
+icd_gi_crit = covid_icd_diag %>%
+  filter(grepl("R10.10|R10.30|R10.84|R10.9|R11.11|R11.2|R11.10|R19.7|A09|A08.39|A08.4", icd_code, ignore.case = T)) %>%
+  distinct(pat_key) %>%
+  mutate(icd_gi = 1) 
+```
+
+### Thombocytopenia or elevated D-dimer
+
+#### ICD thrombocytopenia
+o	D69.6 – Thrombocytopenia, unspecified
+o	D69.59 – other secondary thrombocytopenia
+
+
+```{r icd thromboembolism}
+icd_thrombocytopenia_crit = covid_icd_diag %>%
+  filter(grepl("D69.6|D69.59", icd_code, ignore.case = T)) %>%
+  distinct(pat_key) %>%
+  mutate(icd_thrombocytopenia = 1) 
+
+```
+
+```{r platelets}
+platelet_crit <- covid_genlab %>% 
+  filter(grepl("Platelet mean volume|Platelets:NCnc:Pt:Bld", lab_test_loinc_desc, ignore.case = T)) %>% 
+  left_join(covid_data %>%
+              select(pat_key, medrec_key)) %>%
+  group_by(medrec_key, pat_key) %>%
+  summarize(min_platelet = min(numeric_value, na.rm=T))
+```
+
+## Combine all criteria
+
+```{r}
+combine_crit = covid_genlab %>%
+  distinct(pat_key) %>%
+  left_join(infl_crit_pts) %>%
+  left_join(icd_cardiac_crit) %>%
+  left_join(icd_muco_crit) %>% 
+  left_join(compl_shock) %>%
+  left_join(icd_gi_crit) %>% 
+  left_join(icd_thrombocytopenia_crit) %>%
+  left_join(platelet_crit) %>% 
+  left_join(covid_data %>% select(pat_key)) %>%
+  # filter(age>=21 & age <130) %>% 
+  mutate(plt_crit = ifelse((icd_thrombocytopenia==1 | min_platelet <1500), 1, 0)) %>% 
+  mutate(num_compl = select(., shock_crit, icd_cardiac, plt_crit, icd_gi) %>% apply(1, sum, na.rm=T)) %>%
+  mutate(misa = ifelse((infl_crit>=2 & num_compl >=2), 1, 0))
+  
+  # mutate(misa1 = ifelse((infl_crit>=1 & num_compl >=1)|connective_dx==1|kawasaki_dx==1, 1, 0)) %>%
+  # mutate(misa2 = ifelse((infl_crit>=1 & num_compl >=2)|connective_dx==1|kawasaki_dx==1, 1, 0)) %>%
+  # mutate(misa3 = ifelse((infl_crit>=1 & num_compl >=3)|connective_dx==1|kawasaki_dx==1, 1, 0))
+```
+
+```{r}
+# misa_pts = combine_crit %>% 
+#   group_by(medrec_key) %>% 
+#   summarise(misa_pt = max(misa, na.rm = T)) %>%
+#   mutate(misa_pt = ifelse(misa_pt==-Inf, 0, misa_pt))
+
+misa2_pts = combine_crit %>% 
+  group_by(medrec_key) %>% 
+  summarise(misa2_pt = max(misa, na.rm = T)) %>% 
+  mutate(misa2_pt = ifelse(misa2_pt==-Inf, 0, misa2_pt))
+  
+
+# misa3_pts = combine_crit %>% 
+#   group_by(medrec_key) %>% 
+#   summarise(misa3_pt = max(misa3, na.rm = T)) %>%
+#   mutate(misa3_pt = ifelse(misa3_pt==-Inf, 0, misa3_pt))
+# 
+# misa_only1_pts = combine_crit %>% 
+#   group_by(medrec_key) %>% 
+#   mutate(misa_only1 = ifelse((infl_crit>=1 & num_compl ==1)|connective_dx==1|kawasaki_dx==1, 1, 0)) %>%
+#   summarise(misa_only1_pt = max(misa_only1, na.rm = T)) %>%
+#   mutate(misa_only1_pt = ifelse(misa_only1_pt==-Inf, 0, misa_only1_pt)) %>%
+#   filter(misa_only1_pt==1)
+
+
+```
+
+```{r, eval=FALSE}
+# misa_only1_pts %>%
+#   left_join(combine_crit) %>% 
+#   left_join(covid_icd_diag %>% 
+#   filter(grepl("I[34]0|I25.41", icd_code, ignore.case = T)) %>% 
+#   select(pat_key, icd_code)) %>%
+#   left_join(adm_fever_pts) %>%
+#   filter(icd_cardiac==1, num_compl==1) %>%
+#   datatable()
+#   
+# covid_lab_res %>% 
+#   left_join(covid_data %>% select(pat_key, medrec_key, days_from_index)) %>%
+#   filter(medrec_key==734991467) %>%
+#   filter(grepl("SARS", test, ignore.case = T)) %>%
+#   select(pat_key, days_from_index, spec_day_number, test, specimen_source, observation)
+#   
+# covid_genlab %>%
+#   left_join(covid_data %>% select(pat_key, medrec_key, days_from_index)) %>%
+#   filter(medrec_key==734991467) %>%
+#   filter(grepl("troponin", lab_test_loinc_desc, ignore.case = T)) %>% 
+#   select(pat_key, days_from_index, collection_day_number, lab_test_result, numeric_value_operator)
+
+```
+
+
+```{r}
+# first_misa2_encounter <- combine_crit %>% 
+#   select(-c(misa1, misa3)) %>%
+#   mutate(misa2 = ifelse(is.na(misa2), 0, misa2)) %>% 
+#   group_by(medrec_key) %>%
+#   filter(misa2 == max(misa2, na.rm=T)) %>%
+#   select(pat_key, misa2) %>%
+#   left_join(covid_data %>% select(pat_key, age, gender, race, adm_dt, disc_dt, disc_mon_seq)) %>%
+#   filter(misa2==1) %>% 
+#   # filter(age>=18 & age <130) %>% 
+#   ungroup %>% 
+#   group_by(medrec_key) %>%
+#   filter(disc_dt == min(disc_dt)) %>%
+#   filter(disc_mon_seq==min(disc_mon_seq)) %>%
+#   ungroup 
+
+first_misa2_encounter = combine_crit %>% 
+  # select(-c(misa1, misa3)) %>%
+  mutate(misa = ifelse(is.na(misa), 0, misa)) %>% 
+  filter(misa==1) %>%
+  select(pat_key, misa) %>%
+  left_join(covid_data %>% select(pat_key, medrec_key, disc_dt, disc_mon_seq)) %>%
+  group_by(medrec_key) %>%
+  filter(disc_dt == min(disc_dt), disc_mon_seq==min(disc_mon_seq)) %>%
+  ungroup() %>%
+  mutate(first_misa=1) %>% 
+  select(pat_key, first_misa)
+
+```
+
+
+```{r, eval=FALSE}
+first_misa2_encounter %>%
+  left_join(covid_data %>% select(pat_key, medrec_key)) %>% 
+  distinct(medrec_key) %>% count()
+```
+
+```{r, eval=FALSE}
+# first_misa2_encounter %>%
+#   group_by(misa2) %>% #count()
+#   summarise(med = median(age, na.rm=T), perc25 = quantile(age, .25, na.rm=T), perc75 = quantile(age, .75, na.rm=T), n=n(), min(age, na.rm=T), max(age, na.rm=T))
+# 
+# first_misa2_encounter %>%
+#   group_by(misa2, gender) %>%
+#   count()
+# 
+# first_misa2_encounter %>%
+#   mutate(age_21_55 = ifelse(age >=21 & age <=55, 1, 0)) %>%
+#   group_by(misa2, age_21_55) %>% count()
+# 
+# first_misa2_encounter %>%
+#   left_join(adm_fever_pts) %>%
+#   filter(!is.na(fever)) %>%
+#   group_by(misa2, fever) %>% count()
+# 
+# misa2_pts %>%
+#   filter(misa2_pt==1) %>% distinct(medrec_key) %>%
+#   left_join(first_misa2_encounter %>% select(pat_key, medrec_key, misa2)) %>%
+#   filter(is.na(misa2))
+# 
+# combine_crit %>%
+#   filter(medrec_key == 128991558) %>%
+#   select(pat_key, age, misa2) %>%
+#   left_join(covid_data %>% select(pat_key, disc_dt, disc_mon_seq))
+```
+
+```{r, eval=FALSE}
+# Which criteria
+# criteria_met = first_misa2_encounter %>% 
+#   select(medrec_key, pat_key, misa2) %>%
+#   left_join(combine_crit) %>% 
+#   filter(misa2==1) %>%
+#   mutate(infl = ifelse(infl_crit >=1, 1, 0)) %>%
+#   select(misa2, infl, shock_crit, icd_cardiac, plt_crit, icd_gi, connective_dx, kawasaki_dx)
+# 
+# criteria_met[is.na(criteria_met)] <- 0
+```
+
+```{r, eval=FALSE}
+# s = criteria_met %>%
+#   ungroup() %>%
+#   select(infl:icd_gi) %>%
+#   mutate_all(as.integer) %>%
+#   as.data.frame()
+# 
+# upset(s, 
+#       order.by = "freq", 
+#       point.size=3,
+#       text.scale = c(1.3, 1.3, 1, 1, 2, 2))
+```
+
+```{r, eval=FALSE}
+# covid_lab_res %>% 
+#   inner_join(first_misa_encounter %>% select(pat_key, misa)) %>% 
+#   filter(grepl("SARS coronavirus 2", test, ignore.case = T)) %>%
+#   filter(observation != "") %>%
+#   select(pat_key, test, observation, misa) %>%
+#   # group_by(test) %>% count()
+#   mutate(test2 = case_when(
+#     grepl("SARS coronavirus 2 Ab.IgG:", test, ignore.case = T) ~ "IgG", 
+#     grepl("SARS coronavirus 2 Ab.IgM:", test, ignore.case = T) ~ "IgM",
+#     grepl("SARS coronavirus 2 Ab.IgG\\+IgM:", test, ignore.case = T) ~ "IgG + IgM",
+#     grepl("SARS coronavirus 2 Ab.IgG & IgM panel", test, ignore.case = T) ~ "IgG + IgM",
+#     grepl("SARS coronavirus 2 RNA:", test, ignore.case = T) ~ "PCR"
+#   )) %>%
+#   distinct(pat_key, test2, observation) %>%
+#   group_by(pat_key, test2) %>%
+#   filter(observation == max(observation)) %>%
+#   ungroup() %>% 
+#   spread(test2, observation) %>%
+#   group_by(IgG, IgM, `IgG + IgM`, PCR) %>% count() %>% datatable()
+# 
+# covid_lab_res %>% 
+#   inner_join(first_misa_encounter %>% select(pat_key, misa)) %>% 
+#   filter(grepl("SARS coronavirus 2", test, ignore.case = T)) %>%
+#   filter(observation != "") %>%
+#   select(pat_key, test, observation, misa) %>%
+#   # group_by(test) %>% count()
+#   mutate(test2 = case_when(
+#     grepl("SARS coronavirus 2 Ab", test, ignore.case = T) ~ "Ab", 
+#     grepl("SARS coronavirus 2 RNA:", test, ignore.case = T) ~ "PCR"
+#   )) %>%
+#   distinct(pat_key, test2, observation) %>%
+#   group_by(pat_key, test2) %>%
+#   filter(observation == max(observation)) %>%
+#   ungroup() %>% 
+#   spread(test2, observation) %>%
+#   group_by(Ab, PCR) %>% count() %>% 
+#   filter(Ab != "", PCR != "") %>%
+#   datatable()
+```
+
+## Exclude respiratory involvement? 
+```{r}
+# Exclude ARDS (J80), pneumonia, resp infections (J00-J22)
+# resp_dx_pts <- covid_icd_diag %>%
+#   filter(grepl("J96|J80|J22|J0", icd_code, ignore.case = T)) %>% 
+#   distinct(pat_key) %>%
+#   mutate(resp_dx = 1)
+```
+
+# Check and save final datasets
+```{r}
+# medrec key + misa2 pt status
+# misa2_pts %>% 
+#   filter(misa2_pt==1) %>% 
+#   distinct(medrec_key)
+```
+
+```{r}
+# first_misa = first_misa2_encounter %>% 
+#   left_join(resp_dx_pts)
+
+# targets = covid_genlab %>% 
+#   distinct(pat_key) %>%
+#   left_join(covid_data %>% select(pat_key, medrec_key)) %>% 
+#   left_join(first_misa %>% mutate(first_misa = 1)) %>% 
+#   left_join(first_misa %>% filter(misa2==1) %>% mutate(misa_pt = 1) %>% select(medrec_key, misa_pt)) %>% 
+#   select(medrec_key, pat_key, first_misa, misa_pt, misa_resp = resp_dx) %>%
+#   mutate(misa_pt = ifelse(is.na(misa_pt), 0, misa_pt), 
+#          first_misa = ifelse(is.na(first_misa), 0, first_misa), 
+#          misa_resp = ifelse(is.na(misa_resp), 0, misa_resp)) 
+
+misa_filled = covid_genlab %>%
+  distinct(pat_key) %>%
+  left_join(covid_data %>% select(pat_key, medrec_key, age, disc_dt, disc_mon_seq)) %>%
+  filter(age>=18, age<130) %>% #eligible cohort
+  left_join(first_misa2_encounter) %>%
+  filter(first_misa==1) %>%
+  select(medrec_key) %>%
+  left_join(covid_data %>% select(pat_key, medrec_key, age, disc_dt, disc_mon_seq)) %>% #visits of MISA patients in cohort
+  left_join(first_misa2_encounter) %>%
+  group_by(medrec_key) %>%
+  arrange(disc_dt, disc_mon_seq) %>% 
+  mutate(misa_filled=first_misa) %>%
+  fill(misa_filled)
+
+misa_targets = covid_genlab %>%
+  distinct(pat_key) %>%
+  left_join(covid_data %>% select(pat_key, medrec_key, age, disc_dt, disc_mon_seq)) %>%
+  filter(age>=18, age<130) %>% 
+  distinct(medrec_key) %>% # eligible cohort 
+  left_join(covid_data %>% select(pat_key, medrec_key)) %>%
+  left_join(misa_filled %>% select(pat_key, misa_filled)) 
+```
+
+```{r}
+# Get ICU status
+icu_yn <- covid_oth_bill %>% 
+  filter(clin_sum_code %in% c(110108, 110102)) %>%
+  distinct(pat_key) %>%
+  mutate(icu_visit = "Y") 
+
+icu_pt <- icu_yn %>% left_join(covid_data %>% select(pat_key, medrec_key)) %>%
+  distinct(medrec_key) %>%
+  mutate(icu_ever = 1)
+
+icu_targets = misa_targets %>% left_join(icu_yn) %>%
+  left_join(icu_pt)
+
+icu_targets %>% group_by(icu_visit, icu_ever) %>% count()
+icu_targets %>% group_by(misa_filled, icu_ever) %>% count()
+```
+
+
+
+```{r}
+# write_csv2(targets, "targets/targets.csv")
+write_csv2(icu_targets, "data/targets/icu_targets.csv")
+# write_csv2(misa2_pts, "../data/clean/misa2_pts.csv")
+
+# targets <- read.csv2("targets/targets.csv")
+old_targets <- read.csv("data/targets/icu_targets_old.csv")
+old_targets %>% group_by(misa_filled, icu_ever) %>% count()
+
+icu_targets %>% group_by(status) %>% count()
+```

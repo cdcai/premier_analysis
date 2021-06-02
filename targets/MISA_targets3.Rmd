@@ -54,10 +54,10 @@ This version implements the case def (using ≥2 complication categories) in the
 ```{r disc_load, eval = !use_aws}
 
 # Single parquet
-covid_data <- read_parquet("data/data/vw_covid_pat/vw_covid_pat_1.parquet") %>%
-  mutate_if(is.integer64, as.integer)
-covid_lab_res <- read_parquet("data/data/vw_covid_lab_res/vw_covid_lab_res_1.parquet") %>%
-  mutate_if(is.integer64, as.integer)
+# covid_data <- read_parquet("data/data/vw_covid_pat/vw_covid_pat_1.parquet") %>%
+#   mutate_if(is.integer64, as.integer)
+# covid_lab_res <- read_parquet("data/data/vw_covid_lab_res/vw_covid_lab_res_1.parquet") %>%
+#   mutate_if(is.integer64, as.integer)
 
 # Multi-part parquet
 read_multi_parquet <- function(dir){
@@ -65,6 +65,8 @@ read_multi_parquet <- function(dir){
   return(s %>% collect() %>% mutate_if(is.integer64, as.integer))
 }
 
+covid_lab_res <- read_multi_parquet("data/data/vw_covid_lab_res")
+covid_data <- read_multi_parquet("data/data/vw_covid_pat")
 covid_meds <- read_multi_parquet("data/data/vw_covid_bill_pharm")
 covid_oth_bill <- read_multi_parquet("data/data/vw_covid_bill_oth")
 covid_genlab <- read_multi_parquet("data/data/vw_covid_genlab")
