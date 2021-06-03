@@ -1,5 +1,6 @@
 """
-Starter Keras model
+Keras models
+DAN, LSTM, HP-tuned DAN + LSTM
 """
 import argparse
 import csv
@@ -27,7 +28,7 @@ if __name__ == "__main__":
     parser.add_argument("--model",
                         type=str,
                         default="dan",
-                        choices=["dan", "lstm", "hp_lstm"],
+                        choices=["dan", "lstm", "hp_lstm", "hp_dan"],
                         help="Type of Keras model to use")
     parser.add_argument("--max_seq",
                         type=int,
@@ -279,8 +280,10 @@ if __name__ == "__main__":
                                              batch_size=BATCH_SIZE)
 
         if MOD_NAME == "lstm_hp":
+            # NOTE: IF HP-tuned, we want to use SGD with the
+            # params found, so return compiled.
             model = keras.models.load_model(os.path.join(
-                tensorboard_dir, "new_lstm_topo", "best"),
+                tensorboard_dir, "best", "lstm"),
                                             custom_objects={'tf': tf},
                                             compile=True)
         else:
@@ -354,7 +357,26 @@ if __name__ == "__main__":
                       validation_data=(X[val], y_one_hot[val]),
                       callbacks=callbacks,
                       class_weight=weight_dict)
+        elif "dan_hp" in MOD_NAME:
+            # NOTE: IF HP-tuned, we want to use SGD with the
+            # params found, so return compiled.
+            # HACK: This kind of assumes we're tuning for multiclass,
+            # and I'm not really sure a way around that.
+            n_values = np.max(y) + 1
+            y_one_hot = np.eye(n_values)[y]
 
+            model = keras.models.load_model(os.path.join(
+                tensorboard_dir, "best", "dan"),
+                                            custom_objects={'tf': tf},
+                                            compile=True)
+
+            model.fit(X[train],
+                      y_one_hot[train],
+                      batch_size=BATCH_SIZE,
+                      epochs=EPOCHS,
+                      validation_data=(X[val], y_one_hot[val]),
+                      callbacks=callbacks,
+                      class_weight=weight_dict)
         else:
             # Produce DAN model to fit
             model = tk.DAN(vocab_size=N_VOCAB,
