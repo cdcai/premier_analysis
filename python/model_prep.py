@@ -100,6 +100,10 @@ if __name__ == "__main__":
                         type=bool,
                         default=True,
                         help='whether to write patient data to a DF')
+    parser.add_argument('--processes',
+                        type=int,
+                        default=8,
+                        help='number of processes to use for multiprocessing')
     args = parser.parse_args()
 
     # Setting the globals
@@ -110,6 +114,7 @@ if __name__ == "__main__":
     EXCLUDE_ICU = args.exclude_icu
     MIN_AGE = args.min_age
     WRITE_DF = args.write_df
+    PROCESSES = args.processes if args.processes != -1 else None
 
     # Setting the directories
     output_dir = os.path.abspath(args.out_dir) + '/'
@@ -133,7 +138,7 @@ if __name__ == "__main__":
     n_patients = len(int_seqs)
 
     # Trimming the day sequences
-    with Pool() as p:
+    with Pool(processes=PROCESSES) as p:
         # Finding the cut points for the sequences
         find_input = [(pat_data['covid'][i], pat_data['length'][i], HORIZON,
                        MAX_SEQ, CUT_METHOD) for i in range(n_patients)]

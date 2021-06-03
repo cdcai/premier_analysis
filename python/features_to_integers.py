@@ -1,12 +1,12 @@
 '''This script merges the feature columns and converts them to ints.'''
 
-# %%
 import pandas as pd
 import numpy as np
 import pickle as pkl
 import os
 
 from sklearn.feature_extraction.text import CountVectorizer
+
 
 # Setting top-level parameters
 MIN_DF = 5
@@ -139,6 +139,9 @@ if WRITE_PARQUET:
 with open(pkl_dir + "int_seqs.pkl", "wb") as f:
     pkl.dump(seq_gen, f)
 
+# Freeing up memory
+seq_gen = []
+
 # Figuring out how many feature bags in each sequence belong
 # to each visit
 pat_lengths = trimmed_seq.groupby(["medrec_key", "pat_key"]).pat_key.count()
@@ -160,6 +163,14 @@ inpat = np.array(pat_df.pat_type == 8, dtype=np.uint8)
 inpat_dict = dict(zip(pat_df.pat_key, inpat))
 pat_inpat = [[inpat_dict[id] for id in np.unique(df.values)]
              for _, df in grouped_pat_keys]
+
+# Adding the ICU indicator
+icu_pats = misa_data[misa_data.icu_visit == 1].pat_key
+icu_dict = dict(zip(pat_df.pat_key, [0] * len(pat_df.pat_key)))
+for pat in icu_pats:
+    icu_dict.update({pat: 1})
+icu = [[icu_dict[id] for id in np.unique(df.values)]
+        for _, df in grouped_pat_keys]
 
 # Adding age at each visit
 age = pat_df.age.values.astype(np.uint8)
@@ -198,6 +209,7 @@ pat_dict = {
     'covid': cv_pats,
     'length': pat_lengths,
     'inpat': pat_inpat,
+    'icu': icu,
     'death': pat_deaths,
     'misa_pt': misa_pt,
     'multi_class': misa_multi
