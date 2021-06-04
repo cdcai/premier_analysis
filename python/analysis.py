@@ -39,7 +39,7 @@ if __name__ == '__main__':
     # Setting the models to look at
     mods = ['lgr_d1', 'rf_d1', 'gbc_d1', 'dan_d1', 'lstm']
     pred_dfs = [death_preds, multi_preds, misa_pt_preds]
-    outcomes = ['death', 'multi_class', 'misa_pt']
+    outcomes = ['death', 'multi_class', 'misa_pt', 'icu']
     cis = []
 
     # Running the single confidence intervals (this takes a little time)

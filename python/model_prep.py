@@ -73,7 +73,7 @@ if __name__ == "__main__":
     parser.add_argument('--outcome',
                         type=str,
                         default='misa_pt',
-                        choices=['misa_pt', 'multi_class', 'death'],
+                        choices=['misa_pt', 'multi_class', 'death', 'icu'],
                         help='which outcome to use as the prediction target')
     parser.add_argument('--exclude_icu',
                         type=bool,

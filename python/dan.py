@@ -25,7 +25,7 @@ if __name__ == '__main__':
     parser.add_argument('--outcome',
                         type=str,
                         default='multi_class',
-                        choices=['misa_pt', 'multi_class', 'death'],
+                        choices=['misa_pt', 'multi_class', 'death', 'icu'],
                         help='which outcome to use as the prediction target')
     parser.add_argument('--history',
                         type=str,
