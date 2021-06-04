@@ -1,9 +1,10 @@
 '''This script generates bootstrap CIs for the models and metrics'''
 import argparse
 import os
-
+from functools import partial
 import pandas as pd
 import pickle
+import argparse
 import os
 
 import tools.analysis as ta
@@ -19,12 +20,21 @@ if __name__ == "__main__":
         '--parallel',
         help=
         "Compute BCa CIs in parallel (can speed up execution time but requires more memory and CPU usage)",
-        dest='parallel',
-        action='store_true')
+        type="bool")
+    parser.set_defaults(parallel=True)
+    parser.add_argument('--n_boot',
+                        type=int,
+                        default=100,
+                        help='How many bootstrap samples to use')
+    parser.add_argument(
+        '--processes',
+        type=int,
+        default=8,
+        help=
+        'How many processes to use in the Pool (ignored if parallel is false)')
     parser.add_argument("--out_dir",
                         type=str,
                         help="output directory (optional)")
-    parser.set_defaults(parallel=False)
     parser.add_argument("--outcome",
                         type=str,
                         default=["misa_pt", "multi_class", "death"],
@@ -34,11 +44,17 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    # Globals
+    N_BOOT = args.n_boot
+    PROCESSES = args.processes
     OUTCOME = args.outcome
     PARALLEL = args.parallel
 
     # Choose which CI function to use
-    boot_cis = tm.boot_cis if PARALLEL else ta.boot_cis
+    if PARALLEL:
+        boot_cis = partial(tm.boot_cis, processes=PROCESSES)
+    else:
+        boot_cis = ta.boot_cis
 
     # Setting the directories
     pwd = os.path.abspath(os.path.dirname(__file__))
@@ -89,7 +105,7 @@ if __name__ == "__main__":
             ci = boot_cis(targets=preds[outcome],
                           guesses=guesses,
                           cutpoint=cutpoint,
-                          n=100)
+                          n=N_BOOT)
             # Append to outcome CI list
             outcome_cis.append(ci)
 
