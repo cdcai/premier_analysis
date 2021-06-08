@@ -662,6 +662,7 @@ def write_preds(preds,
                 mod_name,
                 probs=None,
                 test_idx=None,
+                cohort_prefix='',
                 output_dir='output/',
                 stats_folder='analysis/'):
     stats_dir = output_dir + stats_folder
@@ -670,7 +671,7 @@ def write_preds(preds,
         preds_df = pd.read_csv(stats_dir + preds_filename)
     else:
         assert test_idx is not None
-        preds_df = pd.read_csv(output_dir + outcome + '_cohort.csv')
+        preds_df = pd.read_csv(output_dir + cohort_prefix + 'cohort.csv')
         preds_df = preds_df.iloc[test_idx, :]
 
     preds_df[mod_name + '_pred'] = preds

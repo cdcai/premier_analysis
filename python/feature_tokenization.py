@@ -186,6 +186,7 @@ misa_pt = [[misa_pt_dict[id] for id in np.unique(df.values)]
            for _, df in grouped_pat_keys]
 
 #  Making a lookup for the multiclass labels
+'''
 misa_multi_df = trimmed_seq[["medrec_key",
                              "pat_key"]].set_index("medrec_key").join(
                                  misa_data[["medrec_key",
@@ -195,6 +196,7 @@ misa_multi_df = misa_multi_df.drop_duplicates().drop(
     "pat_key", axis=1).reset_index().groupby("medrec_key")
 
 misa_multi = [df.status.to_list() for _, df in misa_multi_df]
+'''
 
 #  And finally saving a the pat_keys themselves to facilitate
 # record linkage during analysis
@@ -207,10 +209,11 @@ pat_dict = {
     'covid': cv_pats,
     'length': pat_lengths,
     'inpat': pat_inpat,
-    'icu': icu,
-    'death': pat_deaths,
-    'misa_pt': misa_pt,
-    'multi_class': misa_multi
+    'outcome': {
+        'icu': icu,
+        'death': pat_deaths,
+        'misa_pt': misa_pt
+    }
 }
 
 with open(pkl_dir + "pat_data.pkl", "wb") as f:

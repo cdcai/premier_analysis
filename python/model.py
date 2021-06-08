@@ -90,7 +90,7 @@ if __name__ == "__main__":
                         help="Percentage of total data to use for testing")
     parser.add_argument("--validation_split",
                         type=float,
-                        default=0.1,
+                        default=0.2,
                         help="Percentage of train data to use for validation")
     parser.add_argument("--rand_seed", type=int, default=2021, help="RNG seed")
     parser.add_argument(
@@ -131,7 +131,7 @@ if __name__ == "__main__":
     stats_filename = TARGET + "_stats.csv"
 
     # Data load
-    with open(os.path.join(pkl_dir, TARGET + "_trimmed_seqs.pkl"), "rb") as f:
+    with open(os.path.join(pkl_dir, "trimmed_seqs.pkl"), "rb") as f:
         inputs = pkl.load(f)
 
     with open(os.path.join(pkl_dir, "all_ftrs_dict.pkl"), "rb") as f:
@@ -156,10 +156,14 @@ if __name__ == "__main__":
     N_VOCAB = len(vocab) + 1
     N_DEMOG = len(demog_lookup) + 1
     MAX_DEMOG = max(len(x) for _, x, _ in inputs)
-    N_CLASS = max(x for _, _, x in inputs) + 1
     
     # Setting y here so it's stable
-    y = np.array([l[2] for l in inputs])
+    cohort = pd.read_csv(output_dir + '\cohort.csv')
+    y = cohort[TARGET].values.astype(np.uint8)
+    N_CLASS = y.max() + 1
+    inputs = [[l for l in x] for x in inputs]
+    for i, x in enumerate(inputs):
+        x[2] = [y[i]]
 
     # Create some callbacks
     callbacks = [

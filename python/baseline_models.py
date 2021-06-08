@@ -37,11 +37,20 @@ if __name__ == '__main__':
                         type=bool,
                         default=True,
                         help='whether to iclude demographics in the features')
+    parser.add_argument('--stratify',
+                        type=str,
+                        default='all',
+                        choices=['all', 'death', 'misa_pt', 'icu'],
+                        help='which label to use for the train-test split')
     parser.add_argument('--average',
                         type=str,
                         default='weighted',
                         choices=['micro', 'macro', 'weighted'],
                         help='how to average stats for multiclass predictions')
+    parser.add_argument('--cohort_prefix',
+                        type=str,
+                        default='',
+                        help='prefix for the cohort csv file, ending with _')
     parser.add_argument('--out_dir',
                         type=str,
                         default='output/',
@@ -56,6 +65,8 @@ if __name__ == '__main__':
     OUTCOME = args.outcome
     USE_DEMOG = args.use_demog
     AVERAGE = args.average
+    CHRT_PRFX = args.cohort_prefix
+    STRATIFY = args.stratify
     DAY_ONE_ONLY = True if args.history != 'all' else False
     
     # Setting the directories and importing the data
@@ -64,7 +75,7 @@ if __name__ == '__main__':
     pkl_dir = output_dir + "pkl/"
     stats_dir = output_dir + 'analysis/'
     
-    with open(pkl_dir + OUTCOME + "_trimmed_seqs.pkl", "rb") as f:
+    with open(pkl_dir + CHRT_PRFX + "trimmed_seqs.pkl", "rb") as f:
         inputs = pkl.load(f)
     
     with open(pkl_dir + "all_ftrs_dict.pkl", "rb") as f:
@@ -80,7 +91,8 @@ if __name__ == '__main__':
     # Separating the inputs and labels
     features = [t[0] for t in inputs]
     demog = [t[1] for t in inputs]
-    labels = [t[2] for t in inputs]
+    cohort = pd.read_csv(output_dir + CHRT_PRFX + 'cohort.csv')
+    labels = cohort[OUTCOME]
     
     # Counts to use for loops and stuff
     n_patients = len(features)
@@ -115,18 +127,25 @@ if __name__ == '__main__':
     # Converting to csr because the internet said it would be faster
     X = mat.tocsr()
     
-    # Splitting the data
+    # Splitting the data; 'all' will produce the same test sample 
+    # for every outcome (kinda nice)
+    if STRATIFY == 'all':
+        outcomes = ['icu', 'misa_pt', 'death']
+        strat_var = cohort[outcomes].values.astype(np.uint8)
+    else:
+        strat_var = y
+        
     train, test = train_test_split(range(n_patients),
                                    test_size=0.2,
-                                   stratify=y,
+                                   stratify=strat_var,
                                    random_state=2021)
     
     # Doing a validation split for threshold-picking on binary problems
     train, val = train_test_split(train,
                                   test_size=0.2,
-                                  stratify=y[train],
+                                  stratify=strat_var[train],
                                   random_state=2021)
-
+    
     # Fitting a logistic regression to the whole dataset
     lgr = LogisticRegression(max_iter=5000, multi_class='ovr')
     lgr.fit(X, y)
@@ -173,7 +192,7 @@ if __name__ == '__main__':
         LogisticRegression(max_iter=5000, multi_class='ovr'),
         RandomForestClassifier(n_estimators=500, n_jobs=-1),
         GradientBoostingClassifier(),
-        LinearSVC(class_weight='balanced', max_iter=5000)       
+        LinearSVC(class_weight='balanced', max_iter=10000)       
     ]
     mod_names = ['lgr', 'rf', 'gbc', 'svm']
 
