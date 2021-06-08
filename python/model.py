@@ -249,22 +249,21 @@ if __name__ == "__main__":
     if "lstm" in MOD_NAME:
         # Compute steps-per-epoch
         # NOTE: Sometimes it can't determine this properly from tf.data
-        STEPS_PER_EPOCH = np.ceil(len(train) / BATCH_SIZE)
-        VALID_STEPS_PER_EPOCH = np.ceil(len(val) / BATCH_SIZE)
+        STEPS_PER_EPOCH = len(train) // BATCH_SIZE
+        VALID_STEPS_PER_EPOCH = len(val) // BATCH_SIZE
 
         #
         train_gen = tk.create_ragged_data_gen([inputs[samp] for samp in train],
                                               max_demog=MAX_DEMOG,
-                                              epochs=1,
+                                              epochs=EPOCHS,
                                               multiclass=N_CLASS > 2,
                                               random_seed=RAND,
-                                              ragged=False,
                                               batch_size=BATCH_SIZE)
 
         validation_gen = tk.create_ragged_data_gen(
             [inputs[samp] for samp in val],
             max_demog=MAX_DEMOG,
-            epochs=1,
+            epochs=EPOCHS,
             shuffle=False,
             multiclass=N_CLASS > 2,
             random_seed=RAND,
@@ -357,7 +356,7 @@ if __name__ == "__main__":
                       validation_data=(X[val], y_one_hot[val]),
                       callbacks=callbacks,
                       class_weight=weight_dict)
-        elif "dan_hp" in MOD_NAME:
+        elif "hp_dan" in MOD_NAME:
             # NOTE: IF HP-tuned, we want to use SGD with the
             # params found, so return compiled.
             # HACK: This kind of assumes we're tuning for multiclass,
