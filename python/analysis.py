@@ -97,8 +97,9 @@ if __name__ == "__main__":
         cis.append(ta.merge_ci_list(outcome_cis, mod_names=mods, round=2))
 
     # Writing all the confidence intervals to disk
-    with pd.ExcelWriter(
-            ci_file, mode="a" if os.path.exists(ci_file) else "w") as writer:
+    append_flag = "a" if os.path.exists(ci_file) else "w"
+
+    with pd.ExcelWriter(ci_file, mode=append_flag) as writer:
         for i, outcome in enumerate(OUTCOME):
             cis[i].to_excel(writer, sheet_name=outcome)
         writer.save()
