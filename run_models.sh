@@ -69,11 +69,6 @@ run_hp_models() {
     python "$PWD/python/model.py" --outcome=$outcome --day_one --model=hp_dan
 }
 
-compute_cis() {
-    # Compute Bootstrapped CIs
-    python "$PWD/python/analysis.py" --outcome=$outcome
-}
-
 echo "Trimming sequences and appending labels >>"
 run_model_prep
 echo "Running Baselines >>"
@@ -84,7 +79,5 @@ echo "Running LSTM >>"
 run_lstm
 if [[ "$outcome" -eq "multi_class" ]]; then
     echo "Running Hyperparameter-tuned LSTM & DAN >>"
-    run_hp_lstm
+    run_hp_models
 fi
-echo "Computing Bootstrap CIs >>"
-compute_cis
