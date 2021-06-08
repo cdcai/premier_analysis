@@ -77,7 +77,7 @@ echo "Running DAN >>"
 run_dan
 echo "Running LSTM >>"
 run_lstm
-if [[ "$outcome" -eq "multi_class" ]]; then
+if [[ $outcome == "multi_class" ]]; then
     echo "Running Hyperparameter-tuned LSTM & DAN >>"
     run_hp_models
 fi

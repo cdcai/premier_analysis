@@ -180,7 +180,7 @@ if __name__ == "__main__":
     # Determining number of vocab entries
     N_VOCAB = len(vocab) + 1
     N_DEMOG = len(demog_lookup) + 1
-    MAX_DEMOG = max(max(x) for _, x, _ in inputs)
+    MAX_DEMOG = max(len(x) for _, x, _ in inputs)
     N_CLASS = max(x for _, _, x in inputs) + 1
 
     # Setting y here so it's stable
@@ -278,7 +278,7 @@ if __name__ == "__main__":
                                              random_seed=RAND,
                                              batch_size=BATCH_SIZE)
 
-        if MOD_NAME == "lstm_hp":
+        if "hp_lstm" in MOD_NAME:
             # NOTE: IF HP-tuned, we want to use SGD with the
             # params found, so return compiled.
             model = keras.models.load_model(os.path.join(
@@ -331,11 +331,31 @@ if __name__ == "__main__":
 
         # Making the variables
         X = keras.preprocessing.sequence.pad_sequences(features,
-                                                       maxlen=225,
                                                        padding='post')
 
+        if "hp_dan" in MOD_NAME:
+            # NOTE: IF HP-tuned, we want to use SGD with the
+            # params found, so return compiled.
+            # HACK: This kind of assumes we're tuning for multiclass,
+            # and I'm not really sure a way around that.
+            n_values = np.max(y) + 1
+            y_one_hot = np.eye(n_values)[y]
+
+            model = keras.models.load_model(os.path.join(
+                tensorboard_dir, "best", "dan"),
+                                            custom_objects={'tf': tf},
+                                            compile=True)
+
+            model.fit(X[train],
+                      y_one_hot[train],
+                      batch_size=BATCH_SIZE,
+                      epochs=EPOCHS,
+                      validation_data=(X[val], y_one_hot[val]),
+                      callbacks=callbacks,
+                      class_weight=weight_dict)
+
         # Handle multiclass case
-        if N_CLASS > 2:
+        elif N_CLASS > 2:
             # We have to pass one-hot labels for model fit, but CLF metrics
             # will take indices
             n_values = np.max(y) + 1
@@ -348,26 +368,6 @@ if __name__ == "__main__":
                            n_classes=N_CLASS)
 
             model.compile(optimizer="adam", loss=loss_fn, metrics=metrics)
-
-            model.fit(X[train],
-                      y_one_hot[train],
-                      batch_size=BATCH_SIZE,
-                      epochs=EPOCHS,
-                      validation_data=(X[val], y_one_hot[val]),
-                      callbacks=callbacks,
-                      class_weight=weight_dict)
-        elif "hp_dan" in MOD_NAME:
-            # NOTE: IF HP-tuned, we want to use SGD with the
-            # params found, so return compiled.
-            # HACK: This kind of assumes we're tuning for multiclass,
-            # and I'm not really sure a way around that.
-            n_values = np.max(y) + 1
-            y_one_hot = np.eye(n_values)[y]
-
-            model = keras.models.load_model(os.path.join(
-                tensorboard_dir, "best", "dan"),
-                                            custom_objects={'tf': tf},
-                                            compile=True)
 
             model.fit(X[train],
                       y_one_hot[train],
