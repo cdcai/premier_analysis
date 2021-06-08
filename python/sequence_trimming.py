@@ -13,7 +13,11 @@ from importlib import reload
 from multiprocessing import Pool
 
 
-def find_cutpoints(visit_type, visit_length, tail=1, origin=0, how='first'):
+def find_cutpoints(visit_type, 
+                   visit_length, 
+                   tail=1, 
+                   origin=0, 
+                   how='first'):
     '''Figures out where to cut each patient's sequence of visits.
     
     See tools.preprocessing for full docstring.
@@ -43,7 +47,8 @@ def trim_sequence(inputs, labels, cuts):
     '''
     in_start, in_end = cuts[0][0], cuts[0][1]
     label_id = cuts[1]
-    return inputs[0][in_start:in_end], inputs[1], labels[label_id]
+    targets = [l[label_id] for l in labels]
+    return inputs[0][in_start:in_end], inputs[1], targets
 
 
 def flatten(l):
@@ -70,11 +75,6 @@ if __name__ == "__main__":
                         type=int,
                         default=225,
                         help='max number of days to include')
-    parser.add_argument('--outcome',
-                        type=str,
-                        default='misa_pt',
-                        choices=['misa_pt', 'multi_class', 'death', 'icu'],
-                        help='which outcome to use as the prediction target')
     parser.add_argument('--exclude_icu',
                         type=bool,
                         default=True,
@@ -110,7 +110,6 @@ if __name__ == "__main__":
     CUT_METHOD = args.cut_method
     HORIZON = args.horizon
     MAX_SEQ = args.max_seq
-    OUTCOME = args.outcome
     EXCLUDE_ICU = args.exclude_icu
     MIN_AGE = args.min_age
     WRITE_DF = args.write_df
@@ -145,7 +144,11 @@ if __name__ == "__main__":
         cut_points = p.starmap(find_cutpoints, find_input)
 
         # Trimming the inputs and outputs to the right length
-        trim_input = [(int_seqs[i], pat_data[OUTCOME][i], cut_points[i])
+        outcomes = list(pat_data['outcome'].keys())
+        outcome_list = [list(pat_data['outcome'][o]) for o in outcomes]
+        trim_input = [(int_seqs[i], 
+                       [l[i] for l in outcome_list], 
+                       cut_points[i])
                       for i in range(n_patients)]
         trim_out = p.starmap(trim_sequence, trim_input)
         
@@ -187,19 +190,17 @@ if __name__ == "__main__":
                 pat_data['key'][i][cut_points[i][1]],
                 pat_data['age'][i][cut_points[i][1]],
                 pat_data['length'][i][cut_points[i][1]],
-                pat_data['misa_pt'][i][cut_points[i][1]],
-                pat_data['multi_class'][i][cut_points[i][1]],
-                pat_data['death'][i][cut_points[i][1]]
+                pat_data['outcome']['misa_pt'][i][cut_points[i][1]],
+                pat_data['outcome']['icu'][i][cut_points[i][1]],
+                pat_data['outcome']['death'][i][cut_points[i][1]]
             ] for i in range(n_patients) if keepers[i]]
             cohort_df = pd.DataFrame(cohort)
             cohort_df.columns = [
-                'key', 'age', 'length', 'misa_pt', 'multi_class', 'death'
+                'key', 'age', 'length', 
+                'misa_pt', 'icu', 'death'
             ]
-            cohort_df.to_csv(output_dir + OUTCOME + '_cohort.csv', index=False)
-
-    # output max time to use in keras model
-    print("Use TIME_SEQ:{}".format(max([len(x) for x, _, _ in trim_out])))
-
+            cohort_df.to_csv(output_dir + 'cohort.csv', index=False)
+    
     # Saving the trimmed sequences to disk
-    with open(pkl_dir + OUTCOME + '_trimmed_seqs.pkl', 'wb') as f:
+    with open(pkl_dir + 'trimmed_seqs.pkl', 'wb') as f:
         pkl.dump(trim_out, f)

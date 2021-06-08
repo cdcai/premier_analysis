@@ -10,7 +10,6 @@ import pickle as pkl
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-import tensorflow_addons as tfa
 import tensorflow.keras as keras
 from sklearn.model_selection import train_test_split
 from sklearn.utils.class_weight import compute_class_weight
@@ -20,7 +19,6 @@ import tools.analysis as ta
 import tools.preprocessing as tp
 import tools.keras as tk
 
-# %% Globals
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
@@ -53,6 +51,15 @@ if __name__ == "__main__":
                         type=bool,
                         default=True,
                         help="Should the model include patient demographics?")
+    parser.add_argument('--stratify',
+                        type=str,
+                        default='all',
+                        choices=['all', 'death', 'misa_pt', 'icu'],
+                        help='which label to use for the train-test split')
+    parser.add_argument('--cohort_prefix',
+                        type=str,
+                        default='',
+                        help='prefix for the cohort csv file, ending with _s')
     parser.add_argument("--dropout",
                         type=float,
                         default=0.0,
@@ -90,7 +97,7 @@ if __name__ == "__main__":
                         help="Percentage of total data to use for testing")
     parser.add_argument("--validation_split",
                         type=float,
-                        default=0.1,
+                        default=0.2,
                         help="Percentage of train data to use for validation")
     parser.add_argument("--rand_seed", type=int, default=2021, help="RNG seed")
     parser.add_argument(
@@ -110,6 +117,8 @@ if __name__ == "__main__":
         MOD_NAME += '_w'
     OUTCOME = args.outcome
     DEMOG = args.demog
+    CHRT_PRFX = args.cohort_prefix
+    STRATIFY = args.stratify
     DAY_ONE_ONLY = args.day_one
     if DAY_ONE_ONLY:
         # Optionally limiting the features to only those from the first day
@@ -156,7 +165,7 @@ if __name__ == "__main__":
     preds_file = os.path.join(stats_dir, OUTCOME + "_preds.csv")
 
     # Data load
-    with open(os.path.join(pkl_dir, OUTCOME + "_trimmed_seqs.pkl"), "rb") as f:
+    with open(pkl_dir + CHRT_PRFX + "trimmed_seqs.pkl", "rb") as f:
         inputs = pkl.load(f)
 
     with open(os.path.join(pkl_dir, "all_ftrs_dict.pkl"), "rb") as f:
@@ -181,10 +190,18 @@ if __name__ == "__main__":
     N_VOCAB = len(vocab) + 1
     N_DEMOG = len(demog_lookup) + 1
     MAX_DEMOG = max(len(x) for _, x, _ in inputs)
-    N_CLASS = max(x for _, _, x in inputs) + 1
 
     # Setting y here so it's stable
-    y = np.array([l[2] for l in inputs])
+    cohort = pd.read_csv(output_dir + CHRT_PRFX + 'cohort.csv')
+    labels = cohort[OUTCOME]
+    y = cohort[OUTCOME].values.astype(np.uint8)
+
+    N_CLASS = y.max() + 1
+
+    inputs = [[l for l in x] for x in inputs]
+
+    for i, x in enumerate(inputs):
+        x[2] = [y[i]]
 
     # Create some metrics
     metrics = [
@@ -199,15 +216,22 @@ if __name__ == "__main__":
     else:
         loss_fn = keras.losses.binary_crossentropy
 
-    # Splitting the data
+    # Splitting the data; 'all' will produce the same test sample
+    # for every outcome (kinda nice)
+    if STRATIFY == 'all':
+        outcomes = ['icu', 'misa_pt', 'death']
+        strat_var = cohort[outcomes].values.astype(np.uint8)
+    else:
+        strat_var = y
+
     train, test = train_test_split(range(len(inputs)),
                                    test_size=TEST_SPLIT,
-                                   stratify=y,
+                                   stratify=strat_var,
                                    random_state=RAND)
 
     train, val = train_test_split(train,
                                   test_size=VAL_SPLIT,
-                                  stratify=y[train],
+                                  stratify=strat_var[train],
                                   random_state=RAND)
 
     # Optional weighting
@@ -333,8 +357,7 @@ if __name__ == "__main__":
         elif N_CLASS > 2:
             # We have to pass one-hot labels for model fit, but CLF metrics
             # will take indices
-            n_values = np.max(y) + 1
-            y_one_hot = np.eye(n_values)[y]
+            y_one_hot = ta.onehot_matrix(y)
 
             # Produce DAN model to fit
             model = tk.DAN(vocab_size=N_VOCAB,

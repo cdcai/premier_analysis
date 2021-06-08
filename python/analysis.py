@@ -37,9 +37,9 @@ if __name__ == "__main__":
                         help="output directory (optional)")
     parser.add_argument("--outcome",
                         type=str,
-                        default=["misa_pt", "multi_class", "death"],
+                        default=["misa_pt", "multi_class", "death", "icu"],
                         nargs="+",
-                        choices=["misa_pt", "multi_class", "death"],
+                        choices=["misa_pt", "multi_class", "death", "icu"],
                         help="which outcome to compute CIs for (default: all)")
 
     args = parser.parse_args()
