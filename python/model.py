@@ -247,35 +247,13 @@ if __name__ == "__main__":
 
     # === Long short-term memory model
     if "lstm" in MOD_NAME:
-        # Compute steps-per-epoch
-        # NOTE: Sometimes it can't determine this properly from tf.data
-        STEPS_PER_EPOCH = len(train) // BATCH_SIZE
-        VALID_STEPS_PER_EPOCH = len(val) // BATCH_SIZE
-
-        #
-        train_gen = tk.create_ragged_data_gen([inputs[samp] for samp in train],
-                                              max_demog=MAX_DEMOG,
-                                              epochs=EPOCHS,
-                                              multiclass=N_CLASS > 2,
-                                              random_seed=RAND,
-                                              batch_size=BATCH_SIZE)
-
-        validation_gen = tk.create_ragged_data_gen(
-            [inputs[samp] for samp in val],
-            max_demog=MAX_DEMOG,
-            epochs=EPOCHS,
-            shuffle=False,
-            multiclass=N_CLASS > 2,
-            random_seed=RAND,
-            batch_size=BATCH_SIZE)
-
-        # NOTE: don't shuffle test data
-        test_gen = tk.create_ragged_data_gen([inputs[samp] for samp in test],
-                                             max_demog=MAX_DEMOG,
-                                             epochs=1,
-                                             multiclass=N_CLASS > 2,
-                                             shuffle=False,
-                                             random_seed=RAND)
+        # Produce dataset generators
+        train_gen, test_gen, validation_gen = tk.create_all_data_gens(
+            inputs=inputs,
+            split_idx=[train, test, val],
+            batch_size=BATCH_SIZE,
+            shuffle=True,
+            seed=RAND)
 
         if "hp_lstm" in MOD_NAME:
             # NOTE: IF HP-tuned, we want to use SGD with the
@@ -298,9 +276,7 @@ if __name__ == "__main__":
 
         # Train
         fitting = model.fit(train_gen,
-                            steps_per_epoch=STEPS_PER_EPOCH,
                             validation_data=validation_gen,
-                            validation_steps=VALID_STEPS_PER_EPOCH,
                             epochs=EPOCHS,
                             callbacks=callbacks,
                             class_weight=weight_dict)

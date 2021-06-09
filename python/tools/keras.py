@@ -8,6 +8,7 @@ import kerastuner
 import tensorflow as tf
 import tensorflow_addons as tfa
 
+from typing import Tuple
 from kerastuner import HyperModel
 from tensorflow import keras as keras
 from tensorflow.keras import backend as K
@@ -36,6 +37,100 @@ def sequence_to_onehot_tensor(y: list):
     feat_one_hot = tf.one_hot(feat_ragged, max_feat)
 
     return feat_one_hot
+
+
+def create_all_data_gens(
+    inputs: list,
+    split_idx: list,
+    batch_size: int = 32,
+    shuffle: bool = True,
+    seed: int = 2021,
+    ragged: bool = True,
+    label_dtype=None,
+    resample: bool = False,
+    sample_frac: list = None
+) -> Tuple[tf.data.Dataset, tf.data.Dataset, tf.data.Dataset]:
+    """
+    A tf.dataset generator which returns three tf.data.Datasets
+    for train, test, and validation respectively.
+
+    split_idx should be a list-of-lists which specifies the index
+    of samples which fall within each gen.
+
+    TODO: Write docstring
+    """
+
+    # Safety check to remove any empty lists
+    seq = [[(lambda x: [0] if x == [] else x)(bags) for bags in seq]
+           for seq, _, _ in inputs]
+
+    # Convert to ragged
+    # shape: (len(x), None, None)
+    X = tf.ragged.constant(seq)
+
+    # Sanity check
+    assert X.shape.as_list() == [len(seq), None, None]
+
+    # Making demographics dense
+    max_demog = max(len(dem) for _, dem, _ in inputs)
+
+    demog = tf.ragged.constant([dem for _, dem, _ in inputs])
+    demog = demog.to_tensor(default_value=0, shape=(demog.shape[0], max_demog))
+
+    if not ragged:
+        # This will be an expensive operation
+        # and will probably not work.
+        X = X.to_tensor()
+
+    # Labs as stacked
+    # NOTE: some loss functions require this to be float
+    n_class = max(x for _, _, x in inputs)
+    multiclass = (n_class + 1) > 2
+
+    if multiclass:
+        y = tf.one_hot([tup[2] for tup in inputs],
+                       max([tup[2] for tup in inputs]) + 1,
+                       dtype=label_dtype)
+    else:
+        y = np.array([tup[2] for tup in inputs], dtype=label_dtype)
+
+    # Split by idx to produce the TTV
+
+    gens = []
+
+    for indices in split_idx:
+        samp = tf.data.Dataset.from_tensor_slices(
+            (tf.gather(X, indices), tf.gather(demog, indices)))
+        labs = tf.data.Dataset.from_tensor_slices(tf.gather(y, indices))
+        gens.append(tf.data.Dataset.zip((samp, labs)))
+
+    # --- Additional Training stuff
+    if resample:
+        # BUG: Doesn't seem to run for reasons unknown
+        train_labs = np.array(
+            [tup[2] for i, tup in enumerate(inputs) if i in split_idx[0]])
+        _, lab_counts = np.unique(train_labs, return_counts=True)
+        lab_frac = lab_counts / np.sum(lab_counts)
+
+        # Use rejection-resampling
+        resampler = tf.data.experimental.rejection_resample(
+            lambda feats, labs: labs,
+            target_dist=sample_frac,
+            initial_dist=lab_frac,
+            seed=seed)
+
+        gens[0] = gens[0].apply(resampler)
+
+    if shuffle:
+        train_len = len(split_idx[0])
+        gens[0] = gens[0].shuffle(buffer_size=train_len,
+                                  seed=seed,
+                                  reshuffle_each_iteration=True)
+
+    gens = [gen.batch(batch_size) for gen in gens]
+
+    # Return as tuple
+    return tuple(gens)
 
 
 def create_ragged_data_gen(inputs: list,
@@ -429,11 +524,12 @@ class LSTMHyper(kerastuner.HyperModel):
         model = keras.Model([feat_input, demog_input], output)
 
         # --- Learning rate and momentum
-        lr = hp.Choice(
-            "Learning Rate",
-            [1e-6, 5e-6, 1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2, 1e-1])
-        momentum = hp.Float("Momentum", min_value=0.0, max_value=0.9, step=0.1)
-        opt = keras.optimizers.SGD(lr, momentum=momentum)
+        # lr = hp.Choice(
+        #     "Learning Rate",
+        #     [1e-6, 5e-6, 1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2, 1e-1])
+        # momentum = hp.Float("Momentum", min_value=0.0, max_value=0.9, step=0.1)
+        # opt = keras.optimizers.SGD(lr, momentum=momentum)
+        opt = keras.optimizers.Adam()
 
         # --- Loss FN
         # NOTE: I was messing around with focal loss here, but I think that's
@@ -554,11 +650,12 @@ class DANHyper(kerastuner.HyperModel):
         model = keras.Model(feat_input, output)
 
         # --- Learning rate and momentum
-        lr = hp.Choice(
-            "Learning Rate",
-            [1e-6, 5e-6, 1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2, 1e-1])
-        momentum = hp.Float("Momentum", min_value=0.0, max_value=0.9, step=0.1)
-        opt = keras.optimizers.SGD(lr, momentum=momentum)
+        # lr = hp.Choice(
+        #     "Learning Rate",
+        #     [1e-6, 5e-6, 1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2, 1e-1])
+        # momentum = hp.Float("Momentum", min_value=0.0, max_value=0.9, step=0.1)
+        # opt = keras.optimizers.SGD(lr, momentum=momentum)
+        opt = keras.optimizers.Adam()
 
         # --- Loss FN
         # NOTE: I was messing around with focal loss here, but I think that's
