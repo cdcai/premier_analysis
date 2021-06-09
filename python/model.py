@@ -163,7 +163,7 @@ if __name__ == "__main__":
     N_CLASS = y.max() + 1
     inputs = [[l for l in x] for x in inputs]
     for i, x in enumerate(inputs):
-        x[2] = [y[i]]
+        x[2] = y[i]
 
     # Create some callbacks
     callbacks = [
@@ -207,16 +207,17 @@ if __name__ == "__main__":
         loss_fn = keras.losses.binary_crossentropy
     
     # Splitting the data
+    outcomes = cohort[['icu', 'misa_pt', 'death']].values.astype(np.uint8)
     train, test = train_test_split(
         range(len(inputs)),
         test_size=TEST_SPLIT,
-        stratify=y,
+        stratify=outcomes,
         random_state=RAND)
     
     train, val = train_test_split(
         train,
         test_size=VAL_SPLIT,
-        stratify=y[train],
+        stratify=outcomes[train],
         random_state=RAND)
     
     # Optional weighting

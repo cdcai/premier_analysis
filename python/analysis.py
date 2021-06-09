@@ -21,11 +21,28 @@ if __name__ == '__main__':
                         type=int,
                         default=8,
                         help='how many processes to use in the Pool')
+    parser.add_argument('--model',
+                        type=str,
+                        default='all',
+                        help='which models to evaluate; must either be "all" \
+                        or a single column name from the preds files, like \
+                        "lgr_d1" or "lstm"')
+    parser.add_argument('--outcome',
+                        type=str,
+                        default='all',
+                        help='which outcomes to evaluate models on; must \
+                        either be "all" or a single preds file prefix, like \
+                        "icu" or "death"')
     args = parser.parse_args()
     
     # Globals
     N_BOOT = args.n_boot
     PROCESSES = args.processes
+    
+    mods = ['lgr_d1', 'rf_d1', 'gbc_d1', 'dan_d1', 'lstm']
+    outcomes = ['death', 'misa_pt', 'icu']
+    MOD = [args.model] if args.model != 'all' else mods
+    OUTCOME = [args.outcome] if args.outcome != 'all' else outcomes
     
     # Setting the directories
     output_dir = os.path.abspath('output/') + '/'
@@ -33,22 +50,20 @@ if __name__ == '__main__':
 
     # Importing the predictions
     death_preds = pd.read_csv(stats_dir + 'death_preds.csv')
-    multi_preds = pd.read_csv(stats_dir + 'multi_class_preds.csv')
+    #multi_preds = pd.read_csv(stats_dir + 'multi_class_preds.csv')
     misa_pt_preds = pd.read_csv(stats_dir + 'misa_pt_preds.csv')
     icu_preds = pd.read_csv(stats_dir + 'icu_preds.csv')
 
     # Setting the models to look at
-    mods = ['lgr_d1', 'rf_d1', 'gbc_d1', 'dan_d1', 'lstm']
-    pred_dfs = [death_preds, multi_preds, misa_pt_preds, icu_preds]
-    outcomes = ['icu']
+    pred_dfs = [death_preds, misa_pt_preds, icu_preds]
     cis = []
 
     # Running the single confidence intervals (this takes a little time)
     probs_dir = stats_dir + 'probs/'
     prob_files = os.listdir(probs_dir)
-    for i, outcome in enumerate(outcomes):
+    for i, outcome in enumerate(OUTCOME):
         outcome_cis = []
-        for mod in mods:
+        for mod in MOD:
             print(outcome + ' ' + mod)
             mod_probs = mod + '_' + outcome + '.pkl'
             if mod_probs in prob_files:
@@ -70,8 +85,12 @@ if __name__ == '__main__':
                                     round=2))
 
     # Writing the confidence intervals to disk
-    writer = pd.ExcelWriter(stats_dir +'cis.xlsx')
-    for i, outcome in enumerate(outcomes):
+    out_file = 'cis.xlsx'
+    if OUTCOME != 'all' or MOD != 'all':
+        out_file = OUTCOME[0] + '_' + MOD[0] + '_' + out_file
+    writer = pd.ExcelWriter(stats_dir + out_file)
+    
+    for i, outcome in enumerate(OUTCOME):
         cis[i].to_excel(writer, sheet_name=outcome)
 
     writer.save()
