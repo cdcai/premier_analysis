@@ -201,7 +201,7 @@ if __name__ == "__main__":
     inputs = [[l for l in x] for x in inputs]
 
     for i, x in enumerate(inputs):
-        x[2] = [y[i]]
+        x[2] = y[i]
 
     # Create some metrics
     metrics = [

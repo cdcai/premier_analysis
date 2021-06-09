@@ -41,7 +41,12 @@ if __name__ == "__main__":
                         nargs="+",
                         choices=["misa_pt", "multi_class", "death", "icu"],
                         help="which outcome to compute CIs for (default: all)")
-
+    parser.add_argument('--model',
+                        type=str,
+                        default='',
+                        help='which models to evaluate; must either be "all" \
+                    or a single column name from the preds files, like \
+                    "lgr_d1" or "lstm"')
     args = parser.parse_args()
 
     # Globals
@@ -49,6 +54,7 @@ if __name__ == "__main__":
     PROCESSES = args.processes
     OUTCOME = args.outcome
     PARALLEL = args.parallel
+    MODEL = args.model
 
     # Choose which CI function to use
     if PARALLEL:
@@ -81,10 +87,13 @@ if __name__ == "__main__":
         # Importing the predictions
         preds = pd.read_csv(os.path.join(stats_dir, outcome + '_preds.csv'))
 
-        # Pulling a list of all models from the preds file
-
-        mods = [col for col in preds.columns if "_pred" in col]
-        mods = [re.sub("_pred", "", mod) for mod in mods]
+        # Take only single model if specified, else
+        # pull a list of all models from the preds file dynamically
+        if MODEL != "":
+            mods = MODEL
+        else:
+            mods = [col for col in preds.columns if "_pred" in col]
+            mods = [re.sub("_pred", "", mod) for mod in mods]
 
         for mod in mods:
             mod_prob_file = mod + '_' + outcome + '.pkl'

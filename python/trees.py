@@ -44,13 +44,14 @@ writer = pd.ExcelWriter(stats_dir + 'importances.xlsx')
 
 for OUTCOME in ['death', 'multi_class', 'misa_pt', 'icu']:
     # Load the outcome-specific data
-    with open(pkl_dir + OUTCOME + "_trimmed_seqs.pkl", "rb") as f:
+    with open(pkl_dir + "trimmed_seqs.pkl", "rb") as f:
         inputs = pkl.load(f)
     
     # Separating the inputs and labels
     features = [t[0] for t in inputs]
     demog = [t[1] for t in inputs]
-    labels = [t[2] for t in inputs]
+    cohort = pd.read_csv(output_dir + 'cohort.csv')
+    labels = cohort[OUTCOME]
     
     # Counts to use for loops and stuff
     n_patients = len(features)
