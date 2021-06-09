@@ -42,7 +42,6 @@ def create_ragged_data_gen(inputs: list,
                            max_demog: int,
                            epochs: int,
                            multiclass: bool = False,
-                           demog_output: str = None,
                            batch_size: int = 32,
                            random_seed: int = 1234,
                            ragged: bool = True,
@@ -63,12 +62,6 @@ def create_ragged_data_gen(inputs: list,
     assert X.shape.as_list() == [len(seq), None, None]
 
     # Making demographics dense
-    # if demog_output == "multi-hot":
-    #     demog = sequence_to_multihot_tensor([dem for _, dem, _ in inputs])
-    # elif demog_output == "one-hot":
-    #     demog = sequence_to_onehot_tensor([dem for _, dem, _ in inputs])
-    # else:
-    # Take as sequence
     # BUG: Model doesn't seem to like this when it's ragged. Figure it out eventually.
     demog = tf.ragged.constant([dem for _, dem, _ in inputs])
     demog = demog.to_tensor(default_value=0, shape=(demog.shape[0], max_demog))
@@ -122,7 +115,8 @@ def create_ragged_data_gen(inputs: list,
                                     seed=random_seed,
                                     reshuffle_each_iteration=True)
 
-    data_gen = data_gen.batch(batch_size)
+    if batch_size:
+        data_gen = data_gen.batch(batch_size)
 
     data_gen = data_gen.repeat(epochs)
 

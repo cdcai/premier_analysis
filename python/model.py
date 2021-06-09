@@ -67,7 +67,7 @@ if __name__ == "__main__":
                         help="Number of cells in the hidden layer")
     parser.add_argument("--batch_size",
                         type=int,
-                        default=32,
+                        default=64,
                         help="Mini batch size")
     parser.add_argument("--weighted_loss",
                         help="Weight loss to account for class imbalance",
@@ -275,8 +275,7 @@ if __name__ == "__main__":
                                              epochs=1,
                                              multiclass=N_CLASS > 2,
                                              shuffle=False,
-                                             random_seed=RAND,
-                                             batch_size=BATCH_SIZE)
+                                             random_seed=RAND)
 
         if "hp_lstm" in MOD_NAME:
             # NOTE: IF HP-tuned, we want to use SGD with the
