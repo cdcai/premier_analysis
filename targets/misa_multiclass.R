@@ -14,7 +14,7 @@ targets <- as_tibble(targets)
 
 # --- Filter pat_data to relevant medrec_keys and pull
 pat_filtered <- pat_data %>%
-  filter(medrec_key %in% targets[["medrec_key"]]) %>%
+  filter(medrec_key %in% unique(targets[["medrec_key"]])) %>%
   collect()
 
 # === re-compute classification
