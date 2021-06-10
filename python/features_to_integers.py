@@ -32,7 +32,7 @@ final_cols = ['covid_visit', 'ftrs']
 # Read in the pat and ID tables
 pat_df = pd.read_parquet(data_dir + "vw_covid_pat_all/")
 id_df = pd.read_parquet(data_dir + "vw_covid_id/")
-misa_data = pd.read_csv(targets_dir + 'icu_targets.csv')
+misa_data = pd.read_csv(targets_dir + 'icu_targets.csv', sep=";")
 
 # Read in the flat feature file
 trimmed_seq = pd.read_parquet(output_dir + "parquet/flat_features.parquet")
