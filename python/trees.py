@@ -42,7 +42,7 @@ with open(pkl_dir + "demog_dict.pkl", "rb") as f:
 
 writer = pd.ExcelWriter(stats_dir + 'importances.xlsx')
 
-for OUTCOME in ['death', 'multi_class', 'misa_pt', 'icu']:
+for OUTCOME in ['death', 'misa_pt', 'icu']:
     # Load the outcome-specific data
     with open(pkl_dir + "trimmed_seqs.pkl", "rb") as f:
         inputs = pkl.load(f)
