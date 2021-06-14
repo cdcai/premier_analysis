@@ -15,6 +15,7 @@ outcomes = ['icu', 'misa_pt', 'death']
 icu_preds = pd.read_csv(file_dir + 'icu_preds.csv')
 misa_preds = pd.read_csv(file_dir + 'misa_pt_preds.csv')
 death_preds = pd.read_csv(file_dir + 'death_preds.csv')
+pred_dfs = [icu_preds, misa_preds, death_preds]
 prob_cols = ['lgr_d1_prob', 'rf_d1_prob', 'gbc_d1_prob',
              'dan_d1_prob', 'lstm_prob']
 mod_names = ['lgr', 'rf', 'gbc', 'dan', 'lstm']
@@ -35,10 +36,21 @@ for i, df in enumerate(pred_dfs):
     sns.lineplot(x='fpr', y='tpr', data=all_dfs, hue='model', ci=None)
     sns.lineplot(x=(0, 1), y=(0, 1), color='lightgray')
     plt.title(fig_titles[i])
-    plt.savefig(out_dir + outcomes[i] + '_' + 'ROC.pdf',
+    plt.savefig(out_dir + outcomes[i] + '_' + 'roc.png',
                 bbox_inches='tight')
     plt.clf()
 
+# Running the histograms
+for i, df in enumerate(pred_dfs):
+    pred_probs = [pd.DataFrame(df[[outcomes[i], col]]) for col in prob_cols]
+    for j, p_df in enumerate(pred_probs):
+        plt.title(mod_names[j])
+        sns.histplot(x=p_df.iloc[:, 1], hue=p_df.iloc[:, 0])
+        file_name = outcomes[i] + '_' + mod_names[j]
+        plt.savefig(out_dir + file_name + '_hist.png', bbox_inches='tight')
+        plt.clf()
+
+'''
 # Running the histograms
 for i, df in enumerate(pred_dfs):
     pred_probs = [pd.DataFrame(df[[col]]) for col in prob_cols]
@@ -51,3 +63,4 @@ for i, df in enumerate(pred_dfs):
     plt.savefig(out_dir + outcomes[i] + '_' + 'hist.pdf',
                 bbox_inches='tight')
     plt.clf()
+'''
