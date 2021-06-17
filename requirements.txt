@@ -8,6 +8,8 @@ attrs==20.2.0
 backcall==0.2.0
 bleach==3.3.0
 bokeh==2.2.1
+boto3==1.16.55
+botocore==1.19.55
 cachetools==4.1.1
 certifi==2020.6.20
 cffi==1.14.3
@@ -15,9 +17,11 @@ chardet==3.0.4
 click==7.1.2
 cloudpickle==1.6.0
 colorama==0.4.3
+cond-rnn==2.4
 dask==2.30.0
 decorator==4.4.2
 defusedxml==0.6.0
+dill==0.3.3
 distributed==2.30.0
 entrypoints==0.3
 et-xmlfile==1.0.1
@@ -29,6 +33,7 @@ gast==0.3.3
 google-auth==1.22.1
 google-auth-oauthlib==0.4.1
 google-pasta==0.2.0
+googleapis-common-protos==1.52.0
 graphviz==0.14.2
 grpcio==1.33.1
 gviz-api==1.9.0
@@ -37,6 +42,7 @@ HeapDict==1.0.1
 idna==2.10
 imbalanced-learn==0.7.0
 imblearn==0.0
+importlib-resources==3.3.0
 ipykernel==5.3.4
 ipython==7.18.1
 ipython-genutils==0.2.0
@@ -46,6 +52,7 @@ isort==5.6.1
 jdcal==1.4.1
 jedi==0.17.2
 Jinja2==2.11.3
+jmespath==0.10.0
 joblib==0.17.0
 jsonschema==3.2.0
 jupyter==1.0.0
@@ -82,7 +89,7 @@ parso==0.7.1
 partd==1.1.0
 pathspec==0.8.0
 pickleshare==0.7.5
-Pillow==8.1.1
+Pillow==8.2.0
 prometheus-client==0.8.0
 prompt-toolkit==3.0.7
 protobuf==3.13.0
@@ -96,6 +103,7 @@ pylint==2.6.0
 pyparsing==2.4.7
 pyrsistent==0.17.3
 python-dateutil==2.8.1
+python-dotenv==0.15.0
 pytz==2020.1
 pywin32==228
 pywinpty==0.5.7
@@ -104,7 +112,7 @@ pyzmq==19.0.2
 qtconsole==4.7.7
 QtPy==1.9.0
 regex==2020.9.27
-requests==2.24.0
+requests==2.25.1
 requests-oauthlib==1.3.0
 rope==0.18.0
 rsa==4.7
@@ -118,12 +126,15 @@ sklearn==0.0
 sortedcontainers==2.2.2
 tabulate==0.8.7
 tblib==1.7.0
+tenacity==6.3.1
 tensorboard==2.3.0
 tensorboard-plugin-profile==2.3.0
 tensorboard-plugin-wit==1.7.0
 tensorflow==2.3.1
 tensorflow-addons==0.11.2
+tensorflow-datasets==4.1.0
 tensorflow-estimator==2.3.0
+tensorflow-metadata==0.25.0
 termcolor==1.1.0
 terminado==0.9.1
 terminaltables==3.1.0
@@ -140,7 +151,7 @@ transformers==3.3.1
 typed-ast==1.4.1
 typeguard==2.10.0
 typing-extensions==3.7.4.3
-urllib3==1.25.11
+urllib3==1.26.5
 wcwidth==0.2.5
 webencodings==0.5.1
 Werkzeug==1.0.1
