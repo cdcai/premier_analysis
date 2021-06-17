@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 # == Automate running data pre-processing steps
 
-# Capture outcome
-outcome=$1
-
 # Construct output paths
 out_path="${PWD}/output/"
 pkl_path="${out_path}/pkl"

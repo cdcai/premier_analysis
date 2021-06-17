@@ -1,5 +1,6 @@
 """
-Starter Keras model
+Keras models
+DAN, LSTM, HP-tuned DAN + LSTM
 """
 import argparse
 import csv
@@ -8,6 +9,8 @@ import pickle as pkl
 
 import numpy as np
 import pandas as pd
+import tensorflow as tf
+import tensorflow_addons as tfa
 import tensorflow.keras as keras
 from sklearn.model_selection import train_test_split
 from sklearn.utils.class_weight import compute_class_weight
@@ -25,7 +28,7 @@ if __name__ == "__main__":
     parser.add_argument("--model",
                         type=str,
                         default="dan",
-                        choices=["dan", "lstm"],
+                        choices=["dan", "lstm", "hp_lstm", "hp_dan"],
                         help="Type of Keras model to use")
     parser.add_argument("--max_seq",
                         type=int,
@@ -52,11 +55,11 @@ if __name__ == "__main__":
                         help="Should the model include patient demographics?")
     parser.add_argument("--dropout",
                         type=float,
-                        default=0.4,
+                        default=0.0,
                         help="Amount of dropout to apply")
     parser.add_argument("--recurrent_dropout",
                         type=float,
-                        default=0.4,
+                        default=0.0,
                         help="Amount of recurrent dropout (if LSTM)")
     parser.add_argument("--n_cells",
                         type=int,
@@ -64,7 +67,7 @@ if __name__ == "__main__":
                         help="Number of cells in the hidden layer")
     parser.add_argument("--batch_size",
                         type=int,
-                        default=128,
+                        default=64,
                         help="Mini batch size")
     parser.add_argument("--weighted_loss",
                         help="Weight loss to account for class imbalance",
@@ -108,6 +111,10 @@ if __name__ == "__main__":
     OUTCOME = args.outcome
     DEMOG = args.demog
     DAY_ONE_ONLY = args.day_one
+    if DAY_ONE_ONLY:
+        # Optionally limiting the features to only those from the first day
+        # of the actual COVID visit
+        MOD_NAME += "_d1"
     LSTM_DROPOUT = args.dropout
     LSTM_RECURRENT_DROPOUT = args.recurrent_dropout
     N_LSTM = args.n_cells
@@ -179,9 +186,6 @@ if __name__ == "__main__":
     # Setting y here so it's stable
     y = np.array([l[2] for l in inputs])
 
-    # Setting y here so it's stable
-    y = np.array([l[2] for l in inputs])
-
     # Create some metrics
     metrics = [
         keras.metrics.AUC(num_thresholds=int(1e5), name="ROC-AUC"),
@@ -243,54 +247,36 @@ if __name__ == "__main__":
 
     # === Long short-term memory model
     if "lstm" in MOD_NAME:
-        # Compute steps-per-epoch
-        # NOTE: Sometimes it can't determine this properly from tf.data
-        STEPS_PER_EPOCH = np.ceil(len(train) / BATCH_SIZE)
-        VALID_STEPS_PER_EPOCH = np.ceil(len(val) / BATCH_SIZE)
+        # Produce dataset generators
+        train_gen, test_gen, validation_gen = tk.create_all_data_gens(
+            inputs=inputs,
+            split_idx=[train, test, val],
+            batch_size=BATCH_SIZE,
+            shuffle=True,
+            seed=RAND)
 
-        #
-        train_gen = tk.create_ragged_data_gen([inputs[samp] for samp in train],
-                                              max_demog=MAX_DEMOG,
-                                              epochs=1,
-                                              multiclass=N_CLASS > 2,
-                                              random_seed=RAND,
-                                              batch_size=BATCH_SIZE)
-
-        validation_gen = tk.create_ragged_data_gen(
-            [inputs[samp] for samp in val],
-            max_demog=MAX_DEMOG,
-            epochs=1,
-            shuffle=False,
-            multiclass=N_CLASS > 2,
-            random_seed=RAND,
-            batch_size=BATCH_SIZE)
-
-        # NOTE: don't shuffle test data
-        test_gen = tk.create_ragged_data_gen([inputs[samp] for samp in test],
-                                             max_demog=MAX_DEMOG,
-                                             epochs=1,
-                                             multiclass=N_CLASS > 2,
-                                             shuffle=False,
-                                             random_seed=RAND,
-                                             batch_size=BATCH_SIZE)
-
-        # %% Setting up the model
-        model = tk.LSTM(time_seq=TIME_SEQ,
-                        vocab_size=N_VOCAB,
-                        n_classes=N_CLASS,
-                        n_demog=N_DEMOG,
-                        n_demog_bags=MAX_DEMOG,
-                        ragged=True,
-                        lstm_dropout=LSTM_DROPOUT,
-                        recurrent_dropout=LSTM_RECURRENT_DROPOUT)
-
-        model.compile(optimizer="adam", loss=loss_fn, metrics=metrics)
+        if "hp_lstm" in MOD_NAME:
+            # NOTE: IF HP-tuned, we want to use SGD with the
+            # params found, so return compiled.
+            model = keras.models.load_model(os.path.join(
+                tensorboard_dir, "best", "lstm"),
+                                            custom_objects={'tf': tf},
+                                            compile=True)
+        else:
+            # %% Setting up the model
+            model = tk.LSTM(time_seq=TIME_SEQ,
+                            vocab_size=N_VOCAB,
+                            n_classes=N_CLASS,
+                            n_demog=N_DEMOG,
+                            n_demog_bags=MAX_DEMOG,
+                            ragged=True,
+                            lstm_dropout=LSTM_DROPOUT,
+                            recurrent_dropout=LSTM_RECURRENT_DROPOUT)
+            model.compile(optimizer="adam", loss=loss_fn, metrics=metrics)
 
         # Train
         fitting = model.fit(train_gen,
-                            steps_per_epoch=STEPS_PER_EPOCH,
                             validation_data=validation_gen,
-                            validation_steps=VALID_STEPS_PER_EPOCH,
                             epochs=EPOCHS,
                             callbacks=callbacks,
                             class_weight=weight_dict)
@@ -304,7 +290,6 @@ if __name__ == "__main__":
         if DAY_ONE_ONLY:
             # Optionally limiting the features to only those from the first day
             # of the actual COVID visit
-            MOD_NAME += "_d1"
             features = [l[0][-1] for l in inputs]
         else:
             features = [tp.flatten(l[0]) for l in inputs]
@@ -321,11 +306,31 @@ if __name__ == "__main__":
 
         # Making the variables
         X = keras.preprocessing.sequence.pad_sequences(features,
-                                                       maxlen=225,
                                                        padding='post')
 
+        if "hp_dan" in MOD_NAME:
+            # NOTE: IF HP-tuned, we want to use SGD with the
+            # params found, so return compiled.
+            # HACK: This kind of assumes we're tuning for multiclass,
+            # and I'm not really sure a way around that.
+            n_values = np.max(y) + 1
+            y_one_hot = np.eye(n_values)[y]
+
+            model = keras.models.load_model(os.path.join(
+                tensorboard_dir, "best", "dan"),
+                                            custom_objects={'tf': tf},
+                                            compile=True)
+
+            model.fit(X[train],
+                      y_one_hot[train],
+                      batch_size=BATCH_SIZE,
+                      epochs=EPOCHS,
+                      validation_data=(X[val], y_one_hot[val]),
+                      callbacks=callbacks,
+                      class_weight=weight_dict)
+
         # Handle multiclass case
-        if N_CLASS > 2:
+        elif N_CLASS > 2:
             # We have to pass one-hot labels for model fit, but CLF metrics
             # will take indices
             n_values = np.max(y) + 1
@@ -346,7 +351,6 @@ if __name__ == "__main__":
                       validation_data=(X[val], y_one_hot[val]),
                       callbacks=callbacks,
                       class_weight=weight_dict)
-
         else:
             # Produce DAN model to fit
             model = tk.DAN(vocab_size=N_VOCAB,
