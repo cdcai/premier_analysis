@@ -560,13 +560,13 @@ class DANHyper(kerastuner.HyperModel):
         # --- Model Topology
 
         # Feature Embedding Params
-        emb_l1 = hp.Choice("Feature Embedding L1", reg_vals)
-        emb_l2 = hp.Choice("Feature Embedding L2", reg_vals)
+        emb_l1 = hp.Choice("Feature Embedding L1", reg_vals, default=0.0)
+        emb_l2 = hp.Choice("Feature Embedding L2", reg_vals, default=0.0)
 
         emb_n = hp.Int("Embedding Dimension",
                        min_value=64,
-                       max_value=512,
-                       default=64,
+                       max_value=2048,
+                       default=1024,
                        step=64)
 
         emb_dropout = hp.Float("Dropout from Embeddings",
@@ -579,14 +579,14 @@ class DANHyper(kerastuner.HyperModel):
                                  min_value=0.0,
                                  max_value=0.9,
                                  step=0.05,
-                                 default=0.0)
+                                 default=0.5)
 
         # Final dense layer
         dense_size = hp.Int("Dense Units",
                             min_value=2,
                             max_value=128,
                             sampling="log",
-                            default=32)
+                            default=14)
 
         # --- Model
         feat_input = keras.Input(shape=(self.input_size, ))
@@ -602,7 +602,7 @@ class DANHyper(kerastuner.HyperModel):
         dropout_1 = keras.layers.Dropout(rate=emb_dropout)(embeddings)
 
         # Averaging the embeddings
-        embedding_avg = keras.backend.mean(embeddings, 1)
+        embedding_avg = keras.backend.mean(dropout_1, 1)
 
         # Dense layers
         dense = keras.layers.Dense(dense_size,
@@ -626,6 +626,8 @@ class DANHyper(kerastuner.HyperModel):
         #     [1e-6, 5e-6, 1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2, 1e-1])
         # momentum = hp.Float("Momentum", min_value=0.0, max_value=0.9, step=0.1)
         # opt = keras.optimizers.SGD(lr, momentum=momentum)
+        # NOTE: I've had a lot of issues with SGD getting even comparable performance to Adam
+        # so I'm saying we scrap it and just go with Adam.
         opt = keras.optimizers.Adam()
 
         # --- Loss FN
