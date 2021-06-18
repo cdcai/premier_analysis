@@ -32,7 +32,7 @@ final_cols = ['covid_visit', 'ftrs']
 # Read in the pat and ID tables
 pat_df = pd.read_parquet(data_dir + "vw_covid_pat_all/")
 id_df = pd.read_parquet(data_dir + "vw_covid_id/")
-misa_data = pd.read_csv(targets_dir + 'icu_targets.csv', sep=";")
+misa_data = pd.read_csv(targets_dir + 'icu_targets.csv')
 
 # Read in the flat feature file
 trimmed_seq = pd.read_parquet(output_dir + "parquet/flat_features.parquet")
@@ -187,18 +187,6 @@ for pat in misa_pt_pats:
 misa_pt = [[misa_pt_dict[id] for id in np.unique(df.values)]
            for _, df in grouped_pat_keys]
 
-#  Making a lookup for the multiclass labels
-'''
-misa_multi_df = trimmed_seq[["medrec_key",
-                             "pat_key"]].set_index("medrec_key").join(
-                                 misa_data[["medrec_key",
-                                            "status"]].set_index("medrec_key"))
-
-misa_multi_df = misa_multi_df.drop_duplicates().drop(
-    "pat_key", axis=1).reset_index().groupby("medrec_key")
-
-misa_multi = [df.status.to_list() for _, df in misa_multi_df]
-'''
 
 #  And finally saving a the pat_keys themselves to facilitate
 # record linkage during analysis
