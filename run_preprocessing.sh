@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 # == Automate running data pre-processing steps
 
-# Capture outcome
-outcome=$1
-
 # Construct output paths
 out_path="${PWD}/output/"
 pkl_path="${out_path}/pkl"
@@ -35,7 +32,7 @@ run_feature_extraction() {
 # Run features to integers to encode text features to integer representation
 run_encoding() {
     # Run DAN
-    python "${PWD}/python/features_to_integers.py"
+    python "${PWD}/python/features_tokenization.py"
 }
 
 echo "Running feature extraction >>"

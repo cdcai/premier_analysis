@@ -53,8 +53,8 @@ def get_times(df,
             hfi += hours
             mfi += mins
 
-        out["hfi"] = hfi
-        out["mfi"] = mfi
+        df["hfi"] = hfi
+        df["mfi"] = mfi
 
     # Returning the new df
     out = df[["pat_key", ftr_col]]
@@ -63,7 +63,11 @@ def get_times(df,
     return out
 
 
-def jackknife_metrics(targets, guesses, cutpoint=0.5, average="weighted"):
+def jackknife_metrics(targets,
+                      guesses,
+                      average="weighted",
+                      cutpoint=0.5,
+                      processes=None):
     # Replicates of the dataset with one row missing from each
     rows = np.array(list(range(targets.shape[0])))
     j_rows = [np.delete(rows, row) for row in rows]
@@ -72,7 +76,7 @@ def jackknife_metrics(targets, guesses, cutpoint=0.5, average="weighted"):
     inputs = [(targets[idx], guesses[idx], average, cutpoint)
               for idx in j_rows]
 
-    with Pool() as p:
+    with Pool(processes=processes) as p:
         stat_list = p.starmap(ta.clf_metrics, inputs)
         p.close()
 
@@ -88,14 +92,17 @@ class boot_cis:
     def __init__(self,
                  targets,
                  guesses,
+                 sample_by=None,
                  n=100,
                  a=0.05,
                  method="bca",
+                 cutpoint=0.5,
                  interpolation="nearest",
                  average='weighted',
-                 cutpoint=0.5,
+                 weighted=True,
                  mcnemar=False,
-                 seed=10221983):
+                 seed=10221983,
+                 processes=None):
         # Converting everything to NumPy arrays, just in case
         stype = type(pd.Series())
         if type(targets) == stype:
@@ -125,8 +132,8 @@ class boot_cis:
         seeds = np.random.randint(0, 1e6, n)
 
         # Generating the bootstrap samples and metrics
-        with Pool() as p:
-            boot_input = [(targets, None, None, seed) for seed in seeds]
+        with Pool(processes=processes) as p:
+            boot_input = [(targets, sample_by, None, seed) for seed in seeds]
             boots = p.starmap(ta.boot_sample, boot_input)
             inputs = [(targets[boot], guesses[boot], average, cutpoint)
                       for boot in boots]
@@ -181,7 +188,8 @@ class boot_cis:
             z0[np.where(np.isinf(z0))[0]] = 0.0
 
             # Estiamating the acceleration factor
-            j = jackknife_metrics(targets, guesses, cutpoint, average)
+            j = jackknife_metrics(targets, guesses, average, cutpoint,
+                                  processes)
             diffs = j[1] - j[0]
             numer = np.sum(np.power(diffs, 3))
             denom = 6 * np.power(np.sum(np.power(diffs, 2)), 3 / 2)

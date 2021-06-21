@@ -1,6 +1,5 @@
 '''This script merges the feature columns and converts them to ints.'''
 
-# %%
 import pandas as pd
 import numpy as np
 import pickle as pkl
@@ -8,9 +7,10 @@ import os
 
 from sklearn.feature_extraction.text import CountVectorizer
 
+
 # Setting top-level parameters
 MIN_DF = 5
-NO_VITALS = True
+NO_VITALS = False
 ADD_DEMOG = True
 TIME_UNIT = "dfi"
 REVERSE_VOCAB = True
@@ -82,11 +82,11 @@ seq_gen = [[seq for seq in medrec] for medrec in int_seqs]
 # Optionally add demographics
 if ADD_DEMOG:
     demog_vars = ["gender", "hispanic_ind", "race"]
-    
+
     # Append demog
     trimmed_plus_demog = trimmed_seq.merge(pat_df[["medrec_key"] + demog_vars],
                                            how="left").set_index("medrec_key")
-    
+
     # Take distinct by medrec
     demog_map = map(lambda name: name + ":" + trimmed_plus_demog[name],
                     demog_vars)
@@ -94,7 +94,7 @@ if ADD_DEMOG:
     raw_demog = demog_labeled.reset_index().drop_duplicates()
     just_demog = raw_demog.groupby("medrec_key").agg(
         lambda x: " ".join(list(set(x))).lower())
-    
+
     # BUG: Note there are some medrecs with both hispanic=y and hispanic=N
     just_demog["all_demog"] = just_demog[demog_vars].agg(" ".join, axis=1)
     demog_list = [demog for demog in just_demog.all_demog]
@@ -102,17 +102,17 @@ if ADD_DEMOG:
     demog_vec = CountVectorizer(binary=True, token_pattern=r"(?u)\b[\w:]+\b")
     demog_vec.fit(demog_list)
     demog_vocab = demog_vec.vocabulary_
-    
+
     # This allows us to use 0 for padding if we coerce to dense
     for k in demog_vocab.keys():
         demog_vocab[k] += 1
     demog_ints = [[
         demog_vocab[k] for k in doc.split() if k in demog_vocab.keys()
     ] for doc in demog_list]
-    
+
     # Zip with seq_gen to produce a list of tuples
     seq_gen = [seq for seq in zip(seq_gen, demog_ints)]
-    
+
     # And saving vocab
     with open(pkl_dir + "demog_dict.pkl", "wb") as f:
         pkl.dump(demog_vocab, f)
@@ -139,6 +139,9 @@ if WRITE_PARQUET:
 with open(pkl_dir + "int_seqs.pkl", "wb") as f:
     pkl.dump(seq_gen, f)
 
+# Freeing up memory
+seq_gen = []
+
 # Figuring out how many feature bags in each sequence belong
 # to each visit
 pat_lengths = trimmed_seq.groupby(["medrec_key", "pat_key"]).pat_key.count()
@@ -161,6 +164,14 @@ inpat_dict = dict(zip(pat_df.pat_key, inpat))
 pat_inpat = [[inpat_dict[id] for id in np.unique(df.values)]
              for _, df in grouped_pat_keys]
 
+# Adding the ICU indicator
+icu_pats = misa_data[misa_data.icu_visit == 1].pat_key
+icu_dict = dict(zip(pat_df.pat_key, [0] * len(pat_df.pat_key)))
+for pat in icu_pats:
+    icu_dict.update({pat: 1})
+icu = [[icu_dict[id] for id in np.unique(df.values)]
+        for _, df in grouped_pat_keys]
+
 # Adding age at each visit
 age = pat_df.age.values.astype(np.uint8)
 age_dict = dict(zip(pat_df.pat_key, age))
@@ -176,16 +187,6 @@ for pat in misa_pt_pats:
 misa_pt = [[misa_pt_dict[id] for id in np.unique(df.values)]
            for _, df in grouped_pat_keys]
 
-#  Making a lookup for the multiclass labels
-misa_multi_df = trimmed_seq[["medrec_key",
-                             "pat_key"]].set_index("medrec_key").join(
-                                 misa_data[["medrec_key",
-                                            "status"]].set_index("medrec_key"))
-
-misa_multi_df = misa_multi_df.drop_duplicates().drop(
-    "pat_key", axis=1).reset_index().groupby("medrec_key")
-
-misa_multi = [df.status.to_list() for _, df in misa_multi_df]
 
 #  And finally saving a the pat_keys themselves to facilitate
 # record linkage during analysis
@@ -198,9 +199,11 @@ pat_dict = {
     'covid': cv_pats,
     'length': pat_lengths,
     'inpat': pat_inpat,
-    'death': pat_deaths,
-    'misa_pt': misa_pt,
-    'multi_class': misa_multi
+    'outcome': {
+        'icu': icu,
+        'death': pat_deaths,
+        'misa_pt': misa_pt
+    }
 }
 
 with open(pkl_dir + "pat_data.pkl", "wb") as f:

@@ -58,8 +58,15 @@ run_dan() {
 
 run_lstm() {
     # Run LSTM
-    python "$PWD/python/model.py" --outcome=$outcome --model=lstm
-    python "$PWD/python/model.py" --outcome=$outcome --weighted_loss --model=lstm
+    python "$PWD/python/model.py" --outcome=$outcome --all_days --model=lstm
+    python "$PWD/python/model.py" --outcome=$outcome --all_days --weighted_loss --model=lstm
+}
+
+run_hp_models() {
+    # Run LSTM tuned by kerastuner
+    # TODO: This is only built/trained for multi_class, and will fail otherwise
+    python "$PWD/python/model.py" --outcome=$outcome --all_days --model=hp_lstm
+    python "$PWD/python/model.py" --outcome=$outcome --day_one --model=hp_dan
 }
 
 echo "Trimming sequences and appending labels >>"

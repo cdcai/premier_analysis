@@ -36,7 +36,6 @@ compute_cis() {
 # Run models for every outcome
 for outcome in ${Outcomes[*]}; do
     echo ">> Running models for $outcome"
-    run_model_prep $outcome
     run_models $outcome
 done
 
