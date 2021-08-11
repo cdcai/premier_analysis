@@ -1,0 +1,113 @@
+---
+title: MISA length analysis
+author: Sean Browning <sbrowning (at) cdc (dot) gov>
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+    html_document:
+        df_print: paged
+        toc: Yes
+        toc_float: Yes
+        theme: readable
+---
+
+```{r knit_opts, include=FALSE}
+knitr::opts_chunk$set(
+    include = TRUE,
+    echo = FALSE, warning = FALSE, message = FALSE,
+    dev = "CairoSVG",
+    knitr.kable.NA = ""
+)
+```
+
+```{r lib}
+library(dplyr)
+library(Cairo)
+library(readr)
+library(ggplot2)
+library(ggthemr)
+library(arrow)
+
+ggthemr("fresh")
+```
+
+## Data In
+```{r data_in}
+# === Path handling
+# If we're knitting, use one directory down
+if (isTRUE(getOption("knitr.in.progress"))) {
+    data_dir <- file.path("..", "data")
+    output_dir <- file.path("..", "output")
+} else {
+    data_dir <- file.path("data")
+    output_dir <- file.path("output")
+}
+
+cohort <- read_csv(file.path(output_dir, "cohort.csv"))
+
+# Reading in targets
+# ...also adding medrec-level misa label
+icu_targets <- read_csv(file.path(data_dir, "targets", "icu_targets.csv")) %>%
+    group_by(medrec_key) %>%
+    mutate(misa_medrec = sum(misa_filled, na.rm = TRUE) > 0) %>%
+    ungroup()
+
+id_df <- open_dataset(file.path(data_dir, "data", "vw_covid_pat_all")) %>%
+    filter(medrec_key %in% icu_targets[["medrec_key"]]) %>%
+    arrange(medrec_key, disc_mon, disc_mon_seq) %>%
+    collect()
+```
+
+We have to read in the pat_all table, since the covid_pat table only contains covid inpatient visits.
+Using `arrow`, we can pre-filter and sort on read-in since this is a pretty large dataset.
+
+This is prefiltered to the icu_targets, which have the following criteria on the medrec level:
+- at least 1 covid inpatient visit
+    - pat_type == 8
+    - age > 21
+    - admission date >= March 1, 2020
+
+## Trimming to first COVID visit
+
+We're already sorted to discharge month, and sequence.  
+
+We'll want to calculate a cumsum of covid visits by medrec to then slice those visits that occur after the first covid inpatient visit.  
+
+
+```{r trimming}
+trimmed_id <- id_df %>%
+    group_by(medrec_key) %>%
+    mutate(
+        # READ: Count how many visits match this criteria starting from index
+        visit_count = n(),
+        cum_inp_covid_visit = cumsum(covid_visit & pat_type == 8 & i_o_ind == "I" & age >= 21),
+        total_inp_covid_visits = sum(covid_visit & pat_type == 8 & i_o_ind == "I" & age >= 21)
+    ) %>%
+    ungroup()
+```
+
+## Vis {.tabset }
+
+### Inpatient COVID-19 Visits by medrec
+
+```{r vis1}
+n_medrec <- length(unique(trimmed_id[["medrec_key"]]))
+
+trimmed_id %>%
+    distinct(medrec_key, total_inp_covid_visits) %>%
+    count(total_inp_covid_visits) %>%
+    mutate(lab = sprintf("%s (%.2f%%)", format(n, big.mark = ","), 100 * (n / sum(n)))) %>%
+    ggplot(aes(x = total_inp_covid_visits, y = n)) +
+        geom_bar(stat = "identity") +
+        geom_text(aes(label = lab), nudge_y = 5000) +
+        labs(
+            x = "Number of Inpatient COVID-19 visits",
+            y = "Persons (n)",
+            title = "Number of inpatient visits by Medical Record ID",
+            subtitle = sprintf("n = %s", format(n_medrec, big.mark = ","))
+        )
+```
+
+### Total visits by medrec (pre-slice)
+
+```{r visits_by_medrec}
+```
