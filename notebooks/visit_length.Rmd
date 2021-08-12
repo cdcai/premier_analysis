@@ -7,13 +7,13 @@ output:
         df_print: paged
         toc: Yes
         toc_float: Yes
+        code_folding: hide
         theme: readable
 ---
 
 ```{r knit_opts, include=FALSE}
 knitr::opts_chunk$set(
-    include = TRUE,
-    echo = FALSE, warning = FALSE, message = FALSE,
+    include = TRUE, warning = FALSE, message = FALSE,
     dev = "CairoSVG",
     knitr.kable.NA = ""
 )
