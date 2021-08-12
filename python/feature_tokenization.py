@@ -82,18 +82,21 @@ seq_gen = [[seq for seq in medrec] for medrec in int_seqs]
 
 # Optionally add demographics
 if ADD_DEMOG:
-    demog_vars = [
-        "gender", "hispanic_ind", "race", "urban_rural", "teaching",
-        "beds_grp", "prov_division", "prov_division", "cost_type"
+    demog_vars = ["gender", "hispanic_ind", "race"]
+    prov_vars = [
+        "urban_rural", "teaching", "beds_grp", "prov_division",
+        "prov_division", "cost_type"
     ]
 
     # Join in provider information
-    demog_lookup = pat_df[["medrec_key", "prov_id"]].join(provider,
-                                                          on="prov_id")
+    demog_lookup = pd.merge(pat_df[["medrec_key", "prov_id"] + demog_vars],
+                            provider,
+                            left_on="prov_id",
+                            right_on="prov_id")
 
     # Append demog
     trimmed_plus_demog = trimmed_seq.merge(demog_lookup[["medrec_key"] +
-                                                        demog_vars],
+                                                        demog_vars + prov_vars],
                                            how="left").set_index("medrec_key")
 
     # Take distinct by medrec
