@@ -28,6 +28,16 @@ library(ggthemr)
 library(arrow)
 
 ggthemr("fresh")
+
+# === Helperfun to summarize quantiles
+quant_df <- function(...) {
+    quant_names <- paste0("q", 100 * eval(match.call(expand.dots = FALSE)$...[[2]]))
+
+    x <- as.list(quantile(...))
+    names(x) <- quant_names
+
+    return(as.data.frame(x))
+}
 ```
 
 ## Data In
@@ -57,16 +67,16 @@ id_df <- open_dataset(file.path(data_dir, "data", "vw_covid_pat_all")) %>%
     collect()
 ```
 
-We have to read in the pat_all table, since the covid_pat table only contains covid inpatient visits.
-Using `arrow`, we can pre-filter and sort on read-in since this is a pretty large dataset.
+We have to read in the pat_all table, since the covid_pat table only contains covid inpatient visits.  
+Using `arrow`, we can pre-filter and sort on read-in since this is a pretty large dataset.  
 
-This is prefiltered to the icu_targets, which have the following criteria on the medrec level:
-- at least 1 covid inpatient visit
-    - pat_type == 8
-    - age > 21
-    - admission date >= March 1, 2020
+This is prefiltered to the icu_targets, which have the following criteria on the medrec level:  
+- at least 1 covid inpatient visit  
+    - pat_type == 8  
+    - age > 21  
+    - admission date >= March 1, 2020  
 
-## Trimming to first COVID visit
+## Trimming to first COVID visit  
 
 We're already sorted to discharge month, and sequence.  
 
@@ -79,8 +89,9 @@ trimmed_id <- id_df %>%
     mutate(
         # READ: Count how many visits match this criteria starting from index
         visit_count = n(),
-        cum_inp_covid_visit = cumsum(covid_visit & pat_type == 8 & i_o_ind == "I" & age >= 21),
-        total_inp_covid_visits = sum(covid_visit & pat_type == 8 & i_o_ind == "I" & age >= 21)
+        inpat_covid_visit = adm_mon >= 2020103 & covid_visit & pat_type == 8 & i_o_ind == "I" & age >= 21,
+        cum_inp_covid_visit = cumsum(inpat_covid_visit),
+        total_inp_covid_visits = sum(inpat_covid_visit)
     ) %>%
     ungroup()
 ```
@@ -89,7 +100,9 @@ trimmed_id <- id_df %>%
 
 ### Inpatient COVID-19 Visits by medrec
 
-```{r vis1}
+Pretty few persons are treated inpatient for COVID-19 >1x (or that we can tell based on their medrec_key).  
+
+```{r vis1, fig.width=7}
 n_medrec <- length(unique(trimmed_id[["medrec_key"]]))
 
 trimmed_id %>%
@@ -97,17 +110,175 @@ trimmed_id %>%
     count(total_inp_covid_visits) %>%
     mutate(lab = sprintf("%s (%.2f%%)", format(n, big.mark = ","), 100 * (n / sum(n)))) %>%
     ggplot(aes(x = total_inp_covid_visits, y = n)) +
-        geom_bar(stat = "identity") +
-        geom_text(aes(label = lab), nudge_y = 5000) +
-        labs(
-            x = "Number of Inpatient COVID-19 visits",
-            y = "Persons (n)",
-            title = "Number of inpatient visits by Medical Record ID",
-            subtitle = sprintf("n = %s", format(n_medrec, big.mark = ","))
-        )
+    geom_bar(stat = "identity") +
+    geom_text(aes(label = lab), nudge_y = 5000) +
+    labs(
+        x = "Number of Inpatient COVID-19 visits",
+        y = "Persons (n)",
+        title = "Number of inpatient visits by Medical Record ID",
+        subtitle = sprintf("n = %s", format(n_medrec, big.mark = ","))
+    )
 ```
 
 ### Total visits by medrec (pre-slice)
 
-```{r visits_by_medrec}
+i.e. before we trim to only visits prior to the first inpatient COVID-19 visits, how many visits are there in the database by medrec.  
+
+```{r visits_by_medrec, fig.width=7}
+pre_trim_visit_count <- trimmed_id %>%
+    distinct(medrec_key, visit_count) %>%
+    left_join(
+        distinct(icu_targets, medrec_key, status),
+        by = "medrec_key"
+    ) %>%
+    mutate(status = c("MISA", "Severe COVID", "Non-Severe COVID")[status + 1])
+
+pre_trim_visit_count %>%
+    ggplot(aes(x = visit_count, y = status, group = status, fill = status)) +
+    geom_boxplot() +
+    labs(
+        x = "Number of Inpatient COVID-19 visits",
+        y = "Status Type",
+        title = "All visits by Medical Record ID",
+        subtitle = sprintf("n = %s", format(n_medrec, big.mark = ","))
+    )
+```
+
+```{r pre_slice fivenum}
+bind_rows(
+    pre_trim_visit_count %>%
+        group_by(status) %>%
+        summarize(quant_df(visit_count, c(0.1, 0.25, 0.5, 0.75, 0.9))),
+    pre_trim_visit_count %>%
+        summarize(
+            status = "Overall",
+            quant_df(visit_count, c(0.1, 0.25, 0.5, 0.75, 0.9))
+        )
+)
+```
+
+### Total visits by medrec (post-slice)
+
+This is virtually identical since there are few people with multiple inpatient visits for COVID-19.  
+
+```{r slice, fig.width=7}
+# Slice down only to the first inpatient covid vist (or prior)
+sliced_id <- trimmed_id %>%
+    filter(cum_inp_covid_visit < 1 | (inpat_covid_visit & cum_inp_covid_visit == 1)) %>%
+    group_by(medrec_key) %>%
+    mutate(visit_count = n()) %>%
+    ungroup()
+
+post_trim_visit_count <- sliced_id %>%
+    distinct(medrec_key, visit_count) %>%
+    left_join(
+        distinct(icu_targets, medrec_key, status),
+        by = "medrec_key"
+    ) %>%
+    mutate(status = c("MISA", "Severe COVID", "Non-Severe COVID")[status + 1])
+
+post_trim_visit_count %>%
+    ggplot(aes(x = visit_count, y = status, group = status, fill = status)) +
+    geom_boxplot() +
+    labs(
+        x = "Number of Inpatient COVID-19 visits",
+        y = "Status Type",
+        title = "All visits by Medical Record ID, post trim",
+        subtitle = sprintf("n = %s", format(n_medrec, big.mark = ","))
+    )
+```
+
+```{r slice fivenum}
+bind_rows(
+    post_trim_visit_count %>%
+        group_by(status) %>%
+        summarize(quant_df(visit_count, c(0.1, 0.25, 0.5, 0.75, 0.9))),
+    post_trim_visit_count %>%
+        summarize(
+            status = "Overall",
+            quant_df(visit_count, c(0.1, 0.25, 0.5, 0.75, 0.9))
+        )
+)
+```
+
+### Theoretical days of observation (post-slice)
+
+i.e. total LOS where we might have information.
+
+**This includes only the first day of the first covid visit (or the final visit in the sequence).**   
+
+Hopefully this helps us get at how many days we ought to lookback.  
+
+
+```{r slice LOS}
+post_slice_total_los <- sliced_id %>%
+    group_by(medrec_key) %>%
+    mutate(total_los = sum(los, na.rm = TRUE) - (inpat_covid_visit * (los - 1))) %>%
+    filter(inpat_covid_visit) %>%
+    distinct(medrec_key, total_los) %>%
+    ungroup() %>%
+    left_join(
+        distinct(icu_targets, medrec_key, status),
+        by = "medrec_key"
+    ) %>%
+    mutate(status = c("MISA", "Severe COVID", "Non-Severe COVID")[status + 1])
+
+post_slice_total_los %>%
+    ggplot(aes(x = total_los, y = status, group = status, fill = status)) +
+    geom_boxplot() +
+    labs(
+        x = "Total Length-of-stay",
+        y = "Status Type",
+        title = "Total LOS by Medical Record ID, post trim",
+        subtitle = sprintf("n = %s", format(n_medrec, big.mark = ","))
+    )
+```
+
+```{r slice LOS fivenum}
+bind_rows(
+    post_slice_total_los %>%
+        group_by(status) %>%
+        summarize(quant_df(total_los, c(0.1, 0.25, 0.5, 0.75, 0.9, 0.95))),
+    post_slice_total_los %>%
+        summarize(
+            status = "Overall",
+            quant_df(total_los, c(0.1, 0.25, 0.5, 0.75, 0.9, 0.95))
+        )
+)
+```
+
+### Calendar time (post-slice)
+
+```{r calendar time}
+post_slice_calendar_time <- sliced_id %>%
+    filter(inpat_covid_visit) %>%
+    distinct(medrec_key, days_from_index) %>%
+    left_join(
+        distinct(icu_targets, medrec_key, status),
+        by = "medrec_key"
+    ) %>%
+    mutate(status = c("MISA", "Severe COVID", "Non-Severe COVID")[status + 1])
+
+post_slice_calendar_time %>%
+    ggplot(aes(x = days_from_index, y = status, group = status, fill = status)) +
+    geom_boxplot() +
+    labs(
+        x = "Time from index (d)",
+        y = "Status Type",
+        title = "Total Calendar time from Index by Medical Record ID, post trim",
+        subtitle = sprintf("n = %s", format(n_medrec, big.mark = ","))
+    )
+```
+
+```{r slice calendar time fivenum}
+bind_rows(
+    post_slice_calendar_time %>%
+        group_by(status) %>%
+        summarize(quant_df(days_from_index, c(0.1, 0.25, 0.5, 0.75, 0.9))),
+    post_slice_calendar_time %>%
+        summarize(
+            status = "Overall",
+            quant_df(days_from_index, c(0.1, 0.25, 0.5, 0.75, 0.9))
+        )
+)
 ```
