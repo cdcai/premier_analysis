@@ -235,16 +235,18 @@ post_slice_total_los %>%
 ```
 
 ```{r slice LOS fivenum}
-bind_rows(
+los_fivenum <- bind_rows(
     post_slice_total_los %>%
         group_by(status) %>%
-        summarize(quant_df(total_los, c(0.1, 0.25, 0.5, 0.75, 0.9, 0.95))),
+        summarize(quant_df(total_los, c(0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.999, 1))),
     post_slice_total_los %>%
         summarize(
             status = "Overall",
-            quant_df(total_los, c(0.1, 0.25, 0.5, 0.75, 0.9, 0.95))
+            quant_df(total_los, c(0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.999, 1))
         )
 )
+
+los_fivenum
 ```
 
 ### Calendar time (post-slice)
@@ -265,7 +267,7 @@ post_slice_calendar_time %>%
     labs(
         x = "Time from index (d)",
         y = "Status Type",
-        title = "Total Calendar time from Index by Medical Record ID, post trim",
+        title = "Total Calendar time from Index by Medical Record ID",
         subtitle = sprintf("n = %s", format(n_medrec, big.mark = ","))
     )
 ```
@@ -282,3 +284,9 @@ bind_rows(
         )
 )
 ```
+
+## Conclusion
+
+Seems like we could just go with `r los_fivenum[["q99.9"]][los_fivenum[["status"]] == "Overall"]`d, which covers 99.9%
+
+That's still probably overkill.
