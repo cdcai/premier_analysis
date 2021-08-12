@@ -1,5 +1,6 @@
 '''This script merges the feature columns and converts them to ints.'''
 
+# %%
 import pandas as pd
 import numpy as np
 import pickle as pkl
@@ -7,8 +8,7 @@ import os
 
 from sklearn.feature_extraction.text import CountVectorizer
 
-
-# Setting top-level parameters
+# %% Setting top-level parameters
 MIN_DF = 5
 NO_VITALS = False
 ADD_DEMOG = True
@@ -29,7 +29,7 @@ pkl_dir = os.path.join(output_dir, "pkl", "")
 ftr_cols = ['vitals', 'bill', 'genlab', 'lab_res', 'proc', 'diag']
 final_cols = ['covid_visit', 'ftrs']
 
-# Read in the pat and ID tables
+# %% Read in the pat and ID tables
 pat_df = pd.read_parquet(data_dir + "vw_covid_pat_all/")
 id_df = pd.read_parquet(data_dir + "vw_covid_id/")
 misa_data = pd.read_csv(targets_dir + 'icu_targets.csv')
@@ -37,7 +37,7 @@ misa_data = pd.read_csv(targets_dir + 'icu_targets.csv')
 # Read in the flat feature file
 trimmed_seq = pd.read_parquet(output_dir + "parquet/flat_features.parquet")
 
-# Filter Denom to those identified in MISA case def
+# %% Filter Denom to those identified in MISA case def
 if MISA_ONLY:
     trimmed_seq = trimmed_seq[trimmed_seq.medrec_key.isin(
         misa_data.medrec_key)]
@@ -46,9 +46,9 @@ if MISA_ONLY:
 n_patients = trimmed_seq["medrec_key"].nunique()
 
 # Ensure we're sorted
-trimmed_seq.sort_values(["medrec_key", "pat_key", "dfi"], inplace=True)
+trimmed_seq.sort_values(["medrec_key", "dfi"], inplace=True)
 
-# Optionally drops vitals and genlab from the features
+# %% Optionally drops vitals and genlab from the features
 if NO_VITALS:
     ftr_cols = ['bill', 'lab_res', 'proc', 'diag']
 
@@ -117,8 +117,9 @@ if ADD_DEMOG:
     with open(pkl_dir + "demog_dict.pkl", "wb") as f:
         pkl.dump(demog_vocab, f)
 
-# Figuring out which visit were covid visits,
+# === Figuring out which visits were covid visits,
 # and which patients have no covid visits (post-trim)
+
 cv_dict = dict(zip(pat_df.pat_key, pat_df.covid_visit))
 cv_pats = [[cv_dict[pat_key] for pat_key in np.unique(seq.values)]
            for _, seq in trimmed_seq.groupby("medrec_key").pat_key]
@@ -144,7 +145,7 @@ seq_gen = []
 
 # Figuring out how many feature bags in each sequence belong
 # to each visit
-pat_lengths = trimmed_seq.groupby(["medrec_key", "pat_key"]).pat_key.count()
+pat_lengths = trimmed_seq.groupby(["medrec_key", "pat_key"], sort=False).pat_key.count()
 pat_lengths = [[n for n in df.values]
                for _, df in pat_lengths.groupby("medrec_key")]
 
@@ -170,7 +171,7 @@ icu_dict = dict(zip(pat_df.pat_key, [0] * len(pat_df.pat_key)))
 for pat in icu_pats:
     icu_dict.update({pat: 1})
 icu = [[icu_dict[id] for id in np.unique(df.values)]
-        for _, df in grouped_pat_keys]
+       for _, df in grouped_pat_keys]
 
 # Adding age at each visit
 age = pat_df.age.values.astype(np.uint8)
@@ -186,7 +187,6 @@ for pat in misa_pt_pats:
 
 misa_pt = [[misa_pt_dict[id] for id in np.unique(df.values)]
            for _, df in grouped_pat_keys]
-
 
 #  And finally saving a the pat_keys themselves to facilitate
 # record linkage during analysis
@@ -206,6 +206,7 @@ pat_dict = {
     }
 }
 
+# %%
 with open(pkl_dir + "pat_data.pkl", "wb") as f:
     pkl.dump(pat_dict, f)
 
