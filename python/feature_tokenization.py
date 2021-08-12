@@ -32,6 +32,7 @@ final_cols = ['covid_visit', 'ftrs']
 # %% Read in the pat and ID tables
 pat_df = pd.read_parquet(data_dir + "vw_covid_pat_all/")
 id_df = pd.read_parquet(data_dir + "vw_covid_id/")
+provider = pd.read_parquet(data_dir + "providers/")
 misa_data = pd.read_csv(targets_dir + 'icu_targets.csv')
 
 # Read in the flat feature file
@@ -81,10 +82,18 @@ seq_gen = [[seq for seq in medrec] for medrec in int_seqs]
 
 # Optionally add demographics
 if ADD_DEMOG:
-    demog_vars = ["gender", "hispanic_ind", "race"]
+    demog_vars = [
+        "gender", "hispanic_ind", "race", "urban_rural", "teaching",
+        "beds_grp", "prov_division", "prov_division", "cost_type"
+    ]
+
+    # Join in provider information
+    demog_lookup = pat_df[["medrec_key", "prov_id"]].join(provider,
+                                                          on="prov_id")
 
     # Append demog
-    trimmed_plus_demog = trimmed_seq.merge(pat_df[["medrec_key"] + demog_vars],
+    trimmed_plus_demog = trimmed_seq.merge(demog_lookup[["medrec_key"] +
+                                                        demog_vars],
                                            how="left").set_index("medrec_key")
 
     # Take distinct by medrec
@@ -145,7 +154,8 @@ seq_gen = []
 
 # Figuring out how many feature bags in each sequence belong
 # to each visit
-pat_lengths = trimmed_seq.groupby(["medrec_key", "pat_key"], sort=False).pat_key.count()
+pat_lengths = trimmed_seq.groupby(["medrec_key", "pat_key"],
+                                  sort=False).pat_key.count()
 pat_lengths = [[n for n in df.values]
                for _, df in pat_lengths.groupby("medrec_key")]
 
