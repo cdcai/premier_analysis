@@ -42,13 +42,19 @@ for i, df in enumerate(pred_dfs):
 
 # Running the histograms
 for i, df in enumerate(pred_dfs):
+    fig, ax = plt.subplots(ncols=5, 
+                           sharey=True, 
+                           figsize=(15, 5),
+                           tight_layout=True)
+    fig.suptitle(outcomes[i])
     pred_probs = [pd.DataFrame(df[[outcomes[i], col]]) for col in prob_cols]
     for j, p_df in enumerate(pred_probs):
-        plt.title(mod_names[j])
-        sns.histplot(x=p_df.iloc[:, 1], hue=p_df.iloc[:, 0])
-        file_name = outcomes[i] + '_' + mod_names[j]
-        plt.savefig(out_dir + file_name + '_hist.png', bbox_inches='tight')
-        plt.clf()
+        #plt.title(mod_names[j])
+        sns.histplot(ax=ax[j], x=p_df.iloc[:, 1], hue=p_df.iloc[:, 0])
+        ax[j].set_title(mod_names[j])
+    file_name = outcomes[i]
+    plt.savefig(out_dir + file_name + '_hist.png', bbox_inches='tight')
+    plt.clf()
 
 '''
 # Running the histograms
