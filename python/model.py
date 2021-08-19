@@ -165,7 +165,7 @@ if __name__ == "__main__":
     preds_file = os.path.join(stats_dir, OUTCOME + "_preds.csv")
 
     # Data load
-    with open(pkl_dir + CHRT_PRFX + "trimmed_seqs.pkl", "rb") as f:
+    with open(os.path.join(pkl_dir, CHRT_PRFX, "trimmed_seqs.pkl"), "rb") as f:
         inputs = pkl.load(f)
 
     with open(os.path.join(pkl_dir, "all_ftrs_dict.pkl"), "rb") as f:
@@ -192,7 +192,7 @@ if __name__ == "__main__":
     MAX_DEMOG = max(len(x) for _, x, _ in inputs)
 
     # Setting y here so it's stable
-    cohort = pd.read_csv(output_dir + CHRT_PRFX + 'cohort.csv')
+    cohort = pd.read_csv(os.path.join(output_dir, CHRT_PRFX, 'cohort.csv'))
     labels = cohort[OUTCOME]
     y = cohort[OUTCOME].values.astype(np.uint8)
 
@@ -331,6 +331,11 @@ if __name__ == "__main__":
         # Making the variables
         X = keras.preprocessing.sequence.pad_sequences(features,
                                                        padding='post')
+
+        # DAN Model feeds in all features at once, so there's no need to limit to the
+        # sequence length, which is a size of time steps. Here we take the maximum size
+        # of features that pad_sequences padded all the samples up to in the previous step.
+        TIME_SEQ = X.shape[1]
 
         if "hp_dan" in MOD_NAME:
             # NOTE: IF HP-tuned, we want to use SGD with the

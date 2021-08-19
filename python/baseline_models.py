@@ -118,7 +118,7 @@ if __name__ == '__main__':
     # Separating the inputs and labels
     features = [t[0] for t in inputs]
     demog = [t[1] for t in inputs]
-    cohort = pd.read_csv(output_dir + CHRT_PRFX + 'cohort.csv')
+    cohort = pd.read_csv(os.path.join(output_dir, CHRT_PRFX, 'cohort.csv'))
     labels = cohort[OUTCOME]
 
     # Counts to use for loops and stuff
