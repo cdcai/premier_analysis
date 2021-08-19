@@ -57,7 +57,7 @@ if NO_VITALS:
 trimmed_seq["ftrs"] = (trimmed_seq[ftr_cols].astype(str).replace(
     ["None", "nan"], "").agg(" ".join, axis=1))
 
-# Fitting the vectorizer to the features
+# %% Fitting the vectorizer to the features
 ftrs = [doc for doc in trimmed_seq.ftrs]
 vec = CountVectorizer(ngram_range=(1, 1), min_df=MIN_DF, binary=True)
 vec.fit(ftrs)
@@ -95,9 +95,9 @@ if ADD_DEMOG:
                             right_on="prov_id")
 
     # Append demog
-    trimmed_plus_demog = trimmed_seq.merge(demog_lookup[["medrec_key"] +
-                                                        demog_vars + prov_vars],
-                                           how="left").set_index("medrec_key")
+    trimmed_plus_demog = trimmed_seq.merge(
+        demog_lookup[["medrec_key"] + demog_vars + prov_vars],
+        how="left").set_index("medrec_key")
 
     # Take distinct by medrec
     demog_map = map(lambda name: name + ":" + trimmed_plus_demog[name],
@@ -162,10 +162,10 @@ pat_lengths = trimmed_seq.groupby(["medrec_key", "pat_key"],
 pat_lengths = [[n for n in df.values]
                for _, df in pat_lengths.groupby("medrec_key")]
 
-# Making a groupby frame to use below
+# %% Making a groupby frame to use below
 grouped_pat_keys = trimmed_seq.groupby("medrec_key").pat_key
 
-# Figuring out whether a patient died after a visit
+# %% Figuring out whether a patient died after a visit
 died = np.array(["EXPIRED" in status for status in pat_df.disc_status_desc],
                 dtype=np.uint8)
 death_dict = dict(zip(pat_df.pat_key, died))
@@ -178,15 +178,15 @@ inpat_dict = dict(zip(pat_df.pat_key, inpat))
 pat_inpat = [[inpat_dict[id] for id in np.unique(df.values)]
              for _, df in grouped_pat_keys]
 
-# Adding the ICU indicator
-icu_pats = misa_data[misa_data.icu_visit == 1].pat_key
+# %% Adding the ICU indicator
+icu_pats = misa_data[misa_data.icu_visit == "Y"].pat_key
 icu_dict = dict(zip(pat_df.pat_key, [0] * len(pat_df.pat_key)))
 for pat in icu_pats:
     icu_dict.update({pat: 1})
 icu = [[icu_dict[id] for id in np.unique(df.values)]
        for _, df in grouped_pat_keys]
 
-# Adding age at each visit
+# %% Adding age at each visit
 age = pat_df.age.values.astype(np.uint8)
 age_dict = dict(zip(pat_df.pat_key, age))
 pat_age = [[age_dict[id] for id in np.unique(df.values)]
