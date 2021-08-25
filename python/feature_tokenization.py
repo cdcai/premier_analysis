@@ -103,10 +103,9 @@ if ADD_DEMOG:
     just_demog["all_demog"] = just_demog[demog_vars].agg(" ".join, axis=1)
     demog_list = [demog for demog in just_demog.all_demog]
     assert just_demog.shape[0] == n_patients, "No funny business"
-    demog_vec = CountVectorizer(binary=True, token_pattern=r"(?u)\b[\w:]+\b")
+    demog_vec = CountVectorizer(binary=True, token_pattern=r"(?u)\b[\w:-]+\b")
     demog_vec.fit(demog_list)
     demog_vocab = demog_vec.vocabulary_
-
     # This allows us to use 0 for padding if we coerce to dense
     for k in demog_vocab.keys():
         demog_vocab[k] += 1
