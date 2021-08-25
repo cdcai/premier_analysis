@@ -5,8 +5,8 @@ import pandas as pd
 import numpy as np
 import pickle as pkl
 import os
-
 from sklearn.feature_extraction.text import CountVectorizer
+from tools import preprocessing as tp
 
 # %% Setting top-level parameters
 MIN_DF = 5
@@ -27,6 +27,7 @@ targets_dir = os.path.join(pwd, "..", "data", "targets", "")
 pkl_dir = os.path.join(output_dir, "pkl", "")
 
 ftr_cols = ['vitals', 'bill', 'genlab', 'lab_res', 'proc', 'diag']
+demog_vars = ["gender", "hispanic_ind", "age", "race"]
 final_cols = ['covid_visit', 'ftrs']
 
 # %% Read in the pat and ID tables
@@ -80,26 +81,17 @@ int_seqs = [
 # Converting to a nested list to keep things clean
 seq_gen = [[seq for seq in medrec] for medrec in int_seqs]
 
-# Optionally add demographics
+# %% Optionally add demographics
 if ADD_DEMOG:
-    demog_vars = ["gender", "hispanic_ind", "race"]
-    prov_vars = [
-        "urban_rural", "teaching", "beds_grp", "prov_division",
-        "prov_division", "cost_type"
-    ]
-
-    # Join in provider information
-    demog_lookup = pd.merge(pat_df[["medrec_key", "prov_id"] + demog_vars],
-                            provider,
-                            left_on="prov_id",
-                            right_on="prov_id")
-
     # Append demog
-    trimmed_plus_demog = trimmed_seq.merge(
-        demog_lookup[["medrec_key"] + demog_vars + prov_vars],
-        how="left").set_index("medrec_key")
+    trimmed_plus_demog = trimmed_seq.merge(pat_df[["medrec_key"] + demog_vars],
+                                           how="left").set_index("medrec_key")
 
-    # Take distinct by medrec
+    if "age" in demog_vars:
+        trimmed_plus_demog = tp.max_age_bins(trimmed_plus_demog,
+                                             bins=np.arange(0, 111, 10))
+
+    # %% Take distinct by medrec
     demog_map = map(lambda name: name + ":" + trimmed_plus_demog[name],
                     demog_vars)
     demog_labeled = pd.concat(demog_map, axis=1)

@@ -284,3 +284,19 @@ def trim_sequence(inputs, labels, cuts):
     in_start, in_end = cuts[0][0], cuts[0][1]
     label_id = cuts[1]
     return inputs[0][in_start:in_end], inputs[1], labels[label_id]
+
+def max_age_bins(df, id_var="medrec_key", bins=np.arange(0, 111, 10)):
+
+    # Make nice text labels
+    age_cut_labs = [
+        "{}-{}".format(bins[i], bins[i + 1]) for i in range(bins.size - 1)
+    ]
+
+    # Since age could roll over, take the max
+    df["age"] = df.groupby(id_var)["age"].max()
+
+    # Bin the ages and append labels
+    df["age"] = np.digitize(df["age"], bins)
+    df["age"] = df["age"].map(lambda x: age_cut_labs[x - 1])
+
+    return df
