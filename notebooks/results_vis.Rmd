@@ -1,0 +1,84 @@
+---
+title: MISA Results Vis
+author: Sean Browning <sbrowning (at) cdc (dot) gov>
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+    html_document:
+        df_print: paged
+        toc: Yes
+        toc_float: Yes
+        theme: readable
+---
+
+```{r knit_opts, include=FALSE}
+knitr::opts_chunk$set(
+  include = TRUE,
+  echo = FALSE, warning = FALSE, message = FALSE,
+  dev = "CairoSVG",
+  knitr.kable.NA = ""
+)
+```
+
+```{r lib}
+library(dplyr)
+library(tidyr)
+library(forcats)
+library(readxl)
+library(ggplot2)
+library(ggthemr)
+
+ggthemr("fresh", layout = "scientific")
+```
+
+```{r data in}
+# === Path handling
+# If we're knitting, use one directory down
+if (isTRUE(getOption("knitr.in.progress"))) {
+  data_dir <- file.path("..", "data")
+  output_dir <- file.path("..", "output")
+} else {
+  data_dir <- file.path("data")
+  output_dir <- file.path("output")
+}
+
+results_file <- file.path(data_dir, "lgr_coefs.xlsx")
+
+results_names <- c(
+  "ICU_feature", "ICU_aOR", "MIS-A_feature", "MIS-A_aOR", "death_feature",
+  "death_aOR"
+)
+
+results <- read_xlsx(results_file, skip = 2, col_names = results_names)
+```
+
+```{r pivot and plot, fig.width = 13, fig.height = 10}
+long_results <- results |>
+  pivot_longer(
+    everything(),
+    names_to = c("outcome", ".value"),
+    names_pattern = c("(.*)_(.*)")
+  )
+
+
+for (out in split(long_results, ~outcome)) {
+  outcome <- unique(out[["outcome"]])
+
+  plot_out <- out |>
+    arrange(aOR) |>
+    mutate(feature = fct_inorder(feature)) |>
+    ggplot(aes(x = aOR, y = feature, color = log10(aOR))) +
+    geom_point(show.legend = FALSE) +
+    scale_color_distiller(palette = "RdBu", type = "div") +
+    geom_vline(aes(xintercept = 1)) +
+    scale_x_log10() +
+    labs(
+      # x = expression(log[10](aOR)),
+      x = "aOR",
+      y = "Feature",
+      title = sprintf("Logistic Regression Results, %s", outcome)
+    )
+
+
+  print(plot_out)
+}
+  ```
