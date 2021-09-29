@@ -1,0 +1,128 @@
+---
+title: MISA Project patient characteristics
+author: Sean Browning <sbrowning (at) cdc (dot) gov>
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+    html_document:
+        df_print: paged
+        toc: Yes
+        toc_float: Yes
+        theme: readable
+---
+
+```{r knit_opts, include=FALSE}
+knitr::opts_chunk$set(
+  include = TRUE,
+  echo = FALSE, warning = FALSE, message = FALSE,
+  dev = "CairoSVG",
+  knitr.kable.NA = ""
+)
+```
+
+```{r lib}
+library(dplyr)
+library(readr)
+library(tidyr)
+library(janitor)
+library(kableExtra)
+library(arrow)
+```
+
+```{r util functions}
+
+tbl_1 <- function(.data, ..., targets = c("misa_pt", "icu", "death")) {
+  vars <- rlang::enquos(...)
+  targets <- lapply(targets, as.name)
+
+  tabs <- vector("list", length = length(vars))
+  i <- 1
+  for (var in vars) {
+    j <- 1
+    inner_tab <- vector("list", length = length(targets))
+    for (target in targets) {
+      inner_tab[[j]] <- .data |>
+        count(variable = quo_name(var), value = !!var, target = !!target)
+      j <- j + 1
+    }
+    tabs[[i]] <- bind_rows(inner_tab) |>
+      group_by(target) |>
+      mutate(n = sprintf("%s (%.2f%%)", format(n, big.mark = ","), 100 * n / sum(n))) |>
+      ungroup() |>
+      pivot_wider(names_from = target, values_from = n)
+
+    i <- i + 1
+  }
+
+  bind_rows(tabs)
+}
+
+pretty_print_tbl1 <- function(tbl,
+                              mappings = c("gender" = "Gender", "hispanic_ind" = "Hispanic", "race" = "Race"),
+                              targets = c("MIS-A", "ICU", "Death")) {
+  tbl <- tbl |>
+    mutate(
+      variable = recode(variable, !!!mappings)
+    )
+
+  group_names <- count(tbl, variable)
+  col_names <- c(" ", rep(c("Yes", "No"), length(targets)))
+
+  tbl |>
+    select(-variable) |>
+    kbl(col.names = col_names) |>
+    kable_paper() |>
+    add_header_above(c(" " = 1, setNames(rep(2, length(targets)), targets))) |>
+    pack_rows(index = setNames(group_names[["n"]], group_names[["variable"]]))
+}
+```
+
+```{r data in}
+# === Path handling
+# If we're knitting, use one directory down
+if (isTRUE(getOption("knitr.in.progress"))) {
+  data_dir <- file.path("..", "data")
+  output_dir <- file.path("..", "output")
+  notebook_dir <- getwd()
+} else {
+  data_dir <- file.path("data")
+  output_dir <- file.path("output")
+  notebook_dir <- file.path("notebooks")
+}
+
+cohort_file <- file.path(output_dir, "cohort.csv")
+pat_file <- file.path(data_dir, "data", "vw_covid_pat_all")
+
+cohort <- read_csv(cohort_file)
+
+# Pre-filter and select to avoid loading all of it into memory at once
+pat_df <- open_dataset(pat_file) |>
+  filter(pat_key %in% cohort[["key"]]) |>
+  select(pat_key, medrec_key, hispanic_ind, race, gender) |>
+  collect()
+
+# Recodings for values in table 1
+value_recodings_df <- read_csv(file.path(notebook_dir, "value_recoding.csv"))
+
+value_recodings <- setNames(value_recodings_df[["new"]], value_recodings_df[["old"]])
+
+# Expect the row lengths to be equal
+stopifnot(dim(cohort)[1] == dim(pat_df)[1])
+```
+
+```{r summary table}
+pat_joined <- pat_df |>
+  left_join(cohort, by = c("pat_key" = "key")) |>
+  mutate(
+    icu = if_else(icu == 1, "ICU", "non-ICU"),
+    death = if_else(death == 1, "Died", "Survived"),
+    misa_pt = if_else(misa_pt == 1, "MIS-A", "non-MIS-A")
+  )
+
+# Produce a quick table 1
+table_1 <- pat_joined |>
+  tbl_1(gender, hispanic_ind, race) |>
+  mutate(value = recode(value, !!!value_recodings))
+
+# Pretty-print using kable extra
+pretty_print_tbl1(table_1)
+```
