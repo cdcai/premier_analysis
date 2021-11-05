@@ -58,7 +58,7 @@ tbl_1 <- function(.data, ..., targets = c("misa_pt", "icu", "death")) {
 
 pretty_print_tbl1 <- function(tbl,
                               mappings = c("gender" = "Gender", "hispanic_ind" = "Hispanic", "race" = "Race"),
-                              targets = c("MIS-A", "ICU", "Death")) {
+                              targets = c("HS", "ICU", "Death")) {
   tbl <- tbl |>
     mutate(
       variable = recode(variable, !!!mappings)
