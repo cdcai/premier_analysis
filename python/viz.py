@@ -3,6 +3,7 @@
 import pandas as pd
 import numpy as np
 import os
+import pickle as pkl
 import seaborn as sns
 
 from matplotlib import pyplot as plt
@@ -12,7 +13,6 @@ from sklearn.metrics import roc_curve
 # Import the model predictions on the test data
 file_dir = 'C:/Users/yle4/code/github/premier_analysis/python/output/analysis/'
 out_dir = file_dir + 'figures/'
-outcomes = ['icu', 'misa_pt', 'death']
 icu_preds = pd.read_csv(file_dir + 'icu_preds.csv')
 misa_preds = pd.read_csv(file_dir + 'misa_pt_preds.csv')
 death_preds = pd.read_csv(file_dir + 'death_preds.csv')
@@ -48,14 +48,17 @@ n_features = np.max(list(vocab.keys()))
 n_classes = len(np.unique(labels))
 
 pred_dfs = [icu_preds, misa_preds, death_preds]
+outcomes = ['icu', 'misa_pt', 'death']
 prob_cols = ['lgr_d1_prob', 'rf_d1_prob', 'gbc_d1_prob',
              'dan_d1_prob', 'lstm_prob']
-mod_names = ['lgr', 'rf', 'gbc', 'dan', 'lstm']
-fig_titles = ['ICU', 'MIS-A', 'death']
+mod_names = ['Lgr', 'RF', 'GBC', 'DAN', 'LSTM']
+fig_titles = ['ICU', 'HS', 'Death']
 
 # Running the ROC curves
 sns.set_palette('colorblind')
 sns.set_style('dark')
+fig, ax = plt.subplots(1, 3)
+
 for i, df in enumerate(pred_dfs):
     sk_rocs = [roc_curve(df[outcomes[i]],
                          df[col]) for col in prob_cols]
@@ -63,14 +66,20 @@ for i, df in enumerate(pred_dfs):
                for r in sk_rocs]
     for j, roc_df in enumerate(roc_dfs):
         roc_df['model'] = mod_names[j]
-    all_dfs = pd.concat(roc_dfs, axis=0)
+    all_dfs = pd.concat(roc_dfs, axis=0).reset_index(drop=True)
     all_dfs.columns = ['fpr', 'tpr', 'model']
-    sns.lineplot(x='fpr', y='tpr', data=all_dfs, hue='model', ci=None)
-    sns.lineplot(x=(0, 1), y=(0, 1), color='lightgray')
+    sns.lineplot(x='fpr', 
+                 y='tpr', 
+                 data=all_dfs, 
+                 hue='model',
+                 ax=ax[i], 
+                 ci=None)
+    sns.lineplot(x=(0, 1), 
+                 y=(0, 1), 
+                 color='lightgray',
+                 ax=ax[i])
     plt.title(fig_titles[i])
-    plt.savefig(out_dir + outcomes[i] + '_' + 'roc.png',
-                bbox_inches='tight')
-    plt.clf()
+
 
 # Running the histograms
 for i, df in enumerate(pred_dfs):
