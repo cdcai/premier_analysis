@@ -120,7 +120,7 @@ if __name__ == "__main__":
     CHRT_PRFX = args.cohort_prefix
     STRATIFY = args.stratify
     DAY_ONE_ONLY = args.day_one
-    if DAY_ONE_ONLY:
+    if DAY_ONE_ONLY and ('lstm' not in MOD_NAME):
         # Optionally limiting the features to only those from the first day
         # of the actual COVID visit
         MOD_NAME += "_d1"
@@ -139,7 +139,7 @@ if __name__ == "__main__":
 
     # If no args are passed to overwrite these values, use repo structure to construct
     data_dir = os.path.abspath(os.path.join(pwd, "..", "data", "data", ""))
-    output_dir = os.path.abspath(os.path.join(pwd, "..", "output", ""))
+    output_dir = os.path.abspath(os.path.join(pwd, "output/", ""))
 
     if args.data_dir is not None:
         data_dir = os.path.abspath(args.data_dir)
