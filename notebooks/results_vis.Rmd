@@ -42,25 +42,27 @@ if (isTRUE(getOption("knitr.in.progress"))) {
 }
 
 results_file <- file.path(data_dir, "lgr_coefs.xlsx")
+results_sheets <- readxl::excel_sheets(results_file)
+read_results <- function(sheet, path = results_file) {
+  out <- read_xlsx(path, sheet) %>%
+    mutate(outcome = sheet)
+  
+  return(out)
+}
 
-results_names <- c(
-  "ICU_feature", "ICU_aOR", "MIS-A_feature", "MIS-A_aOR", "death_feature",
-  "death_aOR"
-)
-
-results <- read_xlsx(results_file, skip = 2, col_names = results_names)
+results <- lapply(results_sheets, read_results) %>%
+  bind_rows() %>%
+  mutate(
+    outcome = recode(
+      outcome,
+      "misa_pt" = "HS",
+      "icu" = "ICU",
+      "death" = "Death"
+      ))
 ```
 
 ```{r pivot and plot, fig.width = 13, fig.height = 10}
-long_results <- results |>
-  pivot_longer(
-    everything(),
-    names_to = c("outcome", ".value"),
-    names_pattern = c("(.*)_(.*)")
-  )
-
-
-for (out in split(long_results, ~outcome)) {
+for (out in split(results, ~outcome)) {
   outcome <- unique(out[["outcome"]])
 
   plot_out <- out |>
