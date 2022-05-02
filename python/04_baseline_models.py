@@ -130,6 +130,10 @@ probs_dir = os.path.join(stats_dir, "probs", "")
 
 # COMMAND ----------
 
+stats_dir
+
+# COMMAND ----------
+
 # Create analysis dirs if it doesn't exist
 [
     os.makedirs(directory, exist_ok=True)
@@ -284,7 +288,7 @@ for i, mod in enumerate(mods):
                                    cutpoint=cutpoint,
                                    mod_name=mod_name,
                                    average=AVERAGE)
-            ta.write_preds(output_dir=output_dir,
+            ta.write_preds(output_dir=output_dir + "/",
                            preds=test_preds,
                            outcome=OUTCOME,
                            mod_name=mod_name,
@@ -298,7 +302,7 @@ for i, mod in enumerate(mods):
                                    test_probs,
                                    mod_name=mod_name,
                                    average=AVERAGE)
-            ta.write_preds(output_dir=output_dir,
+            ta.write_preds(output_dir=output_dir + "/",
                            preds=test_preds,
                            probs=np.max(test_probs, axis=1),
                            outcome=OUTCOME,
@@ -317,15 +321,19 @@ for i, mod in enumerate(mods):
         stats = ta.clf_metrics(y[test],
                                test_preds,
                                mod_name=mod_name,
-                               average=average)
-        ta.write_preds(output_dir=output_dir,
+                               average=AVERAGE)
+        ta.write_preds(output_dir=output_dir + "/",
                        preds=test_preds,
                        outcome=OUTCOME,
                        mod_name=mod_name,
                        test_idx=test)
 
     # Saving the results to disk
-    ta.write_stats(stats, OUTCOME)
+    ta.write_stats(stats, OUTCOME, stats_dir=stats_dir)
+
+# COMMAND ----------
+
+stats_dir
 
 # COMMAND ----------
 
