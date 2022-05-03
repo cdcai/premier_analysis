@@ -1,5 +1,6 @@
 # Databricks notebook source
 # MAGIC %pip install keras-tuner
+# MAGIC %pip install mlflow
 
 # COMMAND ----------
 
@@ -23,6 +24,8 @@ from tensorflow.keras.callbacks import TensorBoard
 import tools.analysis as ta
 import tools.preprocessing as tp
 import tools.keras as tk
+
+import mlflow
 
 # COMMAND ----------
 
@@ -175,13 +178,13 @@ import tools.keras as tk
 # COMMAND ----------
 
 TIME_SEQ = 225
-MOD_NAME = 'hp_dan'   #'lstm'
+MOD_NAME = 'dan'   #'lstm'
 WEIGHTED_LOSS = True
 if WEIGHTED_LOSS:
     MOD_NAME += '_w'
 OUTCOME = 'misa_pt'
 DEMOG = True
-CHRT_PRFX = 'hp_dan'
+CHRT_PRFX = 'dan'
 STRATIFY = 'all'
 DAY_ONE_ONLY = True
 if DAY_ONE_ONLY and ('lstm' not in MOD_NAME):
@@ -253,6 +256,13 @@ with open(os.path.join(tensorboard_dir, "emb_metadata.tsv"), "w") as f:
         writer.writerow([key, value, all_feats[value]])
 
 # COMMAND ----------
+
+#
+# start mlflow run
+#
+mlflow.start_run()
+mlflow.tensorflow.autolog()
+
 
 # Determining number of vocab entries
 N_VOCAB = len(vocab) + 1
@@ -419,12 +429,13 @@ elif "dan" in MOD_NAME:
                                         compile=True)
 
         model.fit(X[train],
-                  y_one_hot[train],
-                  batch_size=BATCH_SIZE,
-                  epochs=EPOCHS,
-                  validation_data=(X[val], y_one_hot[val]),
-                  # callbacks=callbacks,
-                  class_weight=weight_dict)
+              y_one_hot[train],
+              batch_size=BATCH_SIZE,
+              epochs=EPOCHS,
+              validation_data=(X[val], y_one_hot[val]),
+              # callbacks=callbacks,
+              class_weight=weight_dict)
+
 
     # Handle multiclass case
     elif N_CLASS > 2:
@@ -439,7 +450,7 @@ elif "dan" in MOD_NAME:
                        n_classes=N_CLASS)
 
         model.compile(optimizer="adam", loss=loss_fn, metrics=metrics)
-
+        
         model.fit(X[train],
                   y_one_hot[train],
                   batch_size=BATCH_SIZE,
@@ -447,6 +458,7 @@ elif "dan" in MOD_NAME:
                   validation_data=(X[val], y_one_hot[val]),
                   callbacks=callbacks,
                   class_weight=weight_dict)
+
     else:
         # Produce DAN model to fit
         model = tk.DAN(vocab_size=N_VOCAB,
@@ -455,6 +467,7 @@ elif "dan" in MOD_NAME:
 
         model.compile(optimizer="adam", loss=loss_fn, metrics=metrics)
         print('Starting DAN model')
+        
         model.fit(X[train],
                   y[train],
                   batch_size=BATCH_SIZE,
@@ -462,6 +475,8 @@ elif "dan" in MOD_NAME:
                   validation_data=(X[val], y[val]),
                   #callbacks=callbacks,
                   class_weight=weight_dict)
+        # mlflow.keras.log_model(model, "dan")
+
 
     # Produce DAN predictions on validation and test sets
     val_probs = model.predict(X[val])
@@ -476,6 +491,11 @@ if N_CLASS <= 2:
     # Computed threshold cutpoint based on F1
     # NOTE: we could change that too. Maybe that's not the best objective
     cutpoint = val_gm.cutoff.values[np.argmax(val_gm.f1)]
+    
+    #
+    # add f1 to mlflow metrics
+    #
+    mlflow.log_metric("F1", np.max(val_gm.f1))
 
     # Getting the stats
     stats = ta.clf_metrics(y[test],
@@ -505,6 +525,10 @@ else:
     # Saving the max from each row for writing to CSV
     test_probs = np.amax(test_probs, axis=1)
 
+#
+# END MLFLOW RUN
+#
+mlflow.end_run()
 
 
 # COMMAND ----------
@@ -534,14 +558,6 @@ else:
 preds_df[MOD_NAME + '_prob'] = test_probs
 preds_df[MOD_NAME + '_pred'] = test_preds
 preds_df.to_csv(preds_file, index=False)
-
-# COMMAND ----------
-
-spark.conf.get("spark.executor.memory")
-
-# COMMAND ----------
-
-spark.sparkContext.getConf().getAll()
 
 # COMMAND ----------
 

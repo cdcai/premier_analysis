@@ -38,7 +38,7 @@ TIME_UNIT = 'dfi'
 COVID_ONLY = True
 
 # Setting the file directories
-use_abfss = True
+use_abfss = False
 if use_abfss:
     prem_dir = 'abfss://cdh@davsynapseanalyticsdev.dfs.core.windows.net/exploratory/databricks_ml/mitre_premier/data/'
     out_dir = 'abfss://cdh@davsynapseanalyticsdev.dfs.core.windows.net/exploratory/databricks_ml/mitre_premier/output/'
@@ -250,8 +250,8 @@ else:
 # COMMAND ----------
 
 #from pyspark.sql.types import StructType
-empty_df = spark.createDataFrame([], StructType([]))
-empty_df.saveAsPickleFile(pkl_dir + 'feature_lookup.pkl',5)
+#empty_df = spark.createDataFrame([], StructType([]))
+#empty_df.saveAsPickleFile(pkl_dir + 'feature_lookup.pkl',5)
 #pickle.dump(ftr_dict, open(pkl_dir + 'feature_lookup.pkl', 'wb'))
 
 # COMMAND ----------
