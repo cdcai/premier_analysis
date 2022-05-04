@@ -1,4 +1,27 @@
 # Databricks notebook source
+!pip install mlflow --quiet
+
+# COMMAND ----------
+
+dbutils.widgets.removeAll()
+dbutils.widgets.text(
+  name='experiment_id',
+  defaultValue='1910247067387441',
+  label='Experiment ID'
+)
+
+# COMMAND ----------
+
+import mlflow
+experiment = dbutils.widgets.get("experiment_id")
+assert experiment is not None
+current_experiment = mlflow.get_experiment(experiment)
+assert current_experiment is not None
+experiment_id= current_experiment.experiment_id
+
+
+# COMMAND ----------
+
 import argparse
 import os
 import pickle as pkl
@@ -223,7 +246,7 @@ train, val = train_test_split(train,
 # Fitting a logistic regression to the whole dataset
 lgr = LogisticRegression(max_iter=5000, multi_class='ovr')
 mlflow.sklearn.autolog(log_models=True)
-with mlflow.start_run() as run:
+with mlflow.start_run(experiment_id=experiment_id) as run:
     lgr.fit(X, y)
     mlflow.sklearn.log_model(lgr, "lgr")
 coef_list = []
@@ -275,7 +298,7 @@ mod_names = ['lgr', 'rf', 'gbc', 'svm']
 # Turning the crank like a proper data scientist
 for i, mod in enumerate(mods):
     # Fitting the model and setting the name
-    with mlflow.start_run() as run:
+    with mlflow.start_run(experiment_id=experiment_id) as run:
         mod.fit(X[train], y[train])
         mlflow.sklearn.log_model(mod, mod_names[i])
     mod_name = mod_names[i]

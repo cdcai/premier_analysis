@@ -1,6 +1,6 @@
 # Databricks notebook source
-# MAGIC %pip install keras-tuner
-# MAGIC %pip install mlflow
+# MAGIC %pip install keras-tuner --quiet
+# MAGIC %pip install mlflow --quiet
 
 # COMMAND ----------
 
@@ -26,6 +26,25 @@ import tools.preprocessing as tp
 import tools.keras as tk
 
 import mlflow
+
+# COMMAND ----------
+
+dbutils.widgets.removeAll()
+dbutils.widgets.text(
+  name='experiment_id',
+  defaultValue='1910247067387441',
+  label='Experiment ID'
+)
+
+# COMMAND ----------
+
+import mlflow
+experiment = dbutils.widgets.get("experiment_id")
+assert experiment is not None
+current_experiment = mlflow.get_experiment(experiment)
+assert current_experiment is not None
+experiment_id= current_experiment.experiment_id
+mlflow.set_experiment(experiment_id=experiment_id)
 
 # COMMAND ----------
 
