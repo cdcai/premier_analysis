@@ -38,6 +38,28 @@ dbutils.widgets.text(
 
 # COMMAND ----------
 
+dbutils.widgets.dropdown("model", "lstm", ["dan", "lstm", "hp_lstm", "hp_dan"])
+MOD_NAME = dbutils.widgets.get("model")
+
+# COMMAND ----------
+
+dbutils.widgets.dropdown("outcome","misa_pt",["misa_pt", "multi_class", "death", "icu"])
+OUTCOME = dbutils.widgets.get("outcome")
+
+# COMMAND ----------
+
+dbutils.widgets.dropdown("demographics", "True", ["True", "False"])
+DEMOG = dbutils.widgets.get("demographics")
+if DEMOG == "True": DEMOG = True
+else: DEMOG = False
+
+# COMMAND ----------
+
+dbutils.widgets.dropdown("stratify", "all", ['all', 'death', 'misa_pt', 'icu'])
+STRATIFY = dbutils.widgets.get("stratify")
+
+# COMMAND ----------
+
 import mlflow
 experiment = dbutils.widgets.get("experiment_id")
 assert experiment is not None
