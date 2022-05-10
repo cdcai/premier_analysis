@@ -254,13 +254,13 @@ if __name__ == "__main__":
         ),
 
         # Create model checkpoint callback
-        keras.callbacks.ModelCheckpoint(filepath=os.path.join(
-            tensorboard_dir, OUTCOME, MOD_NAME,
-            "weights.{epoch:02d}-{val_loss:.2f}.hdf5"),
-                                        save_weights_only=True,
-                                        monitor="val_loss",
-                                        mode="max",
-                                        save_best_only=True),
+     #   keras.callbacks.ModelCheckpoint(filepath=os.path.join(
+     #       tensorboard_dir, OUTCOME, MOD_NAME,
+     #       "weights.{epoch:02d}-{val_loss:.2f}.hdf5"),
+     #                                   save_weights_only=True,
+     #                                   monitor="val_loss",
+     #                                   mode="max",
+     #                                   save_best_only=True),
 
         # Create early stopping callback
         keras.callbacks.EarlyStopping(monitor="val_loss",
