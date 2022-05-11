@@ -15,6 +15,7 @@ from sklearn.svm import LinearSVC
 
 import tools.analysis as ta
 import tools.preprocessing as tp
+from shutil import copyfile
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -204,12 +205,15 @@ if __name__ == '__main__':
     out_name = OUTCOME + '_lgr_'
     if DAY_ONE_ONLY:
         out_name += 'd1_'
-
-    with pd.ExcelWriter(stats_dir + out_name + 'coefs.xlsx') as writer:
+    
+    temp_file = '/tmp/tmp.xlsx'
+    with pd.ExcelWriter(temp_file) as writer:
+#    with pd.ExcelWriter(stats_dir + out_name + 'coefs.xlsx') as writer:
         for i, df in enumerate(coef_list):
-            df.to_excel(writer, sheet_name='coef_' + str(i), index=False)
-
+#            df.to_excel(writer, sheet_name='coef_' + str(i), index=False)
+            df.to_excel(writer, sheet_name='coef_' + str(i), index=False, engine='openpyxl')
         writer.save()
+    copyfile(temp_file,stats_dir + out_name + 'coefs.xlsx')
 
     # Loading up some models to try
     mods = [
@@ -240,7 +244,7 @@ if __name__ == '__main__':
                                        cutpoint=cutpoint,
                                        mod_name=mod_name,
                                        average=args.average)
-                ta.write_preds(preds=test_preds,
+                ta.write_preds(output_dir=output_dir + "/", preds=test_preds,
                                outcome=OUTCOME,
                                mod_name=mod_name,
                                test_idx=test,
@@ -253,7 +257,7 @@ if __name__ == '__main__':
                                        test_probs,
                                        mod_name=mod_name,
                                        average=args.average)
-                ta.write_preds(preds=test_preds,
+                ta.write_preds(output_dir=output_dir + "/", preds=test_preds,
                                probs=np.max(test_probs, axis=1),
                                outcome=OUTCOME,
                                mod_name=mod_name,
@@ -272,10 +276,10 @@ if __name__ == '__main__':
                                    test_preds,
                                    mod_name=mod_name,
                                    average=args.average)
-            ta.write_preds(preds=test_preds,
+            ta.write_preds(output_dir=output_dir + "/", preds=test_preds,
                            outcome=OUTCOME,
                            mod_name=mod_name,
                            test_idx=test)
 
         # Saving the results to disk
-        ta.write_stats(stats, OUTCOME)
+        ta.write_stats(stats, OUTCOME,stats_dir=stats_dir)
