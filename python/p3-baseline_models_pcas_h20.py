@@ -14,7 +14,7 @@ import mlflow
 dbutils.widgets.removeAll()
 dbutils.widgets.text(
   name='experiment_id',
-  defaultValue='1910247067387441',
+  defaultValue='388290745206631',
   label='Experiment ID'
 )
 
@@ -119,8 +119,7 @@ X_train_h2o_df[target] = X_train_h2o_df[target].asfactor()
 # Run AutoML for 20 base models
 import mlflow
 
-mlflow.end_run()
-mlflow.start_run()
+mlflow.start_run(experiment_id=experiment_id)
 mlflow.autolog()
 
 aml = H2OAutoML(max_models=5, seed=1)

@@ -14,7 +14,7 @@ import mlflow
 dbutils.widgets.removeAll()
 dbutils.widgets.text(
   name='experiment_id',
-  defaultValue='1910247067387441',
+  defaultValue='388290745206631',
   label='Experiment ID'
 )
 
@@ -97,7 +97,7 @@ clf = ak.StructuredDataClassifier(overwrite=True, max_trials=10,directory="/tmp/
 # Feed the structured data classifier with training data.
 
 import mlflow
-mlflow.start_run()
+mlflow.start_run(experiment_id=experiment_id)
 mlflow.autolog()
 
 clf.fit(x_train, y_train, validation_data=(x_val, y_val), epochs=10)
