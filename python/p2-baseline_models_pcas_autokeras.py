@@ -9,13 +9,14 @@
 
 # COMMAND ----------
 
+import mlflow
+
 dbutils.widgets.removeAll()
 dbutils.widgets.text(
   name='experiment_id',
-  defaultValue='1910247067387441',
+  defaultValue='388290745206631',
   label='Experiment ID'
 )
-
 
 dbutils.widgets.dropdown("outcome","icu",["misa_pt", "multi_class", "death", "icu"])
 OUTCOME = dbutils.widgets.get("outcome")
@@ -31,22 +32,33 @@ STRATIFY = dbutils.widgets.get("stratify")
 dbutils.widgets.dropdown("average", "weighted", ['micro', 'macro', 'weighted'])
 AVERAGE = dbutils.widgets.get("average")
 
-# COMMAND ----------
+dbutils.widgets.dropdown("experimenting", "False",  ["True", "False"])
+EXPERIMENTING = dbutils.widgets.get("experimenting")
+if EXPERIMENTING == "True": EXPERIMENTING = True
+else: EXPERIMENTING = False
 
-import mlflow
 experiment = dbutils.widgets.get("experiment_id")
 assert experiment is not None
 current_experiment = mlflow.get_experiment(experiment)
 assert current_experiment is not None
 experiment_id= current_experiment.experiment_id
 
-
 # COMMAND ----------
 
 import pandas as pd
-train_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/train_pcas.csv')
-val_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/val_pcas.csv')
-test_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/test_pcas.csv')
+
+if EXPERIMENTING == True:
+    train_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/train_pcas_only_100.csv')
+    val_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/val_pcas_only_100.csv')
+    test_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/test_pcas_only_100.csv')
+else:
+    train_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/train_pcas.csv')
+    val_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/val_pcas.csv')
+    test_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/test_pcas.csv')
+
+# COMMAND ----------
+
+train_pd.shape
 
 # COMMAND ----------
 
@@ -75,18 +87,26 @@ import autokeras as ak
 
 # COMMAND ----------
 
+# MAGIC %sh
+# MAGIC rm -r /tmp/autokeras
+
+# COMMAND ----------
+
 # It tries 10 different models.
-clf = ak.StructuredDataClassifier(overwrite=True, max_trials=10,directory="/tmp")
+clf = ak.StructuredDataClassifier(overwrite=True, max_trials=10,directory="/tmp/autokeras")
 # Feed the structured data classifier with training data.
 
 import mlflow
 mlflow.start_run(experiment_id=experiment_id)
+mlflow.autolog()
+
 clf.fit(x_train, y_train, validation_data=(x_val, y_val), epochs=10)
 
 # COMMAND ----------
 
 # Predict with the best model.
-predicted_y = clf.predict(x_test)
+y_predicted = clf.predict(x_test)
+y_predicted.shape
 
 # COMMAND ----------
 
@@ -95,22 +115,15 @@ y_test['target']
 
 # COMMAND ----------
 
-import tools.analysis as ta
-import tools.preprocessing as tp
-
-
-stats = ta.clf_metrics(y_test.to_numpy(), predicted_y, mod_name="h2o",average=AVERAGE)
-
-# COMMAND ----------
-
-stats
+from sklearn.metrics import f1_score
+f1_score_weighted = f1_score(np.array(y_test), y_predicted, average='weighted')
+mlflow.log_metric("testing f1 score weighted", f1_score_weighted)
+f1_score_weighted
 
 # COMMAND ----------
-
-stats.to_csv('/dbfs/home/tnk6/premier_output/analysis/results_autokeras.csv')
-
-# COMMAND ----------
-
-mlflow.log_metric("f1", stats['f1'][0])
 
 mlflow.end_run()
+
+# COMMAND ----------
+
+

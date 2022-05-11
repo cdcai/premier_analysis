@@ -26,7 +26,7 @@ import mlflow
 dbutils.widgets.removeAll()
 dbutils.widgets.text(
   name='experiment_id',
-  defaultValue='1910247067387441',
+  defaultValue='388290745206631',
   label='Experiment ID'
 )
 
@@ -44,7 +44,7 @@ STRATIFY = dbutils.widgets.get("stratify")
 dbutils.widgets.dropdown("average", "weighted", ['micro', 'macro', 'weighted'])
 AVERAGE = dbutils.widgets.get("average")
 
-dbutils.widgets.dropdown("experimenting", "True",  ["True", "False"])
+dbutils.widgets.dropdown("experimenting", "False",  ["True", "False"])
 EXPERIMENTING = dbutils.widgets.get("experimenting")
 if EXPERIMENTING == "True": EXPERIMENTING = True
 else: EXPERIMENTING = False
@@ -90,10 +90,10 @@ y_test = X_test.pop('target')
 from supervised.automl import AutoML
 import mlflow
 
-mlflow.start_run()
+mlflow.start_run(experiment_id=experiment_id)
 mlflow.autolog()
 
-automl = AutoML(results_path='/tmp/mljar')
+automl = AutoML(results_path='/tmp/mljar',mode='Compete')
 automl.fit(X_train, y_train, )
 
 # COMMAND ----------
