@@ -52,6 +52,8 @@ current_experiment = mlflow.get_experiment(experiment)
 assert current_experiment is not None
 experiment_id= current_experiment.experiment_id
 
+print("OUTCOME ", OUTCOME)
+print("STRATIFY ", STRATIFY)
 
 # COMMAND ----------
 
@@ -242,15 +244,15 @@ else:
 
 # COMMAND ----------
 
-
+suffix = "_outcome_"+OUTCOME+"_stratify_"+STRATIFY
 if EXPERIMENTING == True:
-    df_train.to_csv('/dbfs/home/tnk6/premier_output/analysis/train_pcas_only_100.csv')
-    df_val.to_csv('/dbfs/home/tnk6/premier_output/analysis/val_pcas_only_100.csv')
-    df_test.to_csv('/dbfs/home/tnk6/premier_output/analysis/test_pcas_only_100.csv')
+    df_train.to_csv('/dbfs/home/tnk6/premier_output/analysis/train_pcas_only_100'+suffix+'.csv')
+    df_val.to_csv('/dbfs/home/tnk6/premier_output/analysis/val_pcas_only_100'+suffix+'.csv')
+    df_test.to_csv('/dbfs/home/tnk6/premier_output/analysis/test_pcas_only_100'+suffix+'.csv')
 else:
-    df_train.to_csv('/dbfs/home/tnk6/premier_output/analysis/train_pcas.csv')
-    df_val.to_csv('/dbfs/home/tnk6/premier_output/analysis/val_pcas.csv')
-    df_test.to_csv('/dbfs/home/tnk6/premier_output/analysis/test_pcas.csv')
+    df_train.to_csv('/dbfs/home/tnk6/premier_output/analysis/train_pcas'+suffix+'.csv')
+    df_val.to_csv('/dbfs/home/tnk6/premier_output/analysis/val_pcas'+suffix+'.csv')
+    df_test.to_csv('/dbfs/home/tnk6/premier_output/analysis/test_pcas'+suffix+'.csv')
 
 
 # COMMAND ----------
