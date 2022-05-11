@@ -57,16 +57,23 @@ experiment_id= current_experiment.experiment_id
 
 # COMMAND ----------
 
+print(OUTCOME)
+print(STRATIFY)
+
+# COMMAND ----------
+
 import pandas as pd
 
+suffix = "_outcome_"+OUTCOME+"_stratify_"+STRATIFY
+
 if EXPERIMENTING == True:
-    train_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/train_pcas_only_100.csv')
-    val_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/val_pcas_only_100.csv')
-    test_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/test_pcas_only_100.csv')
+    train_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/train_pcas_only_100'+suffix+'.csv')
+    val_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/val_pcas_only_100'+suffix+'.csv')
+    test_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/test_pcas_only_100'+suffix+'.csv')
 else:
-    train_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/train_pcas.csv')
-    val_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/val_pcas.csv')
-    test_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/test_pcas.csv')
+    train_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/train_pcas'+suffix+'.csv')
+    val_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/val_pcas'+suffix+'.csv')
+    test_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/test_pcas'+suffix+'.csv')
 
 # COMMAND ----------
 
@@ -82,8 +89,10 @@ y_test = X_test.pop('target')
 
 # COMMAND ----------
 
-# MAGIC %sh
-# MAGIC rm -r /tmp/mljar
+from datetime import datetime
+date_time = str(datetime.now()).replace('-','_').replace(':','_').replace('.','_')
+mljar_folder = '/tmp/mljar_'+date_time
+mljar_folder
 
 # COMMAND ----------
 
@@ -93,12 +102,13 @@ import mlflow
 mlflow.start_run(experiment_id=experiment_id)
 mlflow.autolog()
 
-automl = AutoML(results_path='/tmp/mljar',mode='Compete')
+automl = AutoML(results_path=mljar_folder)
 automl.fit(X_train, y_train, )
 
 # COMMAND ----------
 
 y_predicted = automl.predict(X_test)
+y_predicted
 
 # COMMAND ----------
 
@@ -114,10 +124,6 @@ print(filtro.value_counts(normalize=True))
 
 # COMMAND ----------
 
-
-
-# COMMAND ----------
-
 from sklearn.metrics import f1_score
 f1_score_weighted = f1_score(np.array(y_test), y_predicted, average='weighted')
 mlflow.log_metric("testing f1 score weighted", f1_score_weighted)
@@ -126,10 +132,50 @@ f1_score_weighted
 # COMMAND ----------
 
 from sklearn.metrics import roc_auc_score
-y_pred_proba = automl.predict_proba(X_test)[::,1]
-auc = roc_auc_score(y_test, y_pred_proba)
-mlflow.log_metric("testing auc", f1_score_weighted)
+y_pred_proba = automl.predict_proba(X_test)
+y_pred_proba
+
+# COMMAND ----------
+
+auc = roc_auc_score(y_test, y_pred_proba[:,1])
+mlflow.log_metric("testing auc", auc)
 auc
+
+# COMMAND ----------
+
+import tools.analysis as ta
+
+mcnemar_x_square_test = ta.mcnemar_test(y_test, y_predicted, cc=True)
+stat = mcnemar_x_square_test.loc[0,'stat']
+pval = mcnemar_x_square_test.loc[0,'pval']
+mlflow.log_metric("McNemar X' squre test - stat ", stat)
+mlflow.log_metric("McNemar X' squre test - pval ", pval)
+mcnemar_x_square_test
+
+# COMMAND ----------
+
+from sklearn.metrics import brier_score_loss
+brier_score_loss = brier_score_loss (y_test, y_pred_proba[:,1])
+mlflow.log_metric("brien score loss", brier_score_loss)
+brier_score_loss
+
+# COMMAND ----------
+
+from sklearn.metrics import recall_score
+recall_score = recall_score(y_test, y_predicted, average=AVERAGE)
+mlflow.log_metric("recall score", recall_score)
+recall_score
+
+# COMMAND ----------
+
+mlflow.log_param("average", AVERAGE)
+mlflow.log_param("demographics", USE_DEMOG)
+mlflow.log_param("outcome", OUTCOME)
+mlflow.log_param("stratify", STRATIFY)
+
+# COMMAND ----------
+
+mlflow.log_artifacts('/tmp/mljar')
 
 # COMMAND ----------
 
@@ -140,7 +186,7 @@ mlflow.end_run()
 from sklearn import metrics
 import matplotlib.pyplot as plt
 
-fpr, tpr, thresholds = metrics.roc_curve(y_test, y_pred_proba)
+fpr, tpr, thresholds = metrics.roc_curve(y_test, y_pred_proba[:,1])
 plt.plot(fpr, tpr)
 plt.ylabel('True Positive Rate')
 plt.xlabel('False Positive Rate')
@@ -164,10 +210,6 @@ plt.show()
 
 # COMMAND ----------
 
-
-
-# COMMAND ----------
-
 # MAGIC %cat /tmp/mljar/README.md
 
 # COMMAND ----------
@@ -183,6 +225,29 @@ plt.imshow(pic, aspect='auto')
 
 # MAGIC %sh
 # MAGIC ls /tmp/mljar/*
+
+# COMMAND ----------
+
+# MAGIC %sh
+# MAGIC mkdir /FileStore/too9
+
+# COMMAND ----------
+
+ls /tmp/ml
+
+# COMMAND ----------
+
+cp -R /tmp/mljar/* /dbfs/FileStore/too0/mljar/
+
+# COMMAND ----------
+
+# MAGIC %python
+# MAGIC displayHTML('''<img src = "/dbfs/FileStore/too0/mljar/correlation_heatmap.png" stype="width:600px;height:600px;">''')
+
+# COMMAND ----------
+
+# MAGIC %sh
+# MAGIC ls /dbfs/FileStore/too0/mljar/
 
 # COMMAND ----------
 

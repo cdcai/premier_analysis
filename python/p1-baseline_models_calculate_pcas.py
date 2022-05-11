@@ -222,7 +222,7 @@ def calculate_estimated_n_pca_componetns(X_train_set):
 
 # COMMAND ----------
 
-
+suffix = "_outcome_"+OUTCOME+"_stratify_"+STRATIFY
 if EXPERIMENTING == True:
     pcas_train = calculatePCA(X[train][:100],100, batch_size=100)
     pcas_val   = calculatePCA(X[val][:100],100, batch_size=100)
