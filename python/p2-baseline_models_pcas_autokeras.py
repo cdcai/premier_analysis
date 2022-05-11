@@ -32,7 +32,7 @@ STRATIFY = dbutils.widgets.get("stratify")
 dbutils.widgets.dropdown("average", "weighted", ['micro', 'macro', 'weighted'])
 AVERAGE = dbutils.widgets.get("average")
 
-dbutils.widgets.dropdown("experimenting", "True",  ["True", "False"])
+dbutils.widgets.dropdown("experimenting", "False",  ["True", "False"])
 EXPERIMENTING = dbutils.widgets.get("experimenting")
 if EXPERIMENTING == "True": EXPERIMENTING = True
 else: EXPERIMENTING = False
