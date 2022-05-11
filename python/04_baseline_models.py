@@ -10,6 +10,18 @@ dbutils.widgets.text(
   label='Experiment ID'
 )
 
+
+dbutils.widgets.dropdown("outcome","icu",["misa_pt", "multi_class", "death", "icu"])
+OUTCOME = dbutils.widgets.get("outcome")
+
+dbutils.widgets.dropdown("demographics", "True", ["True", "False"])
+USE_DEMOG = dbutils.widgets.get("demographics")
+if USE_DEMOG == "True": DEMOG = True
+else: USE_DEMOG = False
+
+dbutils.widgets.dropdown("stratify", "all", ['all', 'death', 'misa_pt', 'icu'])
+STRATIFY = dbutils.widgets.get("stratify")
+
 # COMMAND ----------
 
 import mlflow
@@ -126,15 +138,15 @@ import mlflow
 # COMMAND ----------
 
 # Setting the globals
-OUTCOME = 'misa_pt'
-USE_DEMOG = True
+#OUTCOME = 'misa_pt'
+#USE_DEMOG = True
 AVERAGE = 'weighted'
 DAY_ONE_ONLY = True
 TEST_SPLIT = 0.2
 VAL_SPLIT = 0.1
 RAND = 2022
 CHRT_PRFX = ''
-STRATIFY ='all'
+#STRATIFY ='all'
 
 # Setting the directories and importing the data
 # If no args are passed to overwrite these values, use repo structure to construct
@@ -287,6 +299,7 @@ if DAY_ONE_ONLY:
 # COMMAND ----------
 
 # Loading up some models to try
+stats = None
 mods = [
     LogisticRegression(max_iter=5000, multi_class='ovr'),
     RandomForestClassifier(n_estimators=500, n_jobs=-1),
@@ -359,10 +372,19 @@ for i, mod in enumerate(mods):
 
     # Saving the results to disk
     ta.write_stats(stats, OUTCOME, stats_dir=stats_dir)
+    
 
 # COMMAND ----------
 
 stats_dir
+
+# COMMAND ----------
+
+stats_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/icu_stats.csv')
+
+# COMMAND ----------
+
+stats_pd
 
 # COMMAND ----------
 

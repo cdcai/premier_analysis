@@ -211,38 +211,26 @@ else:
 
 # COMMAND ----------
 
-train_set, test = train_test_split(range(n_patients),
+train, test = train_test_split(range(n_patients),
                                test_size=TEST_SPLIT,
                                stratify=strat_var,
                                random_state=RAND)
 
 # Doing a validation split for threshold-picking on binary problems
-train, val = train_test_split(train_set,
+train, val = train_test_split(train,
                               test_size=VAL_SPLIT,
-                              stratify=strat_var[train_set],
+                              stratify=strat_var[train],
                               random_state=RAND)
 
 # COMMAND ----------
 
-X[train_set][:100].shape
-
-# COMMAND ----------
-
-X[val].shape
-
-# COMMAND ----------
-
-df_X = pd.DataFrame(X[train_set][:10].toarray())
+df_X = pd.DataFrame(X[train][:100].toarray())
 #df_X = df_X.rename(columns=lambda x: "c"+str(X))
 
 # COMMAND ----------
 
-df_X['target']=y[train_set][:10]
-df_X['target'] = df_X['target'].astype(int)
-
-# COMMAND ----------
-
-spark_x_train= spark.createDataFrame(df_X)
+df_X['target']=y[train][:100]
+df_X['target'] = df_X['target'].astype('bool')
 
 # COMMAND ----------
 

@@ -3,9 +3,10 @@
 
 # COMMAND ----------
 
-!pip install git+https://github.com/keras-team/keras-tuner.git
-!pip install autokeras --quiet
-
+!pip install requests --quiet
+!pip install tabulate --quiet
+!pip install future --quiet
+!pip install -f http://h2o-release.s3.amazon.com/h2o/latest_stable_Py.html h2o --quiet
 
 # COMMAND ----------
 
@@ -15,6 +16,18 @@ dbutils.widgets.text(
   defaultValue='1910247067387441',
   label='Experiment ID'
 )
+
+dbutils.widgets.dropdown("outcome","icu",["misa_pt", "multi_class", "death", "icu"])
+OUTCOME = dbutils.widgets.get("outcome")
+
+dbutils.widgets.dropdown("demographics", "True", ["True", "False"])
+USE_DEMOG = dbutils.widgets.get("demographics")
+if USE_DEMOG == "True": DEMOG = True
+else: USE_DEMOG = False
+
+dbutils.widgets.dropdown("stratify", "all", ['all', 'death', 'misa_pt', 'icu'])
+STRATIFY = dbutils.widgets.get("stratify")
+
 
 # COMMAND ----------
 
@@ -132,15 +145,15 @@ import mlflow
 # COMMAND ----------
 
 # Setting the globals
-OUTCOME = 'misa_pt'
-USE_DEMOG = True
+#OUTCOME = 'misa_pt'
+#USE_DEMOG = True
 AVERAGE = 'weighted'
 DAY_ONE_ONLY = True
 TEST_SPLIT = 0.2
 VAL_SPLIT = 0.1
 RAND = 2022
 CHRT_PRFX = ''
-STRATIFY ='all'
+#STRATIFY ='all'
 
 # Setting the directories and importing the data
 # If no args are passed to overwrite these values, use repo structure to construct
@@ -236,190 +249,115 @@ else:
 
 # COMMAND ----------
 
-train, test = train_test_split(range(n_patients),
+train_set, test = train_test_split(range(n_patients),
                                test_size=TEST_SPLIT,
                                stratify=strat_var,
                                random_state=RAND)
 
 # Doing a validation split for threshold-picking on binary problems
-train, val = train_test_split(train,
+train, val = train_test_split(train_set,
                               test_size=VAL_SPLIT,
-                              stratify=strat_var[train],
+                              stratify=strat_var[train_set],
                               random_state=RAND)
-
-# COMMAND ----------
-
-df_X = pd.DataFrame(X.toarray())
-
-# COMMAND ----------
-
-df_X['target']=y
-
-# COMMAND ----------
-
-x_train = df_X.loc[train]
-y_train = x_train.pop('target')
-y_train = pd.DataFrame(y_train)
-
-x_test = df_X.loc[test]
-y_test = x_test.pop('target')
-y_test = pd.DataFrame(y_test)
-
-x_val = df_X.loc[val]
-y_val = x_val.pop('target')
-y_val = pd.DataFrame(y_val)
-
-# COMMAND ----------
-
-#x_train_np = x_train.to_numpy()
-#y_train_np = y_train.to_numpy()
-
-#x_test_np = x_test.to_numpy()
-#y_test_np = y_test.to_numpy()
-
-#x_val_np = x_val.to_numpy()
-#y_val_np = y_val.to_numpy()
+X[train]
 
 # COMMAND ----------
 
 #
-# import autokeras required libraris
+# Initialize H2O
 #
-import numpy as np
-import pandas as pd
-import tensorflow as tf
-import autokeras as ak
+import h2o
+from h2o.automl import H2OAutoML
+
+# Start the H2O cluster (locally)
+h2o.init()
+
+# COMMAND ----------
+
+X[train].toarray()
+
+# COMMAND ----------
+
+#
+# Prepare sets for H2O
+#
+target = "target"
+
+X_train_pdf = pd.DataFrame(X[train].toarray())
+X_train_pdf[target] = y[train]
+X_train_h2o_df = h2o.H2OFrame(X_train_pdf)
+X_train_pdf = None
+
+
 
 
 # COMMAND ----------
 
-# It tries 10 different models.
-clf = ak.StructuredDataClassifier(overwrite=True, max_trials=3,directory="/tmp")
-# Feed the structured data classifier with training data.
-clf.fit(x_train, y_train, validation_data=(x_val, y_val), epochs=10)
+X_val_pdf = pd.DataFrame(X[val].toarray())
+X_val_pdf[target] = y[val]
+X_val_h2o_df = h2o.H2OFrame(X_val_pdf)
+X_val_pdf = None
+
 
 # COMMAND ----------
 
-# Fitting a logistic regression to the whole dataset
-lgr = LogisticRegression(max_iter=5000, multi_class='ovr')
-mlflow.sklearn.autolog(log_models=True)
+x = X_train_h2o_df.columns
+x.remove(target)
+
+X_train_h2o_df[target] = X_train_h2o_df[target].asfactor()
+X_val_h2o_df[target]   = X_val_h2o_df[target].asfactor()
+
+# COMMAND ----------
+
+from h2o.estimators import H2OXGBoostEstimator
+
+
+# Run AutoML for 20 base models
+import mlflow
 with mlflow.start_run(experiment_id=experiment_id) as run:
-    lgr.fit(X, y)
-    mlflow.sklearn.log_model(lgr, "lgr")
-coef_list = []
-
-# Sorting the coefficients for
-for i in range(n_classes):
-    if not binary:
-        exp_coefs = np.exp(lgr.coef_)[i]
-    else:
-        exp_coefs = np.exp(lgr.coef_)[0]
-        i = 1
-    top_coef = np.argsort(exp_coefs)[::-1][0:30]
-    top_ftrs = [vocab[code] for code in top_coef]
-    top_codes = [all_feats[ftr] for ftr in top_ftrs]
-
-    bottom_coef = np.argsort(exp_coefs)[0:30]
-    bottom_ftrs = [vocab[code] for code in bottom_coef]
-    bottom_codes = [all_feats[ftr] for ftr in bottom_ftrs]
-
-    codes = top_codes + bottom_codes
-    coefs = np.concatenate([exp_coefs[top_coef], exp_coefs[bottom_coef]])
-    coef_df = pd.DataFrame([codes, coefs]).transpose()
-    coef_df.columns = ['feature', 'aOR']
-    coef_df.sort_values('aOR', ascending=False, inplace=True)
-    coef_list.append(coef_df)
-
-# Writing the sorted coefficients to Excel
-out_name = OUTCOME + '_lgr_'
-if DAY_ONE_ONLY:
-    out_name += 'd1_'
-
-#with pd.ExcelWriter(stats_dir + out_name + 'coefs.xlsx') as writer:
-#    for i, df in enumerate(coef_list):
-#        df.to_excel(writer, sheet_name='coef_' + str(i), index=False)
-
-#    writer.save()
+    aml = H2OXGBoostEstimator(booster='dart',
+                                  normalize_type="tree",
+                                  seed=1234)
+    aml.train(x=x, y=target, training_frame=X_train_h2o_df, validation_frame=X_val_h2o_df)
+    mlflow.log_metric("rmse", aml.leader.rmse())
+    mlflow.log_metric("mse", aml.leader.mse())
+    mlflow.log_metric("log_loss", aml.leader.logloss())
+    #mlflow.log_metric("mean_per_class_error", aml.leader.mean_per_class_error())
+    mlflow.log_metric("auc", aml.leader.auc())
+    mlflow.h2o.log_model(aml.leader, "model")
+    lb = aml.leaderboard
+    lb = h2o.automl.get_leaderboard(aml, extra_columns='ALL')
+    print(lb.head(rows=lb.nrows))
 
 # COMMAND ----------
 
-# Loading up some models to try
-mods = [
-    LogisticRegression(max_iter=5000, multi_class='ovr'),
-    RandomForestClassifier(n_estimators=500, n_jobs=-1),
-    GradientBoostingClassifier(),
-    LinearSVC(class_weight='balanced', max_iter=10000)
-]
-mod_names = ['lgr', 'rf', 'gbc', 'svm']
-
-# Turning the crank like a proper data scientist
-for i, mod in enumerate(mods):
-    # Fitting the model and setting the name
-    with mlflow.start_run(experiment_id=experiment_id) as run:
-        mod.fit(X[train], y[train])
-        mlflow.sklearn.log_model(mod, mod_names[i])
-    mod_name = mod_names[i]
-    if DAY_ONE_ONLY:
-        mod_name += '_d1'
-
-    if 'predict_proba' in dir(mod):
-        if binary:
-            val_probs = mod.predict_proba(X[val])[:, 1]
-            val_gm = ta.grid_metrics(y[val], val_probs)
-            cutpoint = val_gm.cutoff.values[np.argmax(val_gm.f1)]
-            test_probs = mod.predict_proba(X[test])[:, 1]
-            test_preds = ta.threshold(test_probs, cutpoint)
-            stats = ta.clf_metrics(y[test],
-                                   test_probs,
-                                   cutpoint=cutpoint,
-                                   mod_name=mod_name,
-                                   average=AVERAGE)
-            ta.write_preds(output_dir=output_dir + "/",
-                           preds=test_preds,
-                           outcome=OUTCOME,
-                           mod_name=mod_name,
-                           test_idx=test,
-                           probs=test_probs)
-        else:
-            cutpoint = None
-            test_probs = mod.predict_proba(X[test])
-            test_preds = mod.predict(X[test])
-            stats = ta.clf_metrics(y[test],
-                                   test_probs,
-                                   mod_name=mod_name,
-                                   average=AVERAGE)
-            ta.write_preds(output_dir=output_dir + "/",
-                           preds=test_preds,
-                           probs=np.max(test_probs, axis=1),
-                           outcome=OUTCOME,
-                           mod_name=mod_name,
-                           test_idx=test)
-
-        # Write out multiclass probs as pkl
-        probs_file = mod_name + '_' + OUTCOME + '.pkl'
-        prob_out = {'cutpoint': cutpoint, 'probs': test_probs}
-
-        with open(probs_dir + probs_file, 'wb') as f:
-            pkl.dump(prob_out, f)
-
-    else:
-        test_preds = mod.predict(X[test])
-        stats = ta.clf_metrics(y[test],
-                               test_preds,
-                               mod_name=mod_name,
-                               average=AVERAGE)
-        ta.write_preds(output_dir=output_dir + "/",
-                       preds=test_preds,
-                       outcome=OUTCOME,
-                       mod_name=mod_name,
-                       test_idx=test)
-
-    # Saving the results to disk
-    ta.write_stats(stats, OUTCOME, stats_dir=stats_dir)
+lb = h2o.automl.get_leaderboard(aml, extra_columns="ALL")
+lb
 
 # COMMAND ----------
 
-stats_dir
+m = aml.get_best_model()
+
+# COMMAND ----------
+
+X_test_pdf = pd.DataFrame(X[test].toarray())
+X_test_pdf[target] = y[test]
+X_test_h2o_df = h2o.H2OFrame(X_test_pdf)
+X_test_h2o_df[target] = X_trai_h2o_df[target].asfactor()
+
+predictions = m.predict(X_test_h2o_df)
+
+# COMMAND ----------
+
+prediction_pdf = predictions.as_data_frame()
+
+# COMMAND ----------
+
+stats = ta.clf_metrics(y[test], prediction_pdf['predict'].to_numpy(), mod_name="h2o",average=AVERAGE)
+
+# COMMAND ----------
+
+stats
 
 # COMMAND ----------
 

@@ -22,6 +22,27 @@ import mlflow
 
 # COMMAND ----------
 
+dbutils.widgets.removeAll()
+dbutils.widgets.text(
+  name='experiment_id',
+  defaultValue='1910247067387441',
+  label='Experiment ID'
+)
+
+dbutils.widgets.dropdown("outcome","icu",["misa_pt", "multi_class", "death", "icu"])
+OUTCOME = dbutils.widgets.get("outcome")
+
+dbutils.widgets.dropdown("demographics", "True", ["True", "False"])
+USE_DEMOG = dbutils.widgets.get("demographics")
+if USE_DEMOG == "True": DEMOG = True
+else: USE_DEMOG = False
+
+dbutils.widgets.dropdown("stratify", "all", ['all', 'death', 'misa_pt', 'icu'])
+STRATIFY = dbutils.widgets.get("stratify")
+
+
+# COMMAND ----------
+
 # MAGIC  %md 
 # MAGIC  ```
 # MAGIC     parser = argparse.ArgumentParser()
@@ -107,15 +128,16 @@ import mlflow
 # COMMAND ----------
 
 # Setting the globals
-OUTCOME = 'misa_pt'
-USE_DEMOG = True
+#OUTCOME = 'misa_pt'
+#USE_DEMOG = True
+#STRATIFY ='all'
+
 AVERAGE = 'weighted'
 DAY_ONE_ONLY = True
 TEST_SPLIT = 0.2
 VAL_SPLIT = 0.1
 RAND = 2022
 CHRT_PRFX = ''
-STRATIFY ='all'
 
 # Setting the directories and importing the data
 # If no args are passed to overwrite these values, use repo structure to construct
@@ -241,8 +263,19 @@ def prepareDfToAutoML (X,y,target):
     df = pd.DataFrame(X)
     df = df.rename(columns=lambda x: "c"+str(x))
     df[target] = y
-    df[target] = df[target].astype('int')
+    df[target] = df[target].astype('bool')
     return df
+
+# COMMAND ----------
+
+def calculate_estimated_n_pca_componetns(X_train_set):
+    from sklearn.decomposition import PCA
+    
+    df_train_set = pd.DataFrame(X_train_set.toarray())
+    pca = PCA (n_components=.95)
+    components = pca.fit_transform(df_train_set)
+    return pca.n_components_
+
 
 # COMMAND ----------
 
@@ -253,41 +286,46 @@ def automl_data_prep_pipeline(X_train, y_train,  target):
 
 # COMMAND ----------
 
-#automl_input_df = automl_data_prep_pipeline(X[train_set], y[train_set], 'target')
+#estimated_n_pca = calculate_estimated_n_pca_componetns(X[train][:10000])
+#
+# result was 1574
+#
 
 # COMMAND ----------
 
-def calculate_estimated_n_pca_componetns(X_train_set):
-    from sklearn.decomposition import PCA
-    
-    df_train_set = pd.DataFrame(X_train_set.toarray())
-    pca = PCA (n_components=.80)
-    components = pca.fit_transform(df_train_set)
-    return pca.n_components_
+#estimated_n_pca
+
+# COMMAND ----------
+
+#pcas = calculatePCA(X,n_components=estimated_n_pca, batch_size=estimated_n_pca)
+pcas = calculatePCA(X,1574, batch_size=1574)
+
+# COMMAND ----------
+
+automl_df = prepareDfToAutoML(pcas, y, 'target')
 
 
 # COMMAND ----------
 
-estimated_n_pca = calculate_estimated_n_pca_componetns(X[train_set][:10000])
-print(estimated_n_pca)
+import time, datetime
+ 
+time.sleep(1)
+automl_df['time_column']=None
+automl_df['time_column'][train]=datetime.datetime.now()
+time.sleep(1)
+automl_df['time_column'][val]=datetime.datetime.now()
+time.sleep(1)
+automl_df['time_column'][test]=datetime.datetime.now()
+
 
 # COMMAND ----------
 
-pcas = calculatePCA(X[train_set],n_components=estimated_n_pca, batch_size=estimated_n_pca)
-
-# COMMAND ----------
-
-pcas
-
-# COMMAND ----------
-
-automl_df = prepareDfToAutoML(pcas, y[train_set], 'target')
-automl_df
+automl_df[(automl_df["time_column"] == None)]
 
 # COMMAND ----------
 
 from databricks import automl
-summary = automl.classify(automl_df, target_col='target', timeout_minutes=600)
+summary = automl.classify(automl_df, target_col='target',  time_col='time_column',timeout_minutes=600)
 
 # COMMAND ----------
 
@@ -317,22 +355,14 @@ import mlflow
 
 model_uri = summary.best_trial.model_path
 
-#
-# calculate PCAs of testing data set
-#
-testing_pcas = calculatePCA(X[test],n_components=estimated_n_pca, batch_size=estimated_n_pca)
-testing_pcas.shape
-
-# COMMAND ----------
-
-X[test].shape
 
 # COMMAND ----------
 
 # Prepare test dataset
-test_pdf = prepareDfToAutoML(testing_pcas,y[test], 'target')
+test_pdf = prepareDfToAutoML(pcas[test],y[test], 'target')
  
 y_test = test_pdf.pop('target')
+time_column = test_pdf.pop('time_column')
 X_test = test_pdf
 
 # COMMAND ----------
@@ -361,6 +391,19 @@ import sklearn.metrics
 
 model = mlflow.sklearn.load_model(model_uri)
 sklearn.metrics.plot_confusion_matrix(model, X_test, y_test)
+
+# COMMAND ----------
+
+stats = ta.clf_metrics(y_test,
+                       predictions,
+                       mod_name=summary.best_trial.model_description.split("(")[0],
+                       average=AVERAGE)
+stats
+
+
+# COMMAND ----------
+
+summary.best_trial.mlflow_run_id
 
 # COMMAND ----------
 
