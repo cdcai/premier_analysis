@@ -45,12 +45,14 @@ AVERAGE = dbutils.widgets.get("average")
 
 dbutils.widgets.dropdown("experimenting", "False",  ["True", "False"])
 EXPERIMENTING = dbutils.widgets.get("experimenting")
+if EXPERIMENTING == "True": EXPERIMENTING = True
+else: EXPERIMENTING = False
 
 # COMMAND ----------
 
 import pandas as pd
 
-if EXPERIMENTING:
+if EXPERIMENTING == True:
     train_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/train_pcas_only_100.csv')
     val_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/val_pcas_only_100.csv')
     test_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/test_pcas_only_100.csv')
