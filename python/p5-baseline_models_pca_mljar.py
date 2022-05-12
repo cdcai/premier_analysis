@@ -23,6 +23,8 @@ import mlflow
 
 # COMMAND ----------
 
+import mlflow
+
 dbutils.widgets.removeAll()
 dbutils.widgets.text(
   name='experiment_id',
@@ -77,7 +79,7 @@ else:
 
 # COMMAND ----------
 
-train_pd.shape
+test_pd.shape
 
 # COMMAND ----------
 
@@ -98,11 +100,14 @@ mljar_folder
 
 from supervised.automl import AutoML
 import mlflow
-
+mlflow.end_run()
 mlflow.start_run(experiment_id=experiment_id)
 mlflow.autolog()
 
-automl = AutoML(results_path=mljar_folder)
+vs = {"validation_type" : "split", "train_ratio":.8, "shuffle":False, "stratify": False}
+
+
+automl = AutoML(results_path=mljar_folder, validation_strategy=vs)
 automl.fit(X_train, y_train, )
 
 # COMMAND ----------
@@ -134,6 +139,14 @@ f1_score_weighted
 from sklearn.metrics import roc_auc_score
 y_pred_proba = automl.predict_proba(X_test)
 y_pred_proba
+
+# COMMAND ----------
+
+import tools.analysis as ta
+out = ta.clf_metrics(y_test,y_pred_proba[:,1])
+for i in out.columns:
+    mlflow.log_metric("Testing "+i, out[i].iloc[0])
+out
 
 # COMMAND ----------
 
