@@ -175,7 +175,7 @@ mlflow.log_param("stratify", STRATIFY)
 
 # COMMAND ----------
 
-mlflow.log_artifacts('/tmp/mljar')
+mlflow.log_artifacts(mljar_folder)
 
 # COMMAND ----------
 
@@ -207,47 +207,6 @@ import matplotlib.pyplot as plt
 
 sn.heatmap(confusion_matrix, annot=True)
 plt.show()
-
-# COMMAND ----------
-
-# MAGIC %cat /tmp/mljar/README.md
-
-# COMMAND ----------
-
-from IPython.display import display, Markdown
-with open('/tmp/mljar/README.md', 'r') as fh:
-    content = fh.read()
-#display(Markdown(content))
-pic = plt.imread('/tmp/mljar/ldb_performance_boxplot.png')
-plt.imshow(pic, aspect='auto')
-
-# COMMAND ----------
-
-# MAGIC %sh
-# MAGIC ls /tmp/mljar/*
-
-# COMMAND ----------
-
-# MAGIC %sh
-# MAGIC mkdir /FileStore/too9
-
-# COMMAND ----------
-
-ls /tmp/ml
-
-# COMMAND ----------
-
-cp -R /tmp/mljar/* /dbfs/FileStore/too0/mljar/
-
-# COMMAND ----------
-
-# MAGIC %python
-# MAGIC displayHTML('''<img src = "/dbfs/FileStore/too0/mljar/correlation_heatmap.png" stype="width:600px;height:600px;">''')
-
-# COMMAND ----------
-
-# MAGIC %sh
-# MAGIC ls /dbfs/FileStore/too0/mljar/
 
 # COMMAND ----------
 
