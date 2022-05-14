@@ -1,5 +1,6 @@
 # Databricks notebook source
 !pip install mlflow --quiet
+!pip install mljar-supervised --quiet
 
 # COMMAND ----------
 
@@ -22,10 +23,12 @@ import mlflow
 
 # COMMAND ----------
 
+import mlflow
+
 dbutils.widgets.removeAll()
 dbutils.widgets.text(
   name='experiment_id',
-  defaultValue='1910247067387441',
+  defaultValue='388290745206631',
   label='Experiment ID'
 )
 
@@ -40,8 +43,10 @@ else: USE_DEMOG = False
 dbutils.widgets.dropdown("stratify", "all", ['all', 'death', 'misa_pt', 'icu'])
 STRATIFY = dbutils.widgets.get("stratify")
 
+dbutils.widgets.dropdown("average", "weighted", ['micro', 'macro', 'weighted'])
+AVERAGE = dbutils.widgets.get("average")
 
-dbutils.widgets.dropdown("experimenting", "True",  ["True", "False"])
+dbutils.widgets.dropdown("experimenting", "False",  ["True", "False"])
 EXPERIMENTING = dbutils.widgets.get("experimenting")
 if EXPERIMENTING == "True": EXPERIMENTING = True
 else: EXPERIMENTING = False
@@ -51,9 +56,6 @@ assert experiment is not None
 current_experiment = mlflow.get_experiment(experiment)
 assert current_experiment is not None
 experiment_id= current_experiment.experiment_id
-
-print("OUTCOME ", OUTCOME)
-print("STRATIFY ", STRATIFY)
 
 # COMMAND ----------
 
@@ -172,96 +174,100 @@ train, val = train_test_split(train_set,
 
 # COMMAND ----------
 
-#df_train_set = pd.DataFrame(X[train_set][:20000].toarray())
-#df_train_set = df_train_set.rename(columns=lambda x: "c"+str(x))
-
-# COMMAND ----------
-
-def calculatePCA(X_train_set,n_components, batch_size):
-    from sklearn.decomposition import IncrementalPCA
-    transformer = IncrementalPCA(n_components=n_components, batch_size=batch_size)
-    x_transformed = transformer.fit_transform(X_train_set)
-    return x_transformed
-
-# COMMAND ----------
-
-def prepareDfToAutoML (X,y,target):
-    df = pd.DataFrame(X)
-    df = df.rename(columns=lambda x: "c"+str(x))
-    df[target] = y
-    df[target] = df[target].astype('bool')
-    return df
-
-# COMMAND ----------
-
-def calculate_estimated_n_pca_componetns(X_train_set):
-    from sklearn.decomposition import PCA
-    
-    df_train_set = pd.DataFrame(X_train_set.toarray())
-    pca = PCA (n_components=.95)
-    components = pca.fit_transform(df_train_set)
-    return pca.n_components_
-
-
-# COMMAND ----------
-
-#estimated_n_pca = calculate_estimated_n_pca_componetns(X[train][:10000])
-#
-# result was 1574
-#
-
-# COMMAND ----------
-
-#estimated_n_pca
-
-# COMMAND ----------
-
-#pcas = calculatePCA(X,n_components=estimated_n_pca, batch_size=estimated_n_pca)
-#pcas = calculatePCA(X,1574, batch_size=1574)
-#pcas = calculatePCA(X[:100],100, batch_size=100)
-
-# COMMAND ----------
-
 suffix = "_outcome_"+OUTCOME+"_stratify_"+STRATIFY
 if EXPERIMENTING == True:
-    pcas_train = calculatePCA(X[train][:100],100, batch_size=100)
-    pcas_val   = calculatePCA(X[val][:100],100, batch_size=100)
-    pcas_test  = calculatePCA(X[test][:100],100, batch_size=100)
+    X_train = X[train][:100]
+    X_val = X[val][:100]
+    X_test = X[test][:100]
 
-    df_train = prepareDfToAutoML(pcas_train, y[train][:100], 'target')
-    df_val   = prepareDfToAutoML(pcas_val, y[val][:100], 'target')
-    df_test  = prepareDfToAutoML(pcas_test, y[test][:100], 'target')
+    y_train = y[train][:100]
+    y_val = y[val][:100]
+    y_test = y[test][:100]
 else:
-    pcas_train = calculatePCA(X[train],1574, batch_size=1574)
-    pcas_val   = calculatePCA(X[val],1574, batch_size=1574)
-    pcas_test  = calculatePCA(X[test],1574, batch_size=1574)
+    X_train = X[train]
+    X_val = X[val]
+    X_test = X[test]
 
-    df_train = prepareDfToAutoML(pcas_train, y[train], 'target')
-    df_val   = prepareDfToAutoML(pcas_val, y[val], 'target')
-    df_test  = prepareDfToAutoML(pcas_test, y[test], 'target')
+    y_train = y[train]
+    y_val = y[val]
+    y_test = y[test]
 
+# COMMAND ----------
+
+X_train.shape
+
+# COMMAND ----------
+
+from datetime import datetime
+date_time = str(datetime.now()).replace('-','_').replace(':','_').replace('.','_')
+mljar_folder = '/tmp/mljar_'+date_time
+mljar_folder
+
+# COMMAND ----------
+
+#
+# requested by AutoML
+#
+
+X_train_df = pd.DataFrame(X_train.toarray())
+X_val_df  = pd.DataFrame(X_val.toarray())
+X_test_df  = pd.DataFrame(X_test.toarray())
+
+y_train_df = pd.DataFrame(y_train)
+y_val_df  = pd.DataFrame(y_val)
+y_test_df  = pd.DataFrame(y_test)
+
+X_train_df = pd.concat([X_train_df, X_val_df])
+y_train_df = pd.concat([y_train_df, y_val_df])
 
 
 # COMMAND ----------
 
-suffix = "_outcome_"+OUTCOME+"_stratify_"+STRATIFY
-if EXPERIMENTING == True:
-    df_train.to_csv('/dbfs/home/tnk6/premier_output/analysis/train_pcas_only_100'+suffix+'.csv')
-    df_val.to_csv('/dbfs/home/tnk6/premier_output/analysis/val_pcas_only_100'+suffix+'.csv')
-    df_test.to_csv('/dbfs/home/tnk6/premier_output/analysis/test_pcas_only_100'+suffix+'.csv')
-else:
-    df_train.to_csv('/dbfs/home/tnk6/premier_output/analysis/train_pcas'+suffix+'.csv')
-    df_val.to_csv('/dbfs/home/tnk6/premier_output/analysis/val_pcas'+suffix+'.csv')
-    df_test.to_csv('/dbfs/home/tnk6/premier_output/analysis/test_pcas'+suffix+'.csv')
-
+X_train_df.shape
 
 # COMMAND ----------
 
-EXPERIMENTING
+from supervised.automl import AutoML
+import mlflow
+mlflow.end_run()
+mlflow.start_run(experiment_id=experiment_id)
+mlflow.autolog()
+
+vs = {"validation_type" : "split", "train_ratio":.8, "shuffle":False, "stratify": False}
+
+
+
+
+automl = AutoML(results_path=mljar_folder, validation_strategy=vs)
+automl.fit(X_train_df, y_train_df)
 
 # COMMAND ----------
 
-pcas_train.shape
+y_pred_proba = automl.predict_proba(X_test_df)
+y_pred_proba
+
+# COMMAND ----------
+
+import tools.analysis as ta
+out = ta.clf_metrics(y_test_df.to_numpy(),y_pred_proba[:,1])
+for i in out.columns:
+    mlflow.log_metric("Testing "+i, out[i].iloc[0])
+out
+
+# COMMAND ----------
+
+mlflow.log_param("average", AVERAGE)
+mlflow.log_param("demographics", USE_DEMOG)
+mlflow.log_param("outcome", OUTCOME)
+mlflow.log_param("stratify", STRATIFY)
+
+# COMMAND ----------
+
+mlflow.log_artifacts(mljar_folder)
+
+# COMMAND ----------
+
+mlflow.end_run()
 
 # COMMAND ----------
 

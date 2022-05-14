@@ -72,7 +72,7 @@ X_pd = pd.concat([train_pd, val_pd, test_pd], axis=0)
 from databricks import automl
 
 
-summary = automl.classify(X_pd, target_col='target',time_col='time_collumn', timeout_minutes=600)
+summary = automl.classify(X_pd, target_col='target',time_col='time_collumn', primary_metric="log_loss",timeout_minutes=600)
 
 # COMMAND ----------
 
@@ -86,7 +86,3 @@ model_uri = summary.best_trial.model_path
 # Run inference using the best model
 model = mlflow.pyfunc.load_model(model_uri)
 model
-
-# COMMAND ----------
-
-

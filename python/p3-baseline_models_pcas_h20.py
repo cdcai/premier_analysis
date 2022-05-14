@@ -6,7 +6,7 @@
 !pip install requests --quiet
 !pip install tabulate --quiet
 !pip install future --quiet
-!pip install -f http://h2o-release.s3.amazon.com/h2o/latest_stable_Py.html h2o --quiet
+!pip install -f http://h2o-release.s3.amazon.com/h2o/latest_stable_Py.html h2o 
 
 # COMMAND ----------
 
@@ -37,16 +37,6 @@ EXPERIMENTING = dbutils.widgets.get("experimenting")
 if EXPERIMENTING == "True": EXPERIMENTING = True
 else: EXPERIMENTING = False
 
-experiment = dbutils.widgets.get("experiment_id")
-assert experiment is not None
-current_experiment = mlflow.get_experiment(experiment)
-assert current_experiment is not None
-experiment_id= current_experiment.experiment_id
-
-
-# COMMAND ----------
-
-import mlflow
 experiment = dbutils.widgets.get("experiment_id")
 assert experiment is not None
 current_experiment = mlflow.get_experiment(experiment)
@@ -87,20 +77,21 @@ h2o.init()
 # COMMAND ----------
 
 import pandas as pd
-import pandas as pd
+
+suffix = "_outcome_"+OUTCOME+"_stratify_"+STRATIFY
 
 if EXPERIMENTING == True:
-    train_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/train_pcas_only_100.csv')
-    val_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/val_pcas_only_100.csv')
-    test_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/test_pcas_only_100.csv')
+    train_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/train_pcas_only_100'+suffix+'.csv')
+    val_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/val_pcas_only_100'+suffix+'.csv')
+    test_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/test_pcas_only_100'+suffix+'.csv')
 else:
-    train_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/train_pcas.csv')
-    val_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/val_pcas.csv')
-    test_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/test_pcas.csv')
+    train_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/train_pcas'+suffix+'.csv')
+    val_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/val_pcas'+suffix+'.csv')
+    test_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/test_pcas'+suffix+'.csv')
 
 # COMMAND ----------
 
-X_train =  pd.concat([train_pd, val_pd], axis=0)
+#X_train =  pd.concat([train_pd, val_pd], axis=0)
 
 # COMMAND ----------
 
@@ -109,21 +100,27 @@ X_train =  pd.concat([train_pd, val_pd], axis=0)
 #
 target = "target"
 
-X_train_h2o_df = h2o.H2OFrame(X_train)
+X_train_h2o_df = h2o.H2OFrame(train_pd)
 x = X_train_h2o_df.columns
 x.remove(target)
 X_train_h2o_df[target] = X_train_h2o_df[target].asfactor()
+
+X_val_h2o_df = h2o.H2OFrame(val_pd)
+X_val_h2o_df[target] = X_val_h2o_df[target].asfactor()
+
+
 
 # COMMAND ----------
 
 # Run AutoML for 20 base models
 import mlflow
 
+mlflow.end_run()
 mlflow.start_run(experiment_id=experiment_id)
 mlflow.autolog()
 
-aml = H2OAutoML(max_models=5, seed=1)
-aml.train(x=x, y=target, training_frame=X_train_h2o_df)
+aml = H2OAutoML(seed=2022,nfolds=0, max_models=7)
+aml.train(x=x, y=target, training_frame=X_train_h2o_df, validation_frame=X_val_h2o_df, )
 mlflow.log_metric("rmse", aml.leader.rmse())
 mlflow.log_metric("mse", aml.leader.mse())
 mlflow.log_metric("log_loss", aml.leader.logloss())
@@ -155,22 +152,20 @@ predictions = best_model.predict(X_test_h2o_df)
 
 # COMMAND ----------
 
+predictions
+
+# COMMAND ----------
+
 y_predicted = predictions.as_data_frame()
 y_predicted
 
 # COMMAND ----------
 
-from sklearn.metrics import f1_score
-f1_score_weighted = f1_score(y_test, y_predicted['predict'], average='weighted')
-mlflow.log_metric("testing f1 score weighted", f1_score_weighted)
-f1_score_weighted
-
-# COMMAND ----------
-
-from sklearn.metrics import roc_auc_score
-auc = roc_auc_score(y_test, y_predicted['True'])
-mlflow.log_metric("testing auc", f1_score_weighted)
-auc
+import tools.analysis as ta
+out = ta.clf_metrics(y_test,y_predicted['True'])
+for i in out.columns:
+    mlflow.log_metric("Testing "+i, out[i].iloc[0])
+out
 
 # COMMAND ----------
 
