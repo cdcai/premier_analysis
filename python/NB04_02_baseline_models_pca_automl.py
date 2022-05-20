@@ -107,7 +107,7 @@ import mlflow
 # COMMAND ----------
 
 # Setting the globals
-OUTCOME = 'misa_pt'
+OUTCOME = 'multi_class'
 USE_DEMOG = True
 AVERAGE = 'weighted'
 DAY_ONE_ONLY = True

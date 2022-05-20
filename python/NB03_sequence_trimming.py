@@ -128,7 +128,7 @@ def flatten(l):
 CUT_METHOD = 'first'
 HORIZON = 1
 MAX_SEQ = 225
-EXCLUDE_ICU = True
+EXCLUDE_ICU = False
 MIN_AGE = 18
 WRITE_DF = True
 PROCESSES = 8
@@ -233,6 +233,10 @@ with Pool(processes=PROCESSES) as p:
 # Saving the trimmed sequences to disk
 with open(os.path.join(pkl_dir, 'trimmed_seqs.pkl'), 'wb') as f:
     pkl.dump(trim_out, f)
+
+# COMMAND ----------
+
+len(trim_out)
 
 # COMMAND ----------
 

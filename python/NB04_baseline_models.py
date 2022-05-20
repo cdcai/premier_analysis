@@ -3,22 +3,27 @@
 
 # COMMAND ----------
 
-dbutils.widgets.removeAll()
-dbutils.widgets.text(
-  name='experiment_id',
-  defaultValue='1910247067387441',
-  label='Experiment ID'
-)
+# MAGIC %md
+# MAGIC ```
+# MAGIC dbutils.widgets.removeAll()
+# MAGIC dbutils.widgets.text(
+# MAGIC   name='experiment_id',
+# MAGIC   defaultValue='1910247067387441',
+# MAGIC   label='Experiment ID'
+# MAGIC )
+# MAGIC ```
 
 # COMMAND ----------
 
-import mlflow
-experiment = dbutils.widgets.get("experiment_id")
-assert experiment is not None
-current_experiment = mlflow.get_experiment(experiment)
-assert current_experiment is not None
-experiment_id= current_experiment.experiment_id
-
+# MAGIC %md 
+# MAGIC ```
+# MAGIC import mlflow
+# MAGIC experiment = dbutils.widgets.get("experiment_id")
+# MAGIC assert experiment is not None
+# MAGIC current_experiment = mlflow.get_experiment(experiment)
+# MAGIC assert current_experiment is not None
+# MAGIC experiment_id= current_experiment.experiment_id
+# MAGIC ```
 
 # COMMAND ----------
 
@@ -38,6 +43,15 @@ from sklearn.svm import LinearSVC
 import tools.analysis as ta
 import tools.preprocessing as tp
 import mlflow
+
+from databricks import feature_store 
+from delta.tables import * 
+
+# COMMAND ----------
+
+# MAGIC %sql 
+# MAGIC -- create database
+# MAGIC CREATE DATABASE IF NOT EXISTS tnk6_demo
 
 # COMMAND ----------
 
@@ -126,7 +140,7 @@ import mlflow
 # COMMAND ----------
 
 # Setting the globals
-OUTCOME = 'misa_pt'
+OUTCOME = 'icu'
 USE_DEMOG = True
 AVERAGE = 'weighted'
 DAY_ONE_ONLY = True
@@ -134,7 +148,7 @@ TEST_SPLIT = 0.2
 VAL_SPLIT = 0.1
 RAND = 2022
 CHRT_PRFX = ''
-STRATIFY ='all'
+STRATIFY ='icu'
 
 # Setting the directories and importing the data
 # If no args are passed to overwrite these values, use repo structure to construct
@@ -151,10 +165,7 @@ if output_dir is not None:
 pkl_dir = os.path.join(output_dir, "pkl", "")
 stats_dir = os.path.join(output_dir, "analysis", "")
 probs_dir = os.path.join(stats_dir, "probs", "")
-
-# COMMAND ----------
-
-stats_dir
+print(f'Stats Dir: {stats_dir}')
 
 # COMMAND ----------
 
@@ -176,6 +187,16 @@ with open(pkl_dir + "feature_lookup.pkl", "rb") as f:
 with open(pkl_dir + "demog_dict.pkl", "rb") as f:
     demog_dict = pkl.load(f)
     demog_dict = {k: v for v, k in demog_dict.items()}
+
+# COMMAND ----------
+
+tmp_lookup = pd.DataFrame([all_feats],index=['desc']).transpose()
+print(tmp_lookup.shape)
+tmp_lookup2 = pd.DataFrame([demog_dict],index=['desc']).transpose()
+print(tmp_lookup2.shape)
+tmp_lookup2
+#all_feats
+pd.DataFrame([vocab],index=['code']).transpose()
 
 # COMMAND ----------
 
@@ -241,13 +262,111 @@ train, val = train_test_split(train,
                               stratify=strat_var[train],
                               random_state=RAND)
 
+for var in [train,test,val]:
+    print(len(var))
+
+# COMMAND ----------
+
+tmp_df = pd.DataFrame(X[test][0:25].toarray())
+tmp_df['target'] = y[test][0:25].astype(int)
+tmp_df
+
+# COMMAND ----------
+
+# Taking only 25 as whole test set takes 10 minutes
+tmp_df = spark.createDataFrame(tmp_df)
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC # FEATURE STORE
+
+# COMMAND ----------
+
+# create feature store table
+
+fs = feature_store.FeatureStoreClient()
+fs.create_table(name = "tnk6_demo.FeatureStore_premier_test",
+               primary_keys=list(tmp_df.columns),
+               df = tmp_df,
+               description='Training set used for Premier Analysis')
+
+fs.write_table(name="tnk6_demo.FeatureStore_premier_test",
+              df=tmp_df,
+              mode='overwrite')   # or merge to upsert rows
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC # DELTA TABLE
+
+# COMMAND ----------
+
+# Also write delta tables
+tmp_df.write.mode("overwrite").format("delta").save("dbfs:/home/tnk6/premier_delta/test")
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC -check from_pandas(pd_df)
+# MAGIC -
+
+# COMMAND ----------
+
+# MAGIC %sql 
+# MAGIC -- DROP TABLE IF EXISTS tnk6_demo.delta_premier_test;
+# MAGIC CREATE TABLE tnk6_demo.delta_premier_test USING DELTA LOCATION "dbfs:/home/tnk6/premier_delta/test";
+
+# COMMAND ----------
+
+spark.conf.get("spark.databricks.delta.lastCommitVersionInSession")
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC ```
+# MAGIC test_delta_table = spark.read.format("delta").load('/home/tnk6/premier_delta/test')
+# MAGIC display(test_delta_table)
+# MAGIC # 16.31 mins - very slow
+# MAGIC ```
+
+# COMMAND ----------
+
+# MAGIC %md 
+# MAGIC # Using delta table
+# MAGIC - Note: TODO: compare delta table with current version and only merge if there are changes (?)
+
+# COMMAND ----------
+
+test_table_name = "tnk6_demo.delta_premier_test"
+test_delta_table = DeltaTable.forName(spark, test_table_name)
+test_delta_table
+
+# COMMAND ----------
+
+##deltTable.restoreToVersions(0) # oldest version
+display(test_delta_table.history())
+
+# COMMAND ----------
+
+tmp_val = test_delta_table.history().select("version").collect()
+print(tmp_val[-1].__getitem__('version'))
+
 # COMMAND ----------
 
 # Fitting a logistic regression to the whole dataset
 lgr = LogisticRegression(max_iter=5000, multi_class='ovr')
 mlflow.sklearn.autolog(log_models=True)
-with mlflow.start_run(experiment_id=experiment_id) as run:
+
+experiment_name = "/Shared/premier_experiment_test"
+mlflow.set_experiment(experiment_name) # this creates a workspace experiment if it does not exist 
+
+#with mlflow.start_run(experiment_id=experiment_id) as run:
+
+with mlflow.start_run() as run:
     lgr.fit(X, y)
+    mlflow.log_param("Test Dataset",test_table_name)
+    mlflow.log_param("Test Dataset Version",tmp_val[-1].__getitem__('version'))
     mlflow.sklearn.log_model(lgr, "lgr")
 coef_list = []
 
@@ -298,9 +417,12 @@ mod_names = ['lgr', 'rf', 'gbc', 'svm']
 # Turning the crank like a proper data scientist
 for i, mod in enumerate(mods):
     # Fitting the model and setting the name
-    with mlflow.start_run(experiment_id=experiment_id) as run:
+    with mlflow.start_run() as run:
+#    with mlflow.start_run(experiment_id=experiment_id) as run:
         mod.fit(X[train], y[train])
         mlflow.sklearn.log_model(mod, mod_names[i])
+        mlflow.log_param("Test Dataset",test_table_name)
+        mlflow.log_param("Test Dataset Version",tmp_val[-1].__getitem__('version'))
     mod_name = mod_names[i]
     if DAY_ONE_ONLY:
         mod_name += '_d1'

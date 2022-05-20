@@ -5,6 +5,12 @@ import pickle as pkl
 import os
 from sklearn.feature_extraction.text import CountVectorizer
 from tools import preprocessing as tp
+from databricks import feature_store
+
+# COMMAND ----------
+
+# MAGIC %sql 
+# MAGIC CREATE DATABASE IF NOT EXISTS tnk6_demo
 
 # COMMAND ----------
 
@@ -17,7 +23,7 @@ REVERSE_VOCAB = True
 MISA_ONLY = True
 
 # Whether to write the full trimmed sequence file to disk as pqruet
-WRITE_PARQUET = False
+WRITE_PARQUET = True
 
 # Setting the directories
 prem_dir = '/dbfs/home/tnk6/premier/'
@@ -43,6 +49,9 @@ misa_data = pd.read_csv(targets_dir + 'icu_targets.csv')
 
 # Read in the flat feature file
 trimmed_seq = pd.read_parquet(output_dir + "parquet/flat_features.parquet")
+trimmed_seq
+
+# COMMAND ----------
 
 # %% Filter Denom to those identified in MISA case def
 if MISA_ONLY:
@@ -51,7 +60,7 @@ if MISA_ONLY:
 
 # Determine unique patients
 n_patients = trimmed_seq["medrec_key"].nunique()
-
+print(f'Number of patients: {n_patients}')
 # Ensure we're sorted
 trimmed_seq.sort_values(["medrec_key", "dfi"], inplace=True)
 
@@ -62,9 +71,6 @@ if NO_VITALS:
 # Combining the separate feature columns into one
 trimmed_seq["ftrs"] = (trimmed_seq[ftr_cols].astype(str).replace(
     ["None", "nan"], "").agg(" ".join, axis=1))
-
-# COMMAND ----------
-
 trimmed_seq
 
 # COMMAND ----------
@@ -91,6 +97,7 @@ int_seqs = [
 
 # Converting to a nested list to keep things clean
 seq_gen = [[seq for seq in medrec] for medrec in int_seqs]
+seq_gen
 
 # COMMAND ----------
 
@@ -132,6 +139,8 @@ if ADD_DEMOG:
     # And saving vocab
     with open(pkl_dir + "demog_dict.pkl", "wb") as f:
         pkl.dump(demog_vocab, f)
+    
+    seq_gen
 
 # COMMAND ----------
 
@@ -157,6 +166,8 @@ if WRITE_PARQUET:
 # Save list-of-list-of-lists as pickle
 with open(pkl_dir + "int_seqs.pkl", "wb") as f:
     pkl.dump(seq_gen, f)
+
+trimmed_seq
 
 # COMMAND ----------
 
@@ -230,6 +241,13 @@ pat_dict = {
 # %%
 with open(pkl_dir + "pat_data.pkl", "wb") as f:
     pkl.dump(pat_dict, f)
+
+pat_dict
+
+# COMMAND ----------
+
+print([keys for keys in pat_dict.keys()])
+len(pat_dict['age'])
 
 # COMMAND ----------
 
