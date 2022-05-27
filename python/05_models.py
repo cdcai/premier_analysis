@@ -43,7 +43,7 @@ MOD_NAME = dbutils.widgets.get("model")
 
 # COMMAND ----------
 
-dbutils.widgets.dropdown("outcome","misa_pt",["misa_pt", "multi_class", "death", "icu"])
+dbutils.widgets.dropdown("outcome","icu",["misa_pt", "multi_class", "death", "icu"])
 OUTCOME = dbutils.widgets.get("outcome")
 
 # COMMAND ----------
@@ -219,14 +219,14 @@ mlflow.set_experiment(experiment_id=experiment_id)
 # COMMAND ----------
 
 TIME_SEQ = 225
-MOD_NAME = 'dan'   #'lstm'
+#MOD_NAME = 'dan'   #'lstm'
 WEIGHTED_LOSS = True
 if WEIGHTED_LOSS:
     MOD_NAME += '_w'
-OUTCOME = 'misa_pt'
-DEMOG = True
+#OUTCOME = 'misa_pt'
+#DEMOG = True
 CHRT_PRFX = 'dan'
-STRATIFY = 'all'
+#STRATIFY = 'all'
 DAY_ONE_ONLY = True
 if DAY_ONE_ONLY and ('lstm' not in MOD_NAME):
     # Optionally limiting the features to only those from the first day
@@ -298,12 +298,17 @@ with open(os.path.join(tensorboard_dir, "emb_metadata.tsv"), "w") as f:
 
 # COMMAND ----------
 
-#
-# start mlflow run
-#
-mlflow.start_run()
-mlflow.tensorflow.autolog()
 
+#
+# add execution parameters to MLFLOW
+#
+
+mlflow.end_run()
+mlflow.start_run(experiment_id=experiment_id)
+mlflow.autolog()
+mlflow.log_param("demographics", DEMOG)
+mlflow.log_param("outcome", OUTCOME)
+mlflow.log_param("stratify", STRATIFY)
 
 # Determining number of vocab entries
 N_VOCAB = len(vocab) + 1
@@ -405,6 +410,7 @@ if "lstm" in MOD_NAME:
             tensorboard_dir, "best", "lstm"),
                                         custom_objects={'tf': tf},
                                         compile=True)
+        
     else:
         # %% Setting up the model
         model = tk.LSTM(time_seq=TIME_SEQ,
@@ -416,6 +422,7 @@ if "lstm" in MOD_NAME:
                         lstm_dropout=LSTM_DROPOUT,
                         recurrent_dropout=LSTM_RECURRENT_DROPOUT)
         model.compile(optimizer="adam", loss=loss_fn, metrics=metrics)
+
 
     # Train
     fitting = model.fit(train_gen,
@@ -478,6 +485,7 @@ elif "dan" in MOD_NAME:
               class_weight=weight_dict)
 
 
+
     # Handle multiclass case
     elif N_CLASS > 2:
         # We have to pass one-hot labels for model fit, but CLF metrics
@@ -489,6 +497,7 @@ elif "dan" in MOD_NAME:
                        ragged=False,
                        input_length=TIME_SEQ,
                        n_classes=N_CLASS)
+
 
         model.compile(optimizer="adam", loss=loss_fn, metrics=metrics)
         
@@ -516,7 +525,7 @@ elif "dan" in MOD_NAME:
                   validation_data=(X[val], y[val]),
                   #callbacks=callbacks,
                   class_weight=weight_dict)
-        # mlflow.keras.log_model(model, "dan")
+        mlflow.keras.log_model(model, "dan")
 
 
     # Produce DAN predictions on validation and test sets
@@ -565,7 +574,15 @@ else:
 
     # Saving the max from each row for writing to CSV
     test_probs = np.amax(test_probs, axis=1)
+#
+#
+# add metrics to MLFLow
+#
 
+print(stats)
+for i in stats.columns:
+    if not isinstance(stats[i].iloc[0], str):
+        mlflow.log_metric("Testing "+i, stats[i].iloc[0])
 #
 # END MLFLOW RUN
 #

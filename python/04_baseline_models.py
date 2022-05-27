@@ -311,9 +311,24 @@ mod_names = ['lgr', 'rf', 'gbc', 'svm']
 # Turning the crank like a proper data scientist
 for i, mod in enumerate(mods):
     # Fitting the model and setting the name
-    with mlflow.start_run(experiment_id=experiment_id) as run:
-        mod.fit(X[train], y[train])
-        mlflow.sklearn.log_model(mod, mod_names[i])
+    
+    #
+    # add execution parameters to MLFLOW
+    #
+    
+    mlflow.end_run()
+    mlflow.start_run(experiment_id=experiment_id)
+    mlflow.autolog()
+    mlflow.log_param("average", AVERAGE)
+    mlflow.log_param("demographics", USE_DEMOG)
+    mlflow.log_param("outcome", OUTCOME)
+    mlflow.log_param("stratify", STRATIFY)
+    #
+    #
+    #
+    
+    mod.fit(X[train], y[train])
+    mlflow.sklearn.log_model(mod, mod_names[i])
     mod_name = mod_names[i]
     if DAY_ONE_ONLY:
         mod_name += '_d1'
@@ -330,6 +345,7 @@ for i, mod in enumerate(mods):
                                    cutpoint=cutpoint,
                                    mod_name=mod_name,
                                    average=AVERAGE)
+
             ta.write_preds(output_dir=output_dir + "/",
                            preds=test_preds,
                            outcome=OUTCOME,
@@ -372,6 +388,17 @@ for i, mod in enumerate(mods):
 
     # Saving the results to disk
     ta.write_stats(stats, OUTCOME, stats_dir=stats_dir)
+    #
+    #
+    # add metrics to MLFLow
+    #
+    print(stats)
+    for i in stats.columns:
+        if not isinstance(stats[i].iloc[0], str):
+            mlflow.log_metric("Testing "+i, stats[i].iloc[0])
+    #
+    #
+    #
     
 
 # COMMAND ----------
