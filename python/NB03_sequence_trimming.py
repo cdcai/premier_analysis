@@ -12,6 +12,19 @@ import os
 
 from importlib import reload
 from multiprocessing import Pool
+from tools import preprocessing as tp
+
+# COMMAND ----------
+
+# Set up Azure storage connection
+spark.conf.set("fs.azure.account.auth.type.davsynapseanalyticsdev.dfs.core.windows.net", "OAuth")
+spark.conf.set("fs.azure.account.oauth.provider.type.davsynapseanalyticsdev.dfs.core.windows.net", "org.apache.hadoop.fs.azurebfs.oauth2.ClientCredsTokenProvider")
+spark.conf.set("fs.azure.account.oauth2.client.id.davsynapseanalyticsdev.dfs.core.windows.net", dbutils.secrets.get(scope="dbs-scope-CDH", key="apps-client-id"))
+spark.conf.set("fs.azure.account.oauth2.client.secret.davsynapseanalyticsdev.dfs.core.windows.net", dbutils.secrets.get(scope="dbs-scope-CDH", key="apps-client-secret"))
+spark.conf.set("fs.azure.account.oauth2.client.endpoint.davsynapseanalyticsdev.dfs.core.windows.net", dbutils.secrets.get(scope="dbs-scope-CDH", key="apps-tenant-id-endpoint"))
+
+# Enable Arrow-based columnar data transfers
+spark.conf.set("spark.sql.execution.arrow.enabled", "true")
 
 # COMMAND ----------
 
@@ -142,22 +155,48 @@ pkl_dir = os.path.join(output_dir, "pkl")
 
 # COMMAND ----------
 
-# Reading in the full dataset
 with open(os.path.join(pkl_dir, 'int_seqs.pkl'), 'rb') as f:
-    int_seqs = pkl.load(f)
+    int_seqs_compare = pkl.load(f)
+len(int_seqs_compare)
 
-with open(os.path.join(pkl_dir, 'pat_data.pkl'), 'rb') as f:
+# COMMAND ----------
+
+int_seqs_compare
+
+# COMMAND ----------
+
+# Reading in the full dataset
+#with open(os.path.join(pkl_dir, 'int_seqs.pkl'), 'rb') as f:
+#    int_seqs = pkl.load(f)
+
+#with open(os.path.join(pkl_dir, 'pat_data.pkl'), 'rb') as f:
+#    pat_data = pkl.load(f)
+
+#with open(os.path.join(pkl_dir, "all_ftrs_dict.pkl"), "rb") as f:
+#    vocab = pkl.load(f)
+
+#with open(os.path.join(pkl_dir, "feature_lookup.pkl"), "rb") as f:
+#    all_feats = pkl.load(f)
+
+# this works!
+#with open(os.path.join(pkl_dir, 'int_seqs_fromdelta.pkl'), 'rb') as f:
+#    int_seqs = pkl.load(f)
+int_seqs = tp.read_table(data_dir,"interim_int_seqs_pkl")  
+int_seqs = int_seqs.values.tolist() 
+with open(os.path.join(pkl_dir, 'pat_data_fromdelta.pkl'), 'rb') as f:
     pat_data = pkl.load(f)
-
-with open(os.path.join(pkl_dir, "all_ftrs_dict.pkl"), "rb") as f:
-    vocab = pkl.load(f)
-
-with open(os.path.join(pkl_dir, "feature_lookup.pkl"), "rb") as f:
-    all_feats = pkl.load(f)
+vocab = tp.read_table(data_dir,"all_ftrs_dict_pkl")
+vocab = dict(vocab.values)
+all_feats = tp.read_table(data_dir,"intertim_feature_lookup")
+all_feats = dict(all_feats.values)
 
 # Total number of patients
 n_patients = len(int_seqs)
 print(n_patients)
+
+# COMMAND ----------
+
+int_seqs
 
 # COMMAND ----------
 
@@ -228,15 +267,31 @@ with Pool(processes=PROCESSES) as p:
         cohort_df.columns = [
             'key', 'age', 'length', 'misa_pt', 'icu', 'death'
         ]
-        cohort_df.to_csv(os.path.join(output_dir, "cohort.csv"), index=False)
+        #cohort_df.to_csv(os.path.join(output_dir, "cohort.csv"), index=False)
+        tmp_to_save = spark.createDataFrame(cohort_df)
+        tmp_to_save.write.mode("overwrite").format("delta").saveAsTable("tnk6_demo.interim_cohort_csv")
+
+# COMMAND ----------
+
+outcomes = list(pat_data['outcome'].keys())
+outcome_list = [list(pat_data['outcome'][o]) for o in outcomes]
+outcomes
+
+# COMMAND ----------
 
 # Saving the trimmed sequences to disk
-with open(os.path.join(pkl_dir, 'trimmed_seqs.pkl'), 'wb') as f:
+with open(os.path.join(pkl_dir, 'trimmed_seqs_fromdelta.pkl'), 'wb') as f:
     pkl.dump(trim_out, f)
 
 # COMMAND ----------
 
-len(trim_out)
+tmp_to_save = pd.DataFrame(trim_out)
+tmp_to_save = spark.createDataFrame(tmp_to_save)
+tmp_to_save.write.mode("overwrite").format("delta").saveAsTable("tnk6_demo.interim_trimmed_seqs_pkl")
+
+# COMMAND ----------
+
+display(tmp_to_save)
 
 # COMMAND ----------
 

@@ -14,7 +14,20 @@ from databricks import feature_store
 
 # COMMAND ----------
 
+# Set up Azure storage connection
+spark.conf.set("fs.azure.account.auth.type.davsynapseanalyticsdev.dfs.core.windows.net", "OAuth")
+spark.conf.set("fs.azure.account.oauth.provider.type.davsynapseanalyticsdev.dfs.core.windows.net", "org.apache.hadoop.fs.azurebfs.oauth2.ClientCredsTokenProvider")
+spark.conf.set("fs.azure.account.oauth2.client.id.davsynapseanalyticsdev.dfs.core.windows.net", dbutils.secrets.get(scope="dbs-scope-CDH", key="apps-client-id"))
+spark.conf.set("fs.azure.account.oauth2.client.secret.davsynapseanalyticsdev.dfs.core.windows.net", dbutils.secrets.get(scope="dbs-scope-CDH", key="apps-client-secret"))
+spark.conf.set("fs.azure.account.oauth2.client.endpoint.davsynapseanalyticsdev.dfs.core.windows.net", dbutils.secrets.get(scope="dbs-scope-CDH", key="apps-tenant-id-endpoint"))
+
+# Enable Arrow-based columnar data transfers
+spark.conf.set("spark.sql.execution.arrow.enabled", "true")
+
+# COMMAND ----------
+
 # %% Setting top-level parameters
+# Note: refactored to read files from delta tables
 MIN_DF = 5
 NO_VITALS = False
 ADD_DEMOG = True
@@ -28,7 +41,6 @@ WRITE_PARQUET = True
 # Setting the directories
 prem_dir = '/dbfs/home/tnk6/premier/'
 output_dir = '/dbfs/home/tnk6/premier_output/'
-
  
 data_dir = prem_dir
 # Note: used git traverse to put targets in dbfs
@@ -39,16 +51,26 @@ ftr_cols = ['vitals', 'bill', 'genlab', 'lab_res', 'proc', 'diag']
 demog_vars = ["gender", "hispanic_ind", "age", "race"]
 final_cols = ['covid_visit', 'ftrs']
 
+# COMMAND ----------
+
+# Note: refactored to read files from delta tables
 # %% Read in the pat and ID tables
-pat_df = pd.read_parquet(data_dir + "vw_covid_pat_all/")
-id_df = pd.read_parquet(data_dir + "vw_covid_id/")
-provider = pd.read_parquet(data_dir + "providers/")
+#pat_df = pd.read_parquet(data_dir + "vw_covid_pat_all/")
+#id_df = pd.read_parquet(data_dir + "vw_covid_id/")
+#provider = pd.read_parquet(data_dir + "providers/")
+#misa_data = pd.read_csv(targets_dir + 'icu_targets.csv')
+
+pat_df = tp.read_table(data_dir,"vw_covid_pat_all")  
+id_df = tp.read_table(data_dir, "vw_covid_id")
+provider = tp.read_table(data_dir,"providers")
+# TO DO: (pre-process targets - see Github premier_data)
 misa_data = pd.read_csv(targets_dir + 'icu_targets.csv')
 
 # COMMAND ----------
 
-# Read in the flat feature file
-trimmed_seq = pd.read_parquet(output_dir + "parquet/flat_features.parquet")
+# Read in the flat feature file (output of NB01_feature_extraction)
+#trimmed_seq = pd.read_parquet(output_dir + "parquet/flat_features.parquet")
+trimmed_seq = tp.read_table(data_dir,"intertim_flat_features")
 trimmed_seq
 
 # COMMAND ----------
@@ -139,8 +161,8 @@ if ADD_DEMOG:
     # And saving vocab
     with open(pkl_dir + "demog_dict.pkl", "wb") as f:
         pkl.dump(demog_vocab, f)
-    
-    seq_gen
+   
+seq_gen
 
 # COMMAND ----------
 
@@ -150,24 +172,46 @@ if ADD_DEMOG:
 cv_dict = dict(zip(pat_df.pat_key, pat_df.covid_visit))
 cv_pats = [[cv_dict[pat_key] for pat_key in np.unique(seq.values)]
            for _, seq in trimmed_seq.groupby("medrec_key").pat_key]
+cv_pats
 
+# COMMAND ----------
+
+# FIX?: Remove no_covid indices
+#print(len(cv_pats))
 no_covid = np.where([np.sum(doc) == 0 for doc in cv_pats])[0]
+#print(len(no_covid))
+#cv_pats = [e for i,e in enumerate(cv_pats) if i not in no_covid]
+#print(len(cv_pats))
+#cv_pats
+
+# COMMAND ----------
 
 # With the new trimming, this should never be populated
+# Note commenting out as new data fails the assertion
 assert len(no_covid) == 0
 
 # Additional sanity check
 assert len(cv_pats) == len(seq_gen) == trimmed_seq.medrec_key.nunique()
 
+trimmed_seq
+
+# COMMAND ----------
+
 # Writing the trimmed sequences to disk
 if WRITE_PARQUET:
-    trimmed_seq.to_parquet(output_dir + 'parquet/trimmed_seq.parquet')
+    #trimmed_seq.to_parquet(output_dir + 'parquet/trimmed_seq.parquet')
+    tmp_to_save = spark.createDataFrame(trimmed_seq)
+    tmp_to_save.write.mode("overwrite").format("delta").saveAsTable("tnk6_demo.interim_trimmed_seq")
+
+# COMMAND ----------
 
 # Save list-of-list-of-lists as pickle
-with open(pkl_dir + "int_seqs.pkl", "wb") as f:
+with open(pkl_dir + "int_seqs_fromdelta.pkl", "wb") as f:
     pkl.dump(seq_gen, f)
 
-trimmed_seq
+tmp_to_save = pd.DataFrame(seq_gen)
+tmp_to_save = spark.createDataFrame(tmp_to_save)
+tmp_to_save.write.mode("overwrite").format("delta").saveAsTable("tnk6_demo.interim_int_seqs_pkl")
 
 # COMMAND ----------
 
@@ -238,16 +282,29 @@ pat_dict = {
     }
 }
 
-# %%
-with open(pkl_dir + "pat_data.pkl", "wb") as f:
-    pkl.dump(pat_dict, f)
+# COMMAND ----------
 
-pat_dict
+pat_dict['outcome']['icu']
 
 # COMMAND ----------
 
-print([keys for keys in pat_dict.keys()])
-len(pat_dict['age'])
+pd.DataFrame.from_dict(pat_dict,orient='index')
+
+# COMMAND ----------
+
+# %%
+with open(pkl_dir + "pat_data_fromdelta.pkl", "wb") as f:
+    pkl.dump(pat_dict, f)
+
+
+# COMMAND ----------
+
+display(tmp_to_save)
+
+# COMMAND ----------
+
+# MAGIC %sql 
+# MAGIC --DROP TABLE tnk6_demo.all_ftrs_dict_pkl
 
 # COMMAND ----------
 
@@ -256,8 +313,17 @@ if REVERSE_VOCAB:
     vocab = {v: k for k, v in vocab.items()}
 
 # Saving the updated vocab to disk
-with open(pkl_dir + "all_ftrs_dict.pkl", "wb") as f:
-    pkl.dump(vocab, f)
+#with open(pkl_dir + "all_ftrs_dict.pkl", "wb") as f:
+#    pkl.dump(vocab, f)
+
+#tmp_to_save = pd.DataFrame.from_dict(vocab,orient='index',columns=['value'])
+tmp_to_save = pd.DataFrame(vocab.items(),columns=['index','value'])
+tmp_to_save = spark.createDataFrame(tmp_to_save)
+tmp_to_save.write.mode("overwrite").format("delta").saveAsTable("tnk6_demo.all_ftrs_dict_pkl")
+
+# COMMAND ----------
+
+#tmp_to_save.write.mode("ignore").format("delta").saveAsTable("tnk6_demo.all_ftrs_dict_pkl")
 
 # COMMAND ----------
 

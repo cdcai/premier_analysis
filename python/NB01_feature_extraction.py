@@ -11,6 +11,9 @@ import pandas as pd
 import tools.multi as tm
 import tools.preprocessing as tp
 
+# Enable Arrow-based columnar data transfers
+spark.conf.set("spark.sql.execution.arrow.enabled", "true")
+
 # COMMAND ----------
 
 # Set up Azure storage connection
@@ -63,6 +66,11 @@ pq
 
 # COMMAND ----------
 
+print(dir(pq))
+pq.diag
+
+# COMMAND ----------
+
 # Replacing NaN with 0
 pq.id.dropna(axis=0, subset=['days_from_index'], inplace=True)
 
@@ -101,6 +109,12 @@ genlab, genlab_dict = tp.df_to_features(
     replace_col='lab_test_result',
     num_col='numeric_value')
 pq.genlab = []
+
+#if use_abfss:
+#    text_col = 'icd_code'
+#else:
+#    text_col = 'ICD_CODE'
+
 
 proc, proc_dict = tp.df_to_features(pq.proc,
                                     feature_prefix='proc',
@@ -177,9 +191,23 @@ base_dict = dict(zip(diag_agg.pat_key, diag_agg[TIME_UNIT]))
 base_dict.update(max_dict)
 diag_agg[TIME_UNIT] = [base_dict[id] for id in diag_agg.pat_key]
 
-# Merging diagnoses with the rest of the columns
+# COMMAND ----------
+
 agg_all = tp.merge_all([agg_merged, diag_agg], on=['pat_key', TIME_UNIT])
 agg_all.rename({'ftrs': 'diag'}, axis=1, inplace=True)
+agg_all
+
+# COMMAND ----------
+
+# NEW: limit to 2021 data 
+print(agg_all.pat_key.nunique())
+
+agg_all = agg_all[agg_all['pat_key'].isin(agg_all.pat_key.sample(1000000))].reset_index(drop=True)
+agg_all
+
+# COMMAND ----------
+
+# Merging diagnoses with the rest of the columns
 
 # Adding COVID visit indicator
 agg_all['covid_visit'] = [covid_dict[id] for id in agg_all.pat_key]
@@ -216,7 +244,7 @@ if COVID_ONLY:
 
 # COMMAND ----------
 
-samp_dir
+agg_all['covid_visit'].unique()
 
 # COMMAND ----------
 
@@ -227,7 +255,54 @@ if use_abfss:
     agg_samp = spark.createDataFrame(agg_samp)
     agg_samp.write.mode('overwrite').csv(samp_dir + 'agg_samp.csv')
 else:
-    agg_samp.to_csv(samp_dir + 'agg_samp.csv', index=False)
+    # agg_samp.to_csv(samp_dir + 'agg_samp.csv', index=False)
+    agg_samp = spark.createDataFrame(agg_samp)
+    #agg_samp.write.mode("overwrite").format("delta").save("dbfs:/home/tnk6/intertim_agg_samp/")
+    #spark.sql("CREATE TABLE tnk6_demo.intertim_agg_samp USING DELTA LOCATION 'dbfs:/home/tnk6/intertim_agg_samp/'")
+    agg_samp.write.mode("overwrite").format("delta").saveAsTable("tnk6_demo.intertim_agg_samp")
+
+# COMMAND ----------
+
+agg_all.pat_key.nunique()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ```
+# MAGIC # Writing a sample of the flat file to disk
+# MAGIC samp_ids = agg_all.pat_key.sample(500000)
+# MAGIC agg_samp = agg_all[agg_all.pat_key.isin(samp_ids)]
+# MAGIC if use_abfss:
+# MAGIC     agg_samp = spark.createDataFrame(agg_samp)
+# MAGIC     agg_samp.write.mode('overwrite').csv(samp_dir + 'agg_samp.csv')
+# MAGIC else:
+# MAGIC     # agg_samp.to_csv(samp_dir + 'agg_samp.csv', index=False)
+# MAGIC     agg_samp = spark.createDataFrame(agg_samp)
+# MAGIC     #agg_samp.write.mode("overwrite").format("delta").save("dbfs:/home/tnk6/intertim_agg_samp_5k/")
+# MAGIC     #spark.sql("CREATE TABLE tnk6_demo.intertim_agg_samp_5k USING DELTA LOCATION 'dbfs:/home/tnk6/intertim_agg_samp_5k/'")
+# MAGIC     agg_samp.write.mode("overwrite").format("delta").saveAsTable("tnk6_demo.intertim_agg_samp_5k")
+# MAGIC ```
+
+# COMMAND ----------
+
+# MAGIC %sql
+# MAGIC --DROP TABLE tnk6_demo.intertim_feature_lookup
+
+# COMMAND ----------
+
+# And saving the feature dict to disk
+if use_abfss:
+    ##rdd1 = sc.parallelize([ftr_dict])
+    ##rdd1.saveAsPickleFile(pkl_dir + 'feature_lookup.pkl',5)
+    ftr_dict_df = spark.createDataFrame(pd.DataFrame.from_dict(ftr_dict,orient='index',columns=['value']))
+    ftr_dict_df.write.mode('overwrite').parquet(pkl_dir + 'feature_lookup.pkl')
+else:
+    # pickle.dump(ftr_dict, open(pkl_dir + 'feature_lookup.pkl', 'wb'))
+    #ftr_dict_df = spark.createDataFrame(pd.DataFrame.from_dict(ftr_dict,orient='index',columns=['value']))
+    #ftr_dict_df.write.mode('overwrite').format("delta").save("dbfs:/home/tnk6/intertim_feature_lookup/")   
+    #spark.sql("CREATE TABLE tnk6_demo.intertim_feature_lookup USING DELTA LOCATION 'dbfs:/home/tnk6/intertim_feature_lookup/'")
+    ftr_dict_df = spark.createDataFrame(pd.DataFrame(ftr_dict.items(),columns=['index','value']))
+    ftr_dict_df.write.mode('overwrite').format("delta").saveAsTable("tnk6_demo.intertim_feature_lookup")
 
 # COMMAND ----------
 
@@ -236,18 +311,11 @@ if use_abfss:
     agg_all = spark.createDataFrame(agg_all)
     agg_all.write.mode('overwrite').parquet(parq_dir + 'flat_features.parquet')
 else:
-    agg_all.to_parquet(parq_dir + 'flat_features.parquet', index=False)
-
-# COMMAND ----------
-
-# And saving the feature dict to disk
-if use_abfss:
-    ##rdd1 = sc.parallelize([ftr_dict])
-    ##rdd1.saveAsPickleFile(pkl_dir + 'feature_lookup.pkl',5)
-    ftr_dict_df = spark.createDataFrame(pd.DataFrame.from_dict(ftr_dict,orient='index',columns=[' value']))
-    ftr_dict_df.write.mode('overwrite').parquet(pkl_dir + 'feature_lookup.pkl')
-else:
-    pickle.dump(ftr_dict, open(pkl_dir + 'feature_lookup.pkl', 'wb'))
+    # agg_all.to_parquet(parq_dir + 'flat_features.parquet', index=False)
+    agg_all = spark.createDataFrame(agg_all)
+    #agg_all.write.mode("overwrite").format("delta").save("dbfs:/home/tnk6/intertim_flat_features/")
+    #spark.sql("CREATE TABLE tnk6_demo.intertim_flat_features USING DELTA LOCATION 'dbfs:/home/tnk6/intertim_flat_features/'")
+    agg_all.write.mode("overwrite").format("delta").saveAsTable("tnk6_demo.intertim_flat_features")
 
 # COMMAND ----------
 

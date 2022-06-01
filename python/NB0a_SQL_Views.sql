@@ -37,7 +37,7 @@
 
 -- COMMAND ----------
 
-DROP TABLE IF EXISTS tnk6_demo.vw_covid_id;
+DROP TABLE IF EXISTS tnk6_demo.vw_covid_hx_lab_sens;
 
 -- COMMAND ----------
 
@@ -193,26 +193,26 @@ WHERE b.covid_visit = 1
 
 --vw_covid_lab_res
 
-/*
-Gen lab results for all visits previous to latest inpatient COVID visit
-*/
-CREATE TABLE tnk6_demo.vw_covid_hx_lab_res 
-
+CREATE TABLE tnk6_demo.vw_covid_lab_res 
 AS
 SELECT a.*
 from cdh_premier.lab_res as a
-    INNER JOIN tnk6_demo.vw_covid_hx_id as b
+    INNER JOIN tnk6_demo.vw_covid_id as b
     ON a.pat_key = b.pat_key
+WHERE b.covid_visit = 1
+    AND b.i_o_ind = 'I'
 
 -- COMMAND ----------
 
 --vw_covid_lab_sens
-CREATE TABLE tnk6_demo.vw_covid_hx_lab_sens 
+CREATE TABLE tnk6_demo.vw_covid_lab_sens
 AS
 SELECT a.*
 from cdh_premier.lab_sens as a
-    INNER JOIN tnk6_demo.vw_covid_hx_id as b
+    INNER JOIN tnk6_demo.vw_covid_id as b
     ON a.pat_key = b.pat_key
+WHERE b.covid_visit = 1
+    AND b.i_o_ind = 'I'
 
 -- COMMAND ----------
 
@@ -384,7 +384,6 @@ from cdh_premier.lab_sens as a
     INNER JOIN tnk6_demo.vw_covid_hx_id as b
     ON a.pat_key = b.pat_key
 
-
 -- COMMAND ----------
 
 --vw_covid_hx_bill
@@ -435,10 +434,64 @@ from cdh_premier.vitals as a
 
 -- COMMAND ----------
 
+CREATE TABLE tnk6_demo.icdcode 
+AS
+SELECT * from cdh_premier.icdcode
+
+-- COMMAND ----------
+
+CREATE TABLE tnk6_demo.providers 
+AS
+SELECT * from cdh_premier.providers
+
+-- COMMAND ----------
+
+
+
+-- COMMAND ----------
+
+-- MAGIC %md
+-- MAGIC # Testing Reads
+
+-- COMMAND ----------
+
 -- MAGIC %python
 -- MAGIC # Testing
 -- MAGIC df = spark.sql("select * from tnk6_demo.vw_covid_hx_vitals")
 -- MAGIC df = df.toPandas()
+-- MAGIC df
+
+-- COMMAND ----------
+
+-- MAGIC %python
+-- MAGIC # Testing
+-- MAGIC import pyspark.pandas as ps
+-- MAGIC df = ps.DataFrame(spark.sql("select * from tnk6_demo.vw_covid_hx_vitals"))
+-- MAGIC df = df.to_pandas()
+-- MAGIC df
+
+-- COMMAND ----------
+
+-- MAGIC %python
+-- MAGIC dir = 'abfss://cdh@davsynapseanalyticsdev.dfs.core.windows.net/exploratory/databricks_ml/mitre_premier/data/'
+-- MAGIC read_dir = 'vw_covid_pat'
+-- MAGIC test_df = spark.read.parquet(dir + read_dir)
+
+-- COMMAND ----------
+
+-- MAGIC %python
+-- MAGIC display(test_df)
+
+-- COMMAND ----------
+
+-- MAGIC %python 
+-- MAGIC import pandas as pd
+-- MAGIC tmp = pd.read_parquet('/dbfs/home/tnk6/premier/icdcode/')
+-- MAGIC tmp
+
+-- COMMAND ----------
+
+SELECT * from tnk6_demo.icdcode limit 5;
 
 -- COMMAND ----------
 

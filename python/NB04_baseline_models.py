@@ -1,5 +1,5 @@
 # Databricks notebook source
-!pip install mlflow --quiet
+#!pip install mlflow --quiet
 
 # COMMAND ----------
 
@@ -46,12 +46,25 @@ import mlflow
 
 from databricks import feature_store 
 from delta.tables import * 
+from tools import preprocessing as tp
+
+# COMMAND ----------
+
+# Set up Azure storage connection
+spark.conf.set("fs.azure.account.auth.type.davsynapseanalyticsdev.dfs.core.windows.net", "OAuth")
+spark.conf.set("fs.azure.account.oauth.provider.type.davsynapseanalyticsdev.dfs.core.windows.net", "org.apache.hadoop.fs.azurebfs.oauth2.ClientCredsTokenProvider")
+spark.conf.set("fs.azure.account.oauth2.client.id.davsynapseanalyticsdev.dfs.core.windows.net", dbutils.secrets.get(scope="dbs-scope-CDH", key="apps-client-id"))
+spark.conf.set("fs.azure.account.oauth2.client.secret.davsynapseanalyticsdev.dfs.core.windows.net", dbutils.secrets.get(scope="dbs-scope-CDH", key="apps-client-secret"))
+spark.conf.set("fs.azure.account.oauth2.client.endpoint.davsynapseanalyticsdev.dfs.core.windows.net", dbutils.secrets.get(scope="dbs-scope-CDH", key="apps-tenant-id-endpoint"))
+
+# Enable Arrow-based columnar data transfers
+spark.conf.set("spark.sql.execution.arrow.enabled", "true")
 
 # COMMAND ----------
 
 # MAGIC %sql 
 # MAGIC -- create database
-# MAGIC CREATE DATABASE IF NOT EXISTS tnk6_demo
+# MAGIC --CREATE DATABASE IF NOT EXISTS tnk6_demo
 
 # COMMAND ----------
 
@@ -175,15 +188,23 @@ print(f'Stats Dir: {stats_dir}')
     for directory in [stats_dir, probs_dir, pkl_dir]
 ]
 
-with open(pkl_dir + CHRT_PRFX + "trimmed_seqs.pkl", "rb") as f:
-    inputs = pkl.load(f)
+#with open(pkl_dir + CHRT_PRFX + "trimmed_seqs.pkl", "rb") as f:
+#    inputs = pkl.load(f)
+inputs = tp.read_table(data_dir,"interim_trimmed_seqs_pkl")  
+inputs = inputs.values.tolist() 
 
-with open(pkl_dir + "all_ftrs_dict.pkl", "rb") as f:
-    vocab = pkl.load(f)
 
-with open(pkl_dir + "feature_lookup.pkl", "rb") as f:
-    all_feats = pkl.load(f)
+#with open(pkl_dir + "all_ftrs_dict.pkl", "rb") as f:
+#    vocab = pkl.load(f)
+vocab = tp.read_table(data_dir,"all_ftrs_dict_pkl")
+vocab = dict(vocab[['value','index']].values)  # TODO: Fix upstream 
 
+#with open(pkl_dir + "feature_lookup.pkl", "rb") as f:
+#    all_feats = pkl.load(f)
+all_feats = tp.read_table(data_dir,"intertim_feature_lookup")
+all_feats = dict(all_feats.values)
+
+# TOD): convert dictionary to delta table
 with open(pkl_dir + "demog_dict.pkl", "rb") as f:
     demog_dict = pkl.load(f)
     demog_dict = {k: v for v, k in demog_dict.items()}
@@ -203,17 +224,23 @@ pd.DataFrame([vocab],index=['code']).transpose()
 # Separating the inputs and labels
 features = [t[0] for t in inputs]
 demog = [t[1] for t in inputs]
-cohort = pd.read_csv(os.path.join(output_dir, CHRT_PRFX, 'cohort.csv'))
+#cohort = pd.read_csv(os.path.join(output_dir, CHRT_PRFX, 'cohort.csv'))
+cohort = tp.read_table(data_dir,"interim_cohort_csv")
 labels = cohort[OUTCOME]
 
 # Counts to use for loops and stuff
 n_patients = len(features)
+print(n_patients)
 n_features = np.max(list(vocab.keys()))
 n_classes = len(np.unique(labels))
 binary = n_classes <= 2
 
 # Converting the labels to an array
 y = np.array(labels, dtype=np.uint8)
+
+# COMMAND ----------
+
+cohort
 
 # COMMAND ----------
 
@@ -227,7 +254,7 @@ else:
 # Optionally mixing in the demographic features
 if USE_DEMOG:
     new_demog = [[i + n_features for i in l] for l in demog]
-    features = [features[i] + new_demog[i] for i in range(n_patients)]
+    features = [list(features[i]) + new_demog[i] for i in range(n_patients)]
     demog_vocab = {k + n_features: v for k, v in demog_dict.items()}
     vocab.update(demog_vocab)
     n_features = np.max([np.max(l) for l in features])
@@ -251,6 +278,16 @@ else:
 
 # COMMAND ----------
 
+# TODO: Fix by running Rmarkdown to create the targets
+# Band aid: create fake targets
+
+#strat_var = np.random.rand(1,n_patients)[0]
+#strat_var = (y > 0.5).astype(int)
+#y = strat_var
+print(len(y))
+
+# COMMAND ----------
+
 train, test = train_test_split(range(n_patients),
                                test_size=TEST_SPLIT,
                                stratify=strat_var,
@@ -267,14 +304,8 @@ for var in [train,test,val]:
 
 # COMMAND ----------
 
-tmp_df = pd.DataFrame(X[test][0:25].toarray())
-tmp_df['target'] = y[test][0:25].astype(int)
-tmp_df
-
-# COMMAND ----------
-
 # Taking only 25 as whole test set takes 10 minutes
-tmp_df = spark.createDataFrame(tmp_df)
+# tmp_df = spark.createDataFrame(tmp_df)
 
 # COMMAND ----------
 
@@ -283,17 +314,20 @@ tmp_df = spark.createDataFrame(tmp_df)
 
 # COMMAND ----------
 
-# create feature store table
-
-fs = feature_store.FeatureStoreClient()
-fs.create_table(name = "tnk6_demo.FeatureStore_premier_test",
-               primary_keys=list(tmp_df.columns),
-               df = tmp_df,
-               description='Training set used for Premier Analysis')
-
-fs.write_table(name="tnk6_demo.FeatureStore_premier_test",
-              df=tmp_df,
-              mode='overwrite')   # or merge to upsert rows
+# MAGIC %md
+# MAGIC ```
+# MAGIC # create feature store table
+# MAGIC 
+# MAGIC fs = feature_store.FeatureStoreClient()
+# MAGIC fs.create_table(name = "tnk6_demo.FeatureStore_premier_test",
+# MAGIC                primary_keys=list(tmp_df.columns),
+# MAGIC                df = tmp_df,
+# MAGIC                description='Training set used for Premier Analysis')
+# MAGIC 
+# MAGIC fs.write_table(name="tnk6_demo.FeatureStore_premier_test",
+# MAGIC               df=tmp_df,
+# MAGIC               mode='overwrite')   # or merge to upsert rows
+# MAGIC ```
 
 # COMMAND ----------
 
@@ -303,7 +337,7 @@ fs.write_table(name="tnk6_demo.FeatureStore_premier_test",
 # COMMAND ----------
 
 # Also write delta tables
-tmp_df.write.mode("overwrite").format("delta").save("dbfs:/home/tnk6/premier_delta/test")
+#tmp_df.write.mode("overwrite").format("delta").save("dbfs:/home/tnk6/premier_delta/test")
 
 # COMMAND ----------
 
@@ -315,7 +349,19 @@ tmp_df.write.mode("overwrite").format("delta").save("dbfs:/home/tnk6/premier_del
 
 # MAGIC %sql 
 # MAGIC -- DROP TABLE IF EXISTS tnk6_demo.delta_premier_test;
-# MAGIC CREATE TABLE tnk6_demo.delta_premier_test USING DELTA LOCATION "dbfs:/home/tnk6/premier_delta/test";
+# MAGIC --CREATE TABLE tnk6_demo.delta_premier_test USING DELTA LOCATION "dbfs:/home/tnk6/premier_delta/test";
+
+# COMMAND ----------
+
+X[test]
+
+# COMMAND ----------
+
+tmp_df = pd.DataFrame(X[test].toarray())
+tmp_df['target'] = y[test].astype(int)
+tmp_to_save = pd.DataFrame(tmp_df)
+tmp_to_save = spark.createDataFrame(tmp_to_save)
+tmp_to_save.write.mode("overwrite").format("delta").saveAsTable("tnk6_demo.output_test_dataset")
 
 # COMMAND ----------
 
@@ -338,7 +384,7 @@ spark.conf.get("spark.databricks.delta.lastCommitVersionInSession")
 
 # COMMAND ----------
 
-test_table_name = "tnk6_demo.delta_premier_test"
+test_table_name = "tnk6_demo.output_test_dataset"
 test_delta_table = DeltaTable.forName(spark, test_table_name)
 test_delta_table
 
@@ -358,7 +404,7 @@ print(tmp_val[-1].__getitem__('version'))
 lgr = LogisticRegression(max_iter=5000, multi_class='ovr')
 mlflow.sklearn.autolog(log_models=True)
 
-experiment_name = "/Shared/premier_experiment_test"
+experiment_name = "/Shared/premier_experiment_test_dt"
 mlflow.set_experiment(experiment_name) # this creates a workspace experiment if it does not exist 
 
 #with mlflow.start_run(experiment_id=experiment_id) as run:
@@ -481,10 +527,6 @@ for i, mod in enumerate(mods):
 
     # Saving the results to disk
     ta.write_stats(stats, OUTCOME, stats_dir=stats_dir)
-
-# COMMAND ----------
-
-stats_dir
 
 # COMMAND ----------
 
