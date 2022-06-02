@@ -58,90 +58,6 @@ import mlflow
 
 # COMMAND ----------
 
-# MAGIC  %md 
-# MAGIC  ```
-# MAGIC     parser = argparse.ArgumentParser()
-# MAGIC     parser.add_argument('--outcome',
-# MAGIC                         type=str,
-# MAGIC                         default='multi_class',
-# MAGIC                         choices=['misa_pt', 'multi_class', 'death', 'icu'],
-# MAGIC                         help='which outcome to use as the prediction target')
-# MAGIC     parser.add_argument(
-# MAGIC         '--day_one',
-# MAGIC         help="Use only first inpatient day's worth of features (DAN only)",
-# MAGIC         dest='day_one',
-# MAGIC         action='store_true')
-# MAGIC     parser.add_argument('--all_days',
-# MAGIC                         help="Use all features in lookback period (DAN only)",
-# MAGIC                         dest='day_one',
-# MAGIC                         action='store_false')
-# MAGIC     parser.set_defaults(day_one=True)
-# MAGIC     parser.add_argument('--use_demog',
-# MAGIC                         type=bool,
-# MAGIC                         default=True,
-# MAGIC                         help='whether to iclude demographics in the features')
-# MAGIC     parser.add_argument('--stratify',
-# MAGIC                         type=str,
-# MAGIC                         default='all',
-# MAGIC                         choices=['all', 'death', 'misa_pt', 'icu'],
-# MAGIC                         help='which label to use for the train-test split')
-# MAGIC     parser.add_argument('--average',
-# MAGIC                         type=str,
-# MAGIC                         default='weighted',
-# MAGIC                         choices=['micro', 'macro', 'weighted'],
-# MAGIC                         help='how to average stats for multiclass predictions')
-# MAGIC     parser.add_argument('--cohort_prefix',
-# MAGIC                         type=str,
-# MAGIC                         default='',
-# MAGIC                         help='prefix for the cohort csv file, ending with _')
-# MAGIC     parser.add_argument('--out_dir',
-# MAGIC                         type=str,
-# MAGIC                         help="output directory (optional)")
-# MAGIC     parser.add_argument("--data_dir",
-# MAGIC                         type=str,
-# MAGIC                         help="path to the Premier data (optional)")
-# MAGIC     parser.add_argument("--test_split",
-# MAGIC                         type=float,
-# MAGIC                         default=0.2,
-# MAGIC                         help="Percentage of total data to use for testing")
-# MAGIC     parser.add_argument("--validation_split",
-# MAGIC                         type=float,
-# MAGIC                         default=0.1,
-# MAGIC                         help="Percentage of train data to use for validation")
-# MAGIC     parser.add_argument("--rand_seed", type=int, default=2021, help="RNG seed")
-# MAGIC     args = parser.parse_args()
-# MAGIC 
-# MAGIC     # Setting the globals
-# MAGIC     OUTCOME = args.outcome
-# MAGIC     USE_DEMOG = args.use_demog
-# MAGIC     AVERAGE = args.average
-# MAGIC     DAY_ONE_ONLY = args.day_one
-# MAGIC     TEST_SPLIT = args.test_split
-# MAGIC     VAL_SPLIT = args.validation_split
-# MAGIC     RAND = args.rand_seed
-# MAGIC     CHRT_PRFX = args.cohort_prefix
-# MAGIC     STRATIFY = args.stratify
-# MAGIC 
-# MAGIC     # Setting the directories and importing the data
-# MAGIC     pwd = os.path.abspath(os.path.dirname(__file__))
-# MAGIC 
-# MAGIC     # If no args are passed to overwrite these values, use repo structure to construct
-# MAGIC     data_dir = os.path.abspath(os.path.join(pwd, "..", "data", "data", ""))
-# MAGIC     output_dir = os.path.abspath(os.path.join(pwd, "..", "output", ""))
-# MAGIC 
-# MAGIC     if args.data_dir is not None:
-# MAGIC         data_dir = os.path.abspath(args.data_dir)
-# MAGIC 
-# MAGIC     if args.out_dir is not None:
-# MAGIC         output_dir = os.path.abspath(args.out_dir)
-# MAGIC 
-# MAGIC     pkl_dir = os.path.join(output_dir, "pkl", "")
-# MAGIC     stats_dir = os.path.join(output_dir, "analysis", "")
-# MAGIC     probs_dir = os.path.join(stats_dir, "probs", "")
-# MAGIC ```
-
-# COMMAND ----------
-
 # Setting the globals
 #OUTCOME = 'misa_pt'
 #USE_DEMOG = True
@@ -339,7 +255,7 @@ def get_array_of_probs (spark_df):
 
 # COMMAND ----------
 
-def get_statistics(val_probs, test_probs, y_val, y_test, mod_name, average=AVERAGE):
+def get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name, average=AVERAGE):
     val_gm = ta.grid_metrics(y_val, val_probs)
     cutpoint = val_gm.cutoff.values[np.argmax(val_gm.f1)]
     test_preds = ta.threshold(test_probs, cutpoint)
@@ -352,70 +268,109 @@ def get_statistics(val_probs, test_probs, y_val, y_test, mod_name, average=AVERA
 
 # COMMAND ----------
 
+def get_statistics_from_predict(test_predict, y_test, mod_name, average=AVERAGE):
+    stats = ta.clf_metrics(y_test,
+                           test_predict,
+                           mod_name=mod_name,
+                           average=average)
+    return stats
+
+# COMMAND ----------
+
+def log_stats_in_mlflow(stats):
+    for i in stats:
+        if not isinstance(stats[i].iloc[0], str):
+            mlflow.log_metric("Testing "+i, stats[i].iloc[0])
+
+# COMMAND ----------
+
+def log_param_in_mlflow():
+    mlflow.log_param("average", AVERAGE)
+    mlflow.log_param("demographics", USE_DEMOG)
+    mlflow.log_param("outcome", OUTCOME)
+    mlflow.log_param("stratify", STRATIFY)
+
+# COMMAND ----------
+
 y_val = y_val_spark.select('y').toPandas()['y'].to_numpy()
 y_test = y_test_spark.select('y').toPandas()['y'].to_numpy()
 
 # COMMAND ----------
 
-#import the logistic regression 
-from pyspark.ml.classification import LogisticRegression
-#
-# start a new MLFlow Experiment
-#
-import mlflow
-mlflow.end_run()
-mlflow.start_run(experiment_id=experiment_id)
-mlflow.autolog()
-#
-#Apply the logistic regression model
-#
-lr=LogisticRegression(labelCol='y')
-lrModel = lr.fit(X_y_train_spark.select(['features','y']))
-lrPredictions_val = lrModel.transform(X_y_val_spark.select(['features','y']))
-lrPredictions_test = lrModel.transform(X_y_test_spark.select(['features','y']))
-val_probs  = get_array_of_probs (lrPredictions_val)
-test_probs = get_array_of_probs (lrPredictions_test)
-stats = get_statistics(val_probs, test_probs, y_val, y_test, mod_name='lr', average=AVERAGE)
+def execute_logistic_regression():
+    #import the logistic regression 
+    from pyspark.ml.classification import LogisticRegression
+    #
+    # start a new MLFlow Experiment
+    #
+    import mlflow
+    mlflow.end_run()
+    mlflow.start_run(experiment_id=experiment_id)
+    mlflow.autolog()
+    #
+    #Apply the logistic regression model
+    #
+    lr=LogisticRegression(labelCol='y')
+    lrModel = lr.fit(X_y_train_spark.select(['features','y']))
+    lrPredictions_val = lrModel.transform(X_y_val_spark.select(['features','y']))
+    lrPredictions_test = lrModel.transform(X_y_test_spark.select(['features','y']))
+    val_probs  = get_array_of_probs (lrPredictions_val)
+    test_probs = get_array_of_probs (lrPredictions_test)
+    stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name='lr', average=AVERAGE)
+    #
+    # log statistics and parameters into ml flow and end experiment
+    #
+    log_stats_in_mlflow(stats)
+    log_param_in_mlflow()
 
-#
-# add parameters and metrics to MLFlow experiment and end experiment
-#
-for i in stats:
-    if not isinstance(stats[i].iloc[0], str):
-        mlflow.log_metric("Testing "+i, stats[i].iloc[0])
-    
-mlflow.log_param("average", AVERAGE)
-mlflow.log_param("demographics", USE_DEMOG)
-mlflow.log_param("outcome", OUTCOME)
-mlflow.log_param("stratify", STRATIFY)
-
-mlflow.end_run()
+    mlflow.end_run()
 
 # COMMAND ----------
 
-#
-stats = ta.clf_metrics(y_true, probabilities[1],  mod_name="spark lr",
-                               average=AVERAGE)
-stats
+def execute_random_forest():
+    #import the Random Forrest  
+    from pyspark.ml.classification import RandomForestClassifier
+    #
+    # start a new MLFlow Experiment
+    #
+    import mlflow
+    mlflow.end_run()
+    mlflow.start_run(experiment_id=experiment_id)
+    mlflow.autolog()
+
+    model=RandomForestClassifier(featuresCol='features',labelCol='y')
+    model_fit = model.fit(X_y_train_spark.select(['features','y']))
+    predictions_test = model_fit.transform(X_y_test_spark.select(['features','y']))
+
+    stats = get_statistics_from_predict(predictions_test.select('prediction').toPandas()['prediction'].to_numpy(), 
+                                        y_test, 
+                                        "Random Forest Classifier", 
+                                        average=AVERAGE)
+    #
+    # log statistics and parameters into ml flow and end experiment
+    #
+    log_stats_in_mlflow(stats)
+    log_param_in_mlflow()
+
+    mlflow.end_run()
 
 # COMMAND ----------
 
-stats = ta.clf_metrics(y[test][:SAMPLE],
-                               results.select(vector_to_array("probability", "float32").alias("probability")).toPandas().to_numpy(),
-                               mod_name="spark lr",
-                               average=AVERAGE)
+#execute_random_forest()
 
 # COMMAND ----------
 
-stats
+from pyspark.ml.classification import GBTClassifier
+
+model=GBTClassifier(featuresCol='features',labelCol='y')
+model_fit = model.fit(X_y_train_spark.select(['features','y']))
+predictions_test = model_fit.transform(X_y_test_spark.select(['features','y']))
+
 
 # COMMAND ----------
 
-lrn_summary = log_reg.summary
-
-# COMMAND ----------
-
-log_reg.predictProbability(X_y_test_spark.features).show()
+a = predictions_test.select('prediction').toPandas()['prediction'].to_numpy()
+a
 
 # COMMAND ----------
 
