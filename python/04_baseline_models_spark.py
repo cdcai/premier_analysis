@@ -220,9 +220,9 @@ from pyspark.sql.functions import monotonically_increasing_id
 
 c_names = change_columns_names(X)
 
-X_train_spark = convert_pandas_to_spark_with_vectors(X[train][:SAMPLE], c_names).withColumn("id",monotonically_increasing_id() )
-X_val_spark =   convert_pandas_to_spark_with_vectors(X[val][:SAMPLE], c_names).withColumn("id",monotonically_increasing_id() )
-X_test_spark =  convert_pandas_to_spark_with_vectors(X[test][:SAMPLE], c_names).withColumn("id",monotonically_increasing_id() )
+X_train_spark = convert_pandas_to_spark_with_vectors(X[train][:SAMPLE], c_names).select(['features','y']).withColumn("id",monotonically_increasing_id() )
+X_val_spark =   convert_pandas_to_spark_with_vectors(X[val][:SAMPLE], c_names).select(['features','y']).withColumn("id",monotonically_increasing_id() )
+X_test_spark =  convert_pandas_to_spark_with_vectors(X[test][:SAMPLE], c_names).select(['features','y']).withColumn("id",monotonically_increasing_id() )
 
 
 y_train_spark = spark.createDataFrame(pd.DataFrame(y[train][:SAMPLE], columns=['y']).astype(int)).withColumn("id",monotonically_increasing_id() )
@@ -356,7 +356,36 @@ def execute_random_forest():
 
 # COMMAND ----------
 
+def execute_gbt_classifier():
+    from pyspark.ml.classification import GBTClassifier
+    #
+    # start a new MLFlow Experiment
+    #
+    import mlflow
+    mlflow.end_run()
+    mlflow.start_run(experiment_id=experiment_id)
+    mlflow.spark.autolog()
+    #
+    #
+    model=GBTClassifier(featuresCol='features',labelCol='y')
+    model_fit = model.fit(X_y_train_spark.select(['features','y']))
+    predictions_val = model_fit.transform(X_y_val_spark.select(['features','y']))
+    predictions_test = model_fit.transform(X_y_test_spark.select(['features','y']))
+    val_probs  = get_array_of_probs (predictions_val)
+    test_probs = get_array_of_probs (predictions_test)
+    stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name='gbt', average=AVERAGE)
+    #
+    # log statistics and parameters into ml flow and end experiment
+    #
+    log_stats_in_mlflow(stats)
+    log_param_in_mlflow()
+
+    mlflow.end_run()
+
+# COMMAND ----------
+
 #execute_random_forest()
+execute_gbt_classifier()
 
 # COMMAND ----------
 
@@ -366,6 +395,10 @@ model=GBTClassifier(featuresCol='features',labelCol='y')
 model_fit = model.fit(X_y_train_spark.select(['features','y']))
 predictions_test = model_fit.transform(X_y_test_spark.select(['features','y']))
 
+
+# COMMAND ----------
+
+display(predictions_test)
 
 # COMMAND ----------
 
