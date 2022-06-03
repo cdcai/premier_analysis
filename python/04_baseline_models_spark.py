@@ -177,7 +177,7 @@ train, val = train_test_split(train,
 # COMMAND ----------
 
 if EXPERIMENTING == True: SAMPLE = 10
-else: SAMPLE = X.shape[1]
+else: SAMPLE = X.shape[0]
 
 # COMMAND ----------
 
@@ -232,12 +232,43 @@ y_test_spark =  spark.createDataFrame(pd.DataFrame(y[test][:SAMPLE], columns=['y
 
 # COMMAND ----------
 
-X_y_train_spark = X_train_spark.join(y_train_spark,X_train_spark.id == y_train_spark.id, how='inner')
-X_y_val_spark = X_val_spark.join(y_val_spark,X_val_spark.id == y_val_spark.id, how='inner')
-X_y_test_spark = X_test_spark.join(y_test_spark,X_test_spark.id == y_test_spark.id, how='inner')
+yt = y_test_spark.toPandas()
+yt.shape
 
-X_y_spark = X_y_train_spark.union(X_y_val_spark).union(X_y_test_spark)
-X_y_train_val_spark = X_y_train_spark.union(X_y_val_spark)
+# COMMAND ----------
+
+xt = X_test_spark.toPandas()
+xt.shape
+
+# COMMAND ----------
+
+X[train][:SAMPLE].shape
+
+# COMMAND ----------
+
+X[val][:SAMPLE].shape
+
+# COMMAND ----------
+
+X[test][:SAMPLE].shape
+
+# COMMAND ----------
+
+y[test][:SAMPLE].shape
+
+# COMMAND ----------
+
+X_y_train_spark = X_train_spark.join(y_train_spark,X_train_spark.id == y_train_spark.id, how='inner').select(['features','y'])
+X_y_val_spark = X_val_spark.join(y_val_spark,X_val_spark.id == y_val_spark.id, how='inner').select(['features','y'])
+X_y_test_spark = X_test_spark.join(y_test_spark, X_test_spark.id == y_test_spark.id, how='inner').select(['features','y'])
+
+#X_y_spark = X_y_train_spark.union(X_y_val_spark).union(X_y_test_spark)
+#X_y_train_val_spark = X_y_train_spark.union(X_y_val_spark)
+
+# COMMAND ----------
+
+pxy = np.array(X_y_test_spark.collect())
+pxy.shape
 
 # COMMAND ----------
 
@@ -446,41 +477,84 @@ def executeLinearSVC():
 
 # COMMAND ----------
 
-stats = executeLogisticRegression()
-stats
+#stats = executeLogisticRegression()
+#stats
 
 # COMMAND ----------
 
-stats = executeRandomForestClassifier()
-stats
+#stats = executeRandomForestClassifier()
+#stats
 
 # COMMAND ----------
 
-stats = executeGBTClassifier()
-stats
+#stats = executeGBTClassifier()
+#stats
 
 # COMMAND ----------
 
-stats = executeDecisionTreeClassifier()
-stats
+#stats = executeDecisionTreeClassifier()
+#stats
 
 # COMMAND ----------
 
-stas = executeLinearSVC()
-stats
+#stas = executeLinearSVC()
+#stats
 
 # COMMAND ----------
 
-row_list =X_y_train_spark.take(100)
+from pyspark.ml.classification import LinearSVC
+from pyspark.ml.classification import DecisionTreeClassifier
+from pyspark.ml.classification import GBTClassifier
+from pyspark.ml.classification import RandomForestClassifier
+from pyspark.ml.classification import LogisticRegression
 
+bool = True
+
+KNOWN_REGRESSORS = {
+    r.__name__: r
+    for r in [LogisticRegression, GBTClassifier, DecisionTreeClassifier, RandomForestClassifier, LinearSVC]
+}
+KNOWN_REGRESSORS_THAT_YIELD_PROBABILITIES = ["LogisticRegression", "GBTClassifier", "LinearSVC"]
+
+mlflow.end_run()
+with mlflow.start_run(
+    experiment_id=1910247067387441,
+):
+    mlflow.spark.autolog()
+    for model_name, model_class in KNOWN_REGRESSORS.items():
+        with mlflow.start_run(
+            run_name=f"premier_analysis_{model_name}",
+            experiment_id=experiment_id,
+            nested=True,
+        ):
+            model = model_class(featuresCol='features',labelCol='y')
+            model_fit = model.fit(X_y_train_spark.select(['features','y']))
+            
+            predictions_test = model_fit.transform(X_y_test_spark.select(['features','y']))
+            y_predict = predictions_test.select('prediction').toPandas()['prediction'].to_numpy()
+            y_predict_count = y_predict.shape[1]
+            y_test_count = y_test.shape[1]
+            
+            sample_size = min(y_test_count,y_predict_count)
+            
+            stats = get_statistics_from_predict(y_predict[:sample_size], 
+                                        y_test[:sample_size], 
+                                        str(model_name), 
+                                        average=AVERAGE)
+                
+            log_stats_in_mlflow(stats)
+            log_param_in_mlflow()
+            
+            if bool == True:
+                bool = False
+                all_stats = stats
+            else:
+                all_stats = all_stats.append(stats, ignore_index_true)
+    all_stats.tocsv("/tmp/stats")
+    mlflow.log_artifact("/tmp/stats")
+    
 
 
 # COMMAND ----------
 
-model=LogisticRegression(labelCol='y')
-model_fit = model.fit(X_y_train_spark.select(['features','y']).take(100)
-predictions_val = model_fit.transform(X_y_val_spark.select(['features','y']).take(100))
-predictions_test = model_fit.transform(X_y_test_spark.select(['features','y']).take(100))
-val_probs  = get_array_of_probs (predictions_val)
-test_probs = get_array_of_probs (predictions_test)
-stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name='LogisticRegression', average=AVERAGE)
+
