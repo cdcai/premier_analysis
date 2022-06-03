@@ -220,9 +220,9 @@ from pyspark.sql.functions import monotonically_increasing_id
 
 c_names = change_columns_names(X)
 
-X_train_spark = convert_pandas_to_spark_with_vectors(X[train][:SAMPLE], c_names).select(['features','y']).withColumn("id",monotonically_increasing_id() )
-X_val_spark =   convert_pandas_to_spark_with_vectors(X[val][:SAMPLE], c_names).select(['features','y']).withColumn("id",monotonically_increasing_id() )
-X_test_spark =  convert_pandas_to_spark_with_vectors(X[test][:SAMPLE], c_names).select(['features','y']).withColumn("id",monotonically_increasing_id() )
+X_train_spark = convert_pandas_to_spark_with_vectors(X[train][:SAMPLE], c_names).select(['features']).withColumn("id",monotonically_increasing_id() )
+X_val_spark =   convert_pandas_to_spark_with_vectors(X[val][:SAMPLE], c_names).select(['features']).withColumn("id",monotonically_increasing_id() )
+X_test_spark =  convert_pandas_to_spark_with_vectors(X[test][:SAMPLE], c_names).select(['features']).withColumn("id",monotonically_increasing_id() )
 
 
 y_train_spark = spark.createDataFrame(pd.DataFrame(y[train][:SAMPLE], columns=['y']).astype(int)).withColumn("id",monotonically_increasing_id() )
@@ -297,7 +297,7 @@ y_test = y_test_spark.select('y').toPandas()['y'].to_numpy()
 
 # COMMAND ----------
 
-def execute_logistic_regression():
+def executeLogisticRegression():
     #import the logistic regression 
     from pyspark.ml.classification import LogisticRegression
     #
@@ -310,13 +310,13 @@ def execute_logistic_regression():
     #
     #Apply the logistic regression model
     #
-    lr=LogisticRegression(labelCol='y')
-    lrModel = lr.fit(X_y_train_spark.select(['features','y']))
-    lrPredictions_val = lrModel.transform(X_y_val_spark.select(['features','y']))
-    lrPredictions_test = lrModel.transform(X_y_test_spark.select(['features','y']))
-    val_probs  = get_array_of_probs (lrPredictions_val)
-    test_probs = get_array_of_probs (lrPredictions_test)
-    stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name='lr', average=AVERAGE)
+    model=LogisticRegression(labelCol='y')
+    model_fit = model.fit(X_y_train_spark.select(['features','y']))
+    predictions_val = model_fit.transform(X_y_val_spark.select(['features','y']))
+    predictions_test = model_fit.transform(X_y_test_spark.select(['features','y']))
+    val_probs  = get_array_of_probs (predictions_val)
+    test_probs = get_array_of_probs (predictions_test)
+    stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name='LogisticRegression', average=AVERAGE)
     #
     # log statistics and parameters into ml flow and end experiment
     #
@@ -324,10 +324,11 @@ def execute_logistic_regression():
     log_param_in_mlflow()
 
     mlflow.end_run()
+    return stats
 
 # COMMAND ----------
 
-def execute_random_forest():
+def executeRandomForestClassifier():
     #import the Random Forrest  
     from pyspark.ml.classification import RandomForestClassifier
     #
@@ -344,7 +345,7 @@ def execute_random_forest():
 
     stats = get_statistics_from_predict(predictions_test.select('prediction').toPandas()['prediction'].to_numpy(), 
                                         y_test, 
-                                        "Random Forest Classifier", 
+                                        "RandomForestClassifier", 
                                         average=AVERAGE)
     #
     # log statistics and parameters into ml flow and end experiment
@@ -353,10 +354,11 @@ def execute_random_forest():
     log_param_in_mlflow()
 
     mlflow.end_run()
+    return stats
 
 # COMMAND ----------
 
-def execute_gbt_classifier():
+def executeGBTClassifier():
     from pyspark.ml.classification import GBTClassifier
     #
     # start a new MLFlow Experiment
@@ -373,7 +375,7 @@ def execute_gbt_classifier():
     predictions_test = model_fit.transform(X_y_test_spark.select(['features','y']))
     val_probs  = get_array_of_probs (predictions_val)
     test_probs = get_array_of_probs (predictions_test)
-    stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name='gbt', average=AVERAGE)
+    stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name='GBTClassifier', average=AVERAGE)
     #
     # log statistics and parameters into ml flow and end experiment
     #
@@ -381,190 +383,104 @@ def execute_gbt_classifier():
     log_param_in_mlflow()
 
     mlflow.end_run()
+    return stats
 
 # COMMAND ----------
 
-#execute_random_forest()
-execute_gbt_classifier()
-
-# COMMAND ----------
-
-from pyspark.ml.classification import GBTClassifier
-
-model=GBTClassifier(featuresCol='features',labelCol='y')
-model_fit = model.fit(X_y_train_spark.select(['features','y']))
-predictions_test = model_fit.transform(X_y_test_spark.select(['features','y']))
-
-
-# COMMAND ----------
-
-display(predictions_test)
-
-# COMMAND ----------
-
-a = predictions_test.select('prediction').toPandas()['prediction'].to_numpy()
-a
-
-# COMMAND ----------
-
-# Fitting a logistic regression to the whole dataset
-lgr = LogisticRegression(max_iter=5000, multi_class='ovr')
-mlflow.sklearn.autolog(log_models=True)
-with mlflow.start_run(experiment_id=experiment_id) as run:
-    lgr.fit(X, y)
-    mlflow.sklearn.log_model(lgr, "lgr")
-coef_list = []
-
-# Sorting the coefficients for
-for i in range(n_classes):
-    if not binary:
-        exp_coefs = np.exp(lgr.coef_)[i]
-    else:
-        exp_coefs = np.exp(lgr.coef_)[0]
-        i = 1
-    top_coef = np.argsort(exp_coefs)[::-1][0:30]
-    top_ftrs = [vocab[code] for code in top_coef]
-    top_codes = [all_feats[ftr] for ftr in top_ftrs]
-
-    bottom_coef = np.argsort(exp_coefs)[0:30]
-    bottom_ftrs = [vocab[code] for code in bottom_coef]
-    bottom_codes = [all_feats[ftr] for ftr in bottom_ftrs]
-
-    codes = top_codes + bottom_codes
-    coefs = np.concatenate([exp_coefs[top_coef], exp_coefs[bottom_coef]])
-    coef_df = pd.DataFrame([codes, coefs]).transpose()
-    coef_df.columns = ['feature', 'aOR']
-    coef_df.sort_values('aOR', ascending=False, inplace=True)
-    coef_list.append(coef_df)
-
-# Writing the sorted coefficients to Excel
-out_name = OUTCOME + '_lgr_'
-if DAY_ONE_ONLY:
-    out_name += 'd1_'
-
-#with pd.ExcelWriter(stats_dir + out_name + 'coefs.xlsx') as writer:
-#    for i, df in enumerate(coef_list):
-#        df.to_excel(writer, sheet_name='coef_' + str(i), index=False)
-
-#    writer.save()
-
-# COMMAND ----------
-
-# Loading up some models to try
-stats = None
-mods = [
-    LogisticRegression(max_iter=5000, multi_class='ovr'),
-    RandomForestClassifier(n_estimators=500, n_jobs=-1),
-    GradientBoostingClassifier(),
-    LinearSVC(class_weight='balanced', max_iter=10000)
-]
-mod_names = ['lgr', 'rf', 'gbc', 'svm']
-
-# Turning the crank like a proper data scientist
-for i, mod in enumerate(mods):
-    # Fitting the model and setting the name
-    
+def executeDecisionTreeClassifier():
+    #import the Random Forrest  
+    from pyspark.ml.classification import DecisionTreeClassifier
     #
-    # add execution parameters to MLFLOW
+    # start a new MLFlow Experiment
     #
-    
+    import mlflow
     mlflow.end_run()
     mlflow.start_run(experiment_id=experiment_id)
-    mlflow.autolog()
-    mlflow.log_param("average", AVERAGE)
-    mlflow.log_param("demographics", USE_DEMOG)
-    mlflow.log_param("outcome", OUTCOME)
-    mlflow.log_param("stratify", STRATIFY)
-    #
-    #
-    #
-    
-    mod.fit(X[train], y[train])
-    mlflow.sklearn.log_model(mod, mod_names[i])
-    mod_name = mod_names[i]
-    if DAY_ONE_ONLY:
-        mod_name += '_d1'
+    mlflow.spark.autolog()
 
-    if 'predict_proba' in dir(mod):
-        if binary:
-            val_probs = mod.predict_proba(X[val])[:, 1]
-            val_gm = ta.grid_metrics(y[val], val_probs)
-            cutpoint = val_gm.cutoff.values[np.argmax(val_gm.f1)]
-            test_probs = mod.predict_proba(X[test])[:, 1]
-            test_preds = ta.threshold(test_probs, cutpoint)
-            stats = ta.clf_metrics(y[test],
-                                   test_probs,
-                                   cutpoint=cutpoint,
-                                   mod_name=mod_name,
-                                   average=AVERAGE)
+    model=DecisionTreeClassifier(featuresCol='features',labelCol='y')
+    model_fit = model.fit(X_y_train_spark.select(['features','y']))
+    predictions_test = model_fit.transform(X_y_test_spark.select(['features','y']))
 
-            ta.write_preds(output_dir=output_dir + "/",
-                           preds=test_preds,
-                           outcome=OUTCOME,
-                           mod_name=mod_name,
-                           test_idx=test,
-                           probs=test_probs)
-        else:
-            cutpoint = None
-            test_probs = mod.predict_proba(X[test])
-            test_preds = mod.predict(X[test])
-            stats = ta.clf_metrics(y[test],
-                                   test_probs,
-                                   mod_name=mod_name,
-                                   average=AVERAGE)
-            ta.write_preds(output_dir=output_dir + "/",
-                           preds=test_preds,
-                           probs=np.max(test_probs, axis=1),
-                           outcome=OUTCOME,
-                           mod_name=mod_name,
-                           test_idx=test)
+    stats = get_statistics_from_predict(predictions_test.select('prediction').toPandas()['prediction'].to_numpy(), 
+                                        y_test, 
+                                        "DecisionTreeClassifier", 
+                                        average=AVERAGE)
+    #
+    # log statistics and parameters into ml flow and end experiment
+    #
+    log_stats_in_mlflow(stats)
+    log_param_in_mlflow()
 
-        # Write out multiclass probs as pkl
-        probs_file = mod_name + '_' + OUTCOME + '.pkl'
-        prob_out = {'cutpoint': cutpoint, 'probs': test_probs}
-
-        with open(probs_dir + probs_file, 'wb') as f:
-            pkl.dump(prob_out, f)
-
-    else:
-        test_preds = mod.predict(X[test])
-        stats = ta.clf_metrics(y[test],
-                               test_preds,
-                               mod_name=mod_name,
-                               average=AVERAGE)
-        ta.write_preds(output_dir=output_dir + "/",
-                       preds=test_preds,
-                       outcome=OUTCOME,
-                       mod_name=mod_name,
-                       test_idx=test)
-
-    # Saving the results to disk
-    ta.write_stats(stats, OUTCOME, stats_dir=stats_dir)
-    #
-    #
-    # add metrics to MLFLow
-    #
-    print(stats)
-    for i in stats.columns:
-        if not isinstance(stats[i].iloc[0], str):
-            mlflow.log_metric("Testing "+i, stats[i].iloc[0])
-    #
-    #
-    #
-    
+    mlflow.end_run()
+    return stats
 
 # COMMAND ----------
 
-stats_dir
+def executeLinearSVC():
+    from pyspark.ml.classification import LinearSVC
+    #
+    # start a new MLFlow Experiment
+    #
+    import mlflow
+    mlflow.end_run()
+    mlflow.start_run(experiment_id=experiment_id)
+    mlflow.spark.autolog()
+    #
+    #
+    model=LinearSVC(featuresCol='features',labelCol='y')
+    model_fit = model.fit(X_y_train_spark.select(['features','y']))
+    predictions_val = model_fit.transform(X_y_val_spark.select(['features','y']))
+    predictions_test = model_fit.transform(X_y_test_spark.select(['features','y']))
+    val_probs  = get_array_of_probs (predictions_val)
+    test_probs = get_array_of_probs (predictions_test)
+    stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name='LinearSVC', average=AVERAGE)
+    #
+    # log statistics and parameters into ml flow and end experiment
+    #
+    log_stats_in_mlflow(stats)
+    log_param_in_mlflow()
+
+    mlflow.end_run()
+    return stats
 
 # COMMAND ----------
 
-stats_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/icu_stats.csv')
+stats = executeLogisticRegression()
+stats
 
 # COMMAND ----------
 
-stats_pd
+stats = executeRandomForestClassifier()
+stats
 
 # COMMAND ----------
 
+stats = executeGBTClassifier()
+stats
 
+# COMMAND ----------
+
+stats = executeDecisionTreeClassifier()
+stats
+
+# COMMAND ----------
+
+stas = executeLinearSVC()
+stats
+
+# COMMAND ----------
+
+row_list =X_y_train_spark.take(100)
+
+
+
+# COMMAND ----------
+
+model=LogisticRegression(labelCol='y')
+model_fit = model.fit(X_y_train_spark.select(['features','y']).take(100)
+predictions_val = model_fit.transform(X_y_val_spark.select(['features','y']).take(100))
+predictions_test = model_fit.transform(X_y_test_spark.select(['features','y']).take(100))
+val_probs  = get_array_of_probs (predictions_val)
+test_probs = get_array_of_probs (predictions_test)
+stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name='LogisticRegression', average=AVERAGE)
