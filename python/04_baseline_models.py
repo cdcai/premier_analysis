@@ -6,7 +6,7 @@
 dbutils.widgets.removeAll()
 dbutils.widgets.text(
   name='experiment_id',
-  defaultValue='1910247067387441',
+  defaultValue='3377631798128236',
   label='Experiment ID'
 )
 
@@ -21,6 +21,11 @@ else: USE_DEMOG = False
 
 dbutils.widgets.dropdown("stratify", "all", ['all', 'death', 'misa_pt', 'icu'])
 STRATIFY = dbutils.widgets.get("stratify")
+
+dbutils.widgets.dropdown("experimenting", "False",  ["True", "False"])
+EXPERIMENTING = dbutils.widgets.get("experimenting")
+if EXPERIMENTING == "True": EXPERIMENTING = True
+else: EXPERIMENTING = False
 
 # COMMAND ----------
 

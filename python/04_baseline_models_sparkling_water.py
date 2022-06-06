@@ -3,10 +3,22 @@
 
 # COMMAND ----------
 
+!pip install requests
+!pip install tabulate
+!pip install future
+!pip install h2o_pysparkling_3.2
+
+# COMMAND ----------
+
+from pysparkling import *
+hc = H2OContext.getOrCreate()
+
+# COMMAND ----------
+
 dbutils.widgets.removeAll()
 dbutils.widgets.text(
   name='experiment_id',
-  defaultValue='1910247067387441',
+  defaultValue='3845087247169382',
   label='Experiment ID'
 )
 
@@ -54,7 +66,7 @@ from sklearn.svm import LinearSVC
 
 import tools.analysis as ta
 import tools.preprocessing as tp
-import mlflow
+
 
 # COMMAND ----------
 
@@ -176,8 +188,12 @@ train, val = train_test_split(train,
 
 # COMMAND ----------
 
-if EXPERIMENTING == True: SAMPLE = 10
+if EXPERIMENTING == True: SAMPLE = 1000
 else: SAMPLE = X.shape[0]
+
+# COMMAND ----------
+
+SAMPLE
 
 # COMMAND ----------
 
@@ -192,6 +208,8 @@ def convert_pandas_to_spark_with_vectors(a_dataframe, c_names):
     assert isinstance (a_dataframe,  pd.DataFrame)
     assert c_names is not None
     assert len(c_names)>0
+    
+    print(a_dataframe.shape)
 
     inc=min(10000, a_dataframe.shape[0])
     bool = True
@@ -288,6 +306,18 @@ def get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_
 
 # COMMAND ----------
 
+def get_array_of_probabilities_from_sparkling_water_prediction(predict_sDF):
+    p = predict_sDF.select('detailed_prediction').collect()
+    probs = list()
+    for row in range(len(p)):
+        prob = p[row].asDict()['detailed_prediction']['probabilities'][1]
+        probs = probs + [prob]
+    
+    return np.asarray(probs)
+        
+
+# COMMAND ----------
+
 def get_statistics_from_predict(test_predict, y_test, mod_name, average=AVERAGE):
     stats = ta.clf_metrics(y_test,
                            test_predict,
@@ -317,106 +347,45 @@ y_test = X_test_spark.select('y').toPandas()['y'].to_numpy()
 
 # COMMAND ----------
 
-from pyspark.ml.classification import LinearSVC
-from pyspark.ml.classification import DecisionTreeClassifier
-from pyspark.ml.classification import GBTClassifier
-from pyspark.ml.classification import RandomForestClassifier
-from pyspark.ml.classification import LogisticRegression
 
-bool = True
 
-KNOWN_REGRESSORS = {
-    r.__name__: r
-    for r in [LogisticRegression, GBTClassifier, DecisionTreeClassifier, RandomForestClassifier, LinearSVC]
-    #for r in [RandomForestClassifier, LinearSVC]
-}
-KNOWN_REGRESSORS_THAT_YIELD_PROBABILITIES = ["LogisticRegression", "GBTClassifier","RandomForestClassifier"]
+# COMMAND ----------
+
+import mlflow
+from pysparkling.ml import H2OXGBoostClassifier
+from pyspark.sql.types import StringType, BooleanType
+from pyspark.sql import functions as F
 
 mlflow.end_run()
-with mlflow.start_run(
-    experiment_id=1910247067387441,
-):
-    mlflow.spark.autolog()
-    for model_name, model_class in KNOWN_REGRESSORS.items():
-        with mlflow.start_run(
-            run_name=f"premier_analysis_{model_name}",
-            experiment_id=experiment_id,
-            nested=True,
-        ):
-            model = model_class(featuresCol='features',labelCol='y')
-            model_fit = model.fit(X_train_spark.select(['features','y']))
-            
-            predictions_test = model_fit.transform(X_test_spark.select(['features','y']))
+mlflow.start_run(experiment_id=3845087247169382)
+mlflow.spark.autolog()
 
-            if model_name in KNOWN_REGRESSORS_THAT_YIELD_PROBABILITIES:
-                predictions_val = model_fit.transform(X_val_spark.select(['features','y']))
-                val_probs  = get_array_of_probs (predictions_val)
-                test_probs = get_array_of_probs (predictions_test)
-                stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name=model_name, average=AVERAGE)
-            else:
-                y_predict = predictions_test.select('prediction').toPandas()['prediction'].to_numpy()
-                y_predict_count = y_predict.shape[0]
-                y_test_count = y_test.shape[0]
+#h2o_cols = ['y'] + c_names
+h2o_cols = ['y','c1','c2']
+#X_train_spark.printSchema()
 
-                
-                print("y_test_count: "+str(y_test_count)+" y_predict_count: "+str(y_predict_count))
-                assert y_predict_count == y_test_count
+X_train_spark =  X_train_spark.withColumn('y',F.col('y').cast('int'))
+X_train_spark =  X_train_spark.withColumn('y',F.col('y').cast('string'))
 
-                stats = get_statistics_from_predict(y_predict, 
-                                            y_test, 
-                                            str(model_name), 
-                                            average=AVERAGE)
-            stats
-            print(stats)
-            
-            log_stats_in_mlflow(stats)
-            log_param_in_mlflow()
-            
-            if bool == True:
-                bool = False
-                all_stats = stats
-            else:
-                all_stats = all_stats.append(stats)
+a_sDF = (X_train_spark.select(['y', 'features']))
 
-    display(all_stats)
-    all_stats.tocsv("/tmp/stats")
-    mlflow.log_artifact("/tmp/stats")
-    
-
+model = H2OXGBoostClassifier(labelCol = 'y')
+model_fit = model.fit(a_sDF)
+prediction_val = model_fit.transform(X_val_spark.select(['y', 'features']))
+prediction_test = model_fit.transform(X_test_spark.select(['y', 'features']))
 
 # COMMAND ----------
 
-y_test.shape
+val_probs  = get_array_of_probabilities_from_sparkling_water_prediction (prediction_val)
+test_probs = get_array_of_probabilities_from_sparkling_water_prediction (prediction_test)
+stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name="H2OXGBoostClassifier", average=AVERAGE)
 
 # COMMAND ----------
 
-def executeGBTClassifier():
-    from pyspark.ml.classification import GBTClassifier
-    #
-    # start a new MLFlow Experiment
-    #
-    import mlflow
-    mlflow.end_run()
-    mlflow.start_run(experiment_id=experiment_id)
-    mlflow.spark.autolog()
-    #
-    #
-    model=GBTClassifier(featuresCol='features',labelCol='y')
-    model_fit = model.fit(X_y_train_spark.select(['features','y']))
-    predictions_val = model_fit.transform(X_y_val_spark.select(['features','y']))
-    predictions_test = model_fit.transform(X_y_test_spark.select(['features','y']))
-    val_probs  = get_array_of_probs (predictions_val)
-    test_probs = get_array_of_probs (predictions_test)
-    stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name='GBTClassifier', average=AVERAGE)
-    #
-    # log statistics and parameters into ml flow and end experiment
-    #
-    log_stats_in_mlflow(stats)
-    log_param_in_mlflow()
-
-    mlflow.end_run()
-    return stats
+display(stats)
 
 # COMMAND ----------
 
-
+log_stats_in_mlflow(stats)
+log_param_in_mlflow()
+mlflow.end_run()

@@ -176,7 +176,7 @@ train, val = train_test_split(train,
 
 # COMMAND ----------
 
-if EXPERIMENTING == True: SAMPLE = 10
+if EXPERIMENTING == True: SAMPLE = 100
 else: SAMPLE = X.shape[0]
 
 # COMMAND ----------
@@ -214,9 +214,13 @@ def convert_pandas_to_spark_with_vectors(a_dataframe, c_names):
             else:
                 spark_df = spark_df.union(a_spark_vector)
     
-    old_col_name = "_"+str(a_dataframe.shape[1]) # vector assembler would change the name of collumn y
+    old_col_name = "_"+str(a_dataframe.shape[1]-1) # vector assembler would change the name of collumn y
     print(old_col_name)
     spark_df = spark_df.withColumnRenamed (old_col_name,'y')
+    time_col_name = "_"+str(a_dataframe.shape[1]) # vector assembler would change the name of collumn y
+    print(time_col_name)
+    spark_df = spark_df.withColumnRenamed (old_col_name,'time-col')
+    
     return spark_df
 
 
@@ -228,195 +232,44 @@ def change_columns_names (X):
 
 # COMMAND ----------
 
+from datetime import datetime
 c_names = change_columns_names(X)
 
 X_train_pandas = pd.DataFrame(X[train][:SAMPLE].toarray())
 X_train_pandas['y'] = y[train][:SAMPLE]
+X_train_pandas['time-col'] = datetime.today().timestamp()
+print( datetime.today().timestamp())
 
 X_val_pandas = pd.DataFrame(X[val][:SAMPLE].toarray())
 X_val_pandas['y'] = y[val][:SAMPLE]
+X_val_pandas['time-col'] =  datetime.today().timestamp()
+print( datetime.today().timestamp())
+
+
 
 X_test_pandas = pd.DataFrame(X[test][:SAMPLE].toarray())
 X_test_pandas['y'] = y[test][:SAMPLE]
+X_test_pandas['time-col'] =  datetime.today().timestamp()
+print( datetime.today().timestamp())
+
+
 
 X_train_spark = convert_pandas_to_spark_with_vectors(X_train_pandas, c_names)
 X_val_spark =   convert_pandas_to_spark_with_vectors(X_val_pandas, c_names)
 X_test_spark =  convert_pandas_to_spark_with_vectors(X_test_pandas, c_names)
 
-X_train_pandas = None
-X_test_pandas  = None
-X_val_pandas   = None
+#display(X_val_spark)
 
 
 # COMMAND ----------
 
-def add_index_to_sDF(a_df,columns):
-    a_rdd =  a_df.rdd.zipWithIndex()
-    a_df =   a_rdd.toDF()
-    for column_name in collumns:
-        a_df =   a_df.withColumn(column_name,a_df['_1'].getItem(column_name))
-    a_df =   a_df.withColumnRenamed('_2','id')
-    a_df =   a_df.select(columns)
-    return a_df
+from databricks import automl
+summary = automl.classify(X_train_spark, time_col="time-col",primary_metric="roc_auc",target_col="y", timeout_minutes=1200)
 
 # COMMAND ----------
 
-def get_array_of_probs (spark_df):
-    from pyspark.ml.functions import vector_to_array
-
-    probsp = spark_df.select(vector_to_array("probability", "float32").alias("probability")).toPandas()
-    probss= probsp['probability']
-    probsn = probss.to_numpy()
-    prob_list = list()
-    for prob in probsn: 
-        prob_list = prob_list + [prob[1]]
-    prob_array = np.array(prob_list)
-    return prob_array
+summary = automl.classify(X_train_spark, time_col="time-col",primary_metric="log_loss",target_col="y", timeout_minutes=1200)
 
 # COMMAND ----------
 
-def get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name, average=AVERAGE):
-    val_gm = ta.grid_metrics(y_val, val_probs)
-    cutpoint = val_gm.cutoff.values[np.argmax(val_gm.f1)]
-    test_preds = ta.threshold(test_probs, cutpoint)
-    stats = ta.clf_metrics(y_test,
-                           test_probs,
-                           cutpoint=cutpoint,
-                           mod_name=mod_name,
-                           average=average)
-    return stats
-
-# COMMAND ----------
-
-def get_statistics_from_predict(test_predict, y_test, mod_name, average=AVERAGE):
-    stats = ta.clf_metrics(y_test,
-                           test_predict,
-                           mod_name=mod_name,
-                           average=average)
-    return stats
-
-# COMMAND ----------
-
-def log_stats_in_mlflow(stats):
-    for i in stats:
-        if not isinstance(stats[i].iloc[0], str):
-            mlflow.log_metric("Testing "+i, stats[i].iloc[0])
-
-# COMMAND ----------
-
-def log_param_in_mlflow():
-    mlflow.log_param("average", AVERAGE)
-    mlflow.log_param("demographics", USE_DEMOG)
-    mlflow.log_param("outcome", OUTCOME)
-    mlflow.log_param("stratify", STRATIFY)
-
-# COMMAND ----------
-
-y_val = X_val_spark.select('y').toPandas()['y'].to_numpy()
-y_test = X_test_spark.select('y').toPandas()['y'].to_numpy()
-
-# COMMAND ----------
-
-from pyspark.ml.classification import LinearSVC
-from pyspark.ml.classification import DecisionTreeClassifier
-from pyspark.ml.classification import GBTClassifier
-from pyspark.ml.classification import RandomForestClassifier
-from pyspark.ml.classification import LogisticRegression
-
-bool = True
-
-KNOWN_REGRESSORS = {
-    r.__name__: r
-    for r in [LogisticRegression, GBTClassifier, DecisionTreeClassifier, RandomForestClassifier, LinearSVC]
-    #for r in [RandomForestClassifier, LinearSVC]
-}
-KNOWN_REGRESSORS_THAT_YIELD_PROBABILITIES = ["LogisticRegression", "GBTClassifier","RandomForestClassifier"]
-
-mlflow.end_run()
-with mlflow.start_run(
-    experiment_id=1910247067387441,
-):
-    mlflow.spark.autolog()
-    for model_name, model_class in KNOWN_REGRESSORS.items():
-        with mlflow.start_run(
-            run_name=f"premier_analysis_{model_name}",
-            experiment_id=experiment_id,
-            nested=True,
-        ):
-            model = model_class(featuresCol='features',labelCol='y')
-            model_fit = model.fit(X_train_spark.select(['features','y']))
-            
-            predictions_test = model_fit.transform(X_test_spark.select(['features','y']))
-
-            if model_name in KNOWN_REGRESSORS_THAT_YIELD_PROBABILITIES:
-                predictions_val = model_fit.transform(X_val_spark.select(['features','y']))
-                val_probs  = get_array_of_probs (predictions_val)
-                test_probs = get_array_of_probs (predictions_test)
-                stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name=model_name, average=AVERAGE)
-            else:
-                y_predict = predictions_test.select('prediction').toPandas()['prediction'].to_numpy()
-                y_predict_count = y_predict.shape[0]
-                y_test_count = y_test.shape[0]
-
-                
-                print("y_test_count: "+str(y_test_count)+" y_predict_count: "+str(y_predict_count))
-                assert y_predict_count == y_test_count
-
-                stats = get_statistics_from_predict(y_predict, 
-                                            y_test, 
-                                            str(model_name), 
-                                            average=AVERAGE)
-            stats
-            print(stats)
-            
-            log_stats_in_mlflow(stats)
-            log_param_in_mlflow()
-            
-            if bool == True:
-                bool = False
-                all_stats = stats
-            else:
-                all_stats = all_stats.append(stats)
-
-    display(all_stats)
-    all_stats.tocsv("/tmp/stats")
-    mlflow.log_artifact("/tmp/stats")
-    
-
-
-# COMMAND ----------
-
-y_test.shape
-
-# COMMAND ----------
-
-def executeGBTClassifier():
-    from pyspark.ml.classification import GBTClassifier
-    #
-    # start a new MLFlow Experiment
-    #
-    import mlflow
-    mlflow.end_run()
-    mlflow.start_run(experiment_id=experiment_id)
-    mlflow.spark.autolog()
-    #
-    #
-    model=GBTClassifier(featuresCol='features',labelCol='y')
-    model_fit = model.fit(X_y_train_spark.select(['features','y']))
-    predictions_val = model_fit.transform(X_y_val_spark.select(['features','y']))
-    predictions_test = model_fit.transform(X_y_test_spark.select(['features','y']))
-    val_probs  = get_array_of_probs (predictions_val)
-    test_probs = get_array_of_probs (predictions_test)
-    stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name='GBTClassifier', average=AVERAGE)
-    #
-    # log statistics and parameters into ml flow and end experiment
-    #
-    log_stats_in_mlflow(stats)
-    log_param_in_mlflow()
-
-    mlflow.end_run()
-    return stats
-
-# COMMAND ----------
-
-
+summary = automl.classify(X_train_spark, time_col="time-col",primary_metric="f1",target_col="y", timeout_minutes=1200)
