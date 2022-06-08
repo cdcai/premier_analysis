@@ -63,7 +63,7 @@ def clf_metrics(true,
                 averaging_options))
 
     # Converting pd.Series to np.array
-    stype = type(pd.Series())
+    stype = type(pd.Series([0]))
     if type(pred) == stype:
         pred = pred.values
     if type(true) == stype:
