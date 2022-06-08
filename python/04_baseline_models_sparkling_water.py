@@ -389,3 +389,8 @@ display(stats)
 log_stats_in_mlflow(stats)
 log_param_in_mlflow()
 mlflow.end_run()
+
+# COMMAND ----------
+
+leaderboard = automl.getLeaderboard()
+leaderboard.show(truncate = False)

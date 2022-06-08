@@ -235,6 +235,10 @@ def change_columns_names (X):
 from datetime import datetime
 c_names = change_columns_names(X)
 
+#
+# add y and time stamp to pandas 
+#
+
 X_train_pandas = pd.DataFrame(X[train][:SAMPLE].toarray())
 X_train_pandas['y'] = y[train][:SAMPLE]
 X_train_pandas['time-col'] = datetime.today().timestamp()
@@ -246,30 +250,55 @@ X_val_pandas['time-col'] =  datetime.today().timestamp()
 print( datetime.today().timestamp())
 
 
-
 X_test_pandas = pd.DataFrame(X[test][:SAMPLE].toarray())
 X_test_pandas['y'] = y[test][:SAMPLE]
 X_test_pandas['time-col'] =  datetime.today().timestamp()
 print( datetime.today().timestamp())
 
+#
+# create concated pandas with train, val, and test
+#
+
+X_pandas = pd.concat([X_train_pandas,X_val_pandas,X_test_pandas])
+
+#
+# create incrementally spark data frames
+#
+
+#X_train_spark = convert_pandas_to_spark_with_vectors(X_train_pandas, c_names)
+#X_val_spark =   convert_pandas_to_spark_with_vectors(X_val_pandas, c_names)
+#X_test_spark =  convert_pandas_to_spark_with_vectors(X_test_pandas, c_names)
+X_spark =  convert_pandas_to_spark_with_vectors(X_pandas, c_names)
 
 
-X_train_spark = convert_pandas_to_spark_with_vectors(X_train_pandas, c_names)
-X_val_spark =   convert_pandas_to_spark_with_vectors(X_val_pandas, c_names)
-X_test_spark =  convert_pandas_to_spark_with_vectors(X_test_pandas, c_names)
 
-#display(X_val_spark)
+# COMMAND ----------
+
+display(X_spark.select(['features', 'y','time-col']))
+
+# COMMAND ----------
+
+X_spark = X_spark.withColumn("y",col("y").cast(IntegerType))
+
+# COMMAND ----------
+
+from pyspark.ml.functions import vector_to_array
+to_automl = X_spark.select(vector_to_array("features").alias("features"),"y")
 
 
 # COMMAND ----------
 
 from databricks import automl
-summary = automl.classify(X_train_spark, time_col="time-col",primary_metric="roc_auc",target_col="y", timeout_minutes=1200)
+summary = automl.classify(to_automl, time_col="time-col",primary_metric="roc_auc",target_col="y", timeout_minutes=1200)
 
 # COMMAND ----------
 
-summary = automl.classify(X_train_spark, time_col="time-col",primary_metric="log_loss",target_col="y", timeout_minutes=1200)
+summary = automl.classify(to_automl, time_col="time-col",primary_metric="log_loss",target_col="y", timeout_minutes=1200)
 
 # COMMAND ----------
 
-summary = automl.classify(X_train_spark, time_col="time-col",primary_metric="f1",target_col="y", timeout_minutes=1200)
+summary = automl.classify(to_automl, time_col="time-col",primary_metric="f1",target_col="y", timeout_minutes=1200)
+
+# COMMAND ----------
+
+
