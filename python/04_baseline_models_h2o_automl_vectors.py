@@ -6,7 +6,7 @@
 dbutils.widgets.removeAll()
 dbutils.widgets.text(
   name='experiment_id',
-  defaultValue='2331064140756563',
+  defaultValue='3845087247169382',
   label='Experiment ID'
 )
 
@@ -54,7 +54,7 @@ from sklearn.svm import LinearSVC
 
 import tools.analysis as ta
 import tools.preprocessing as tp
-import mlflow
+
 
 # COMMAND ----------
 
@@ -181,47 +181,32 @@ else: SAMPLE = X.shape[0]
 
 # COMMAND ----------
 
+SAMPLE
+
+# COMMAND ----------
+
 X.shape
 
 # COMMAND ----------
 
-def convert_pandas_to_spark_with_vectors(a_dataframe,c_names):
+def convert_pandas_to_spark_with_vectors(a_dataframe, c_names):
     from pyspark.sql import SparkSession
     from pyspark.ml.feature import VectorAssembler
 
     assert isinstance (a_dataframe,  pd.DataFrame)
     assert c_names is not None
     assert len(c_names)>0
-
-    a_rdd = spark.sparkContext.parallelize(a_dataframe.to_numpy())
-    a_df = (a_rdd.map(lambda x: x.tolist()).toDF(c_names) )
-
-    vecAssembler = VectorAssembler(outputCol="features")
-    vecAssembler.setInputCols(c_names)
-    spark_df = vecAssembler.transform(a_df)
-    old_col_name = "_"+str(a_dataframe.shape[1]) # vector assembler would change the name of collumn y
-    spark_df = spark_df.withColumnRenamed (old_col_name,'y')
     
-    return spark_df
+    print(a_dataframe.shape)
 
-# COMMAND ----------
-
-def incrementaly_convert_pandas_to_spark_with_vectors(a_dataframe,c_names):
-    from pyspark.sql import SparkSession
-    from pyspark.ml.feature import VectorAssembler
-
-    assert isinstance (a_dataframe,  pd.DataFrame)
-    assert c_names is not None
-    assert len(c_names)>0
-
-    inc=min(10000, a_dataframe.shape[0])
+    inc=min(5000, a_dataframe.shape[0])
     bool = True
     for i in range((a_dataframe.shape[0]//inc)+1):
 
         
         if (i*inc) < a_dataframe.shape[0]:
             a_rdd = spark.sparkContext.parallelize(a_dataframe[i*inc:(1+i)*inc].to_numpy())
-            a_df = (a_rdd.map(lambda x: x.tolist()).toDF(c_names) )
+            a_df = (a_rdd.map(lambda x: x.tolist()).toDF(c_names)  )
 
             #a_df = spark.createDataFrame(a_rdd, c_names)
 
@@ -236,6 +221,7 @@ def incrementaly_convert_pandas_to_spark_with_vectors(a_dataframe,c_names):
                 spark_df = spark_df.union(a_spark_vector)
     
     old_col_name = "_"+str(a_dataframe.shape[1]) # vector assembler would change the name of collumn y
+    print(old_col_name)
     spark_df = spark_df.withColumnRenamed (old_col_name,'y')
     return spark_df
 
@@ -248,39 +234,28 @@ def change_columns_names (X):
 
 # COMMAND ----------
 
-#
-# create pandas frames from X
-#
 c_names = change_columns_names(X)
+spark.conf.set("spark.sql.execution.arrow.enabled", "true")
 
 X_train_pandas = pd.DataFrame(X[train][:SAMPLE].toarray())
-X_train_pandas['y'] = y[train][:SAMPLE]
+X_train_pandas['y'] = y[train][:SAMPLE].astype(int)
 
 X_val_pandas = pd.DataFrame(X[val][:SAMPLE].toarray())
-X_val_pandas['y'] = y[val][:SAMPLE]
-
+X_val_pandas['y'] = y[val][:SAMPLE].astype(int)
 
 X_test_pandas = pd.DataFrame(X[test][:SAMPLE].toarray())
-X_test_pandas['y'] = y[test][:SAMPLE]
+X_test_pandas['y'] = y[test][:SAMPLE].astype(int)
 
-# COMMAND ----------
+X_train_spark = convert_pandas_to_spark_with_vectors(X_train_pandas, c_names)
+X_val_spark =   convert_pandas_to_spark_with_vectors(X_val_pandas, c_names)
+X_test_spark =  convert_pandas_to_spark_with_vectors(X_test_pandas, c_names)
 
-#
-# convert pandas to spark and calculate vector of features
-#
-X_train_spark = convert_pandas_to_spark_with_vectors(X_train_pandas, c_names).select(['y','features'])
-X_val_spark =   convert_pandas_to_spark_with_vectors(X_val_pandas, c_names).select(['y','features'])
-X_test_spark =  convert_pandas_to_spark_with_vectors(X_test_pandas, c_names).select(['y','features'])
-
-
-
-# COMMAND ----------
+#X_train_spark =  spark.createDataFrame(X_train_pandas) # it takes too long...
 
 X_train_pandas = None
 X_test_pandas  = None
 X_val_pandas   = None
-X = None
-y = None
+
 
 # COMMAND ----------
 
@@ -295,13 +270,17 @@ def add_index_to_sDF(a_df,columns):
 
 # COMMAND ----------
 
-def get_array_of_probs (predictions_sDF):
+def get_array_of_probs (spark_df):
     from pyspark.ml.functions import vector_to_array
-    import numpy as np
 
-    p = predictions_sDF.select(vector_to_array("probability", "float32").alias("probability")).toPandas()['probability'].to_numpy()
-    
-    return np.array(list(map(lambda x: x[1], p)))
+    probsp = spark_df.select(vector_to_array("probability", "float32").alias("probability")).toPandas()
+    probss= probsp['probability']
+    probsn = probss.to_numpy()
+    prob_list = list()
+    for prob in probsn: 
+        prob_list = prob_list + [prob[1]]
+    prob_array = np.array(prob_list)
+    return prob_array
 
 # COMMAND ----------
 
@@ -318,6 +297,18 @@ def get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_
 
 # COMMAND ----------
 
+def get_array_of_probabilities_from_sparkling_water_prediction(predict_sDF):
+    p = predict_sDF.select('detailed_prediction').collect()
+    probs = list()
+    for row in range(len(p)):
+        prob = p[row].asDict()['detailed_prediction']['probabilities'][1]
+        probs = probs + [prob]
+    
+    return np.asarray(probs)
+        
+
+# COMMAND ----------
+
 def get_statistics_from_predict(test_predict, y_test, mod_name, average=AVERAGE):
     stats = ta.clf_metrics(y_test,
                            test_predict,
@@ -330,7 +321,7 @@ def get_statistics_from_predict(test_predict, y_test, mod_name, average=AVERAGE)
 def log_stats_in_mlflow(stats):
     for i in stats:
         if not isinstance(stats[i].iloc[0], str):
-            mlflow.log_metric("testing_"+i, stats[i].iloc[0])
+            mlflow.log_metric("Testing "+i, stats[i].iloc[0])
 
 # COMMAND ----------
 
@@ -347,112 +338,62 @@ y_test = X_test_spark.select('y').toPandas()['y'].to_numpy()
 
 # COMMAND ----------
 
-from pyspark.ml.classification import LinearSVC
-from pyspark.ml.classification import DecisionTreeClassifier
-from pyspark.ml.classification import GBTClassifier
-from pyspark.ml.classification import RandomForestClassifier
-from pyspark.ml.classification import LogisticRegression
+!pip install requests
+!pip install tabulate
+!pip install future
+!pip install h2o_pysparkling_3.2
 
-bool = True
+# COMMAND ----------
 
-KNOWN_REGRESSORS = {
-    r.__name__: r
-    for r in [LogisticRegression, GBTClassifier, DecisionTreeClassifier, RandomForestClassifier, LinearSVC]
-    #for r in [RandomForestClassifier, LinearSVC]
-}
-KNOWN_REGRESSORS_THAT_YIELD_PROBABILITIES = ["LogisticRegression", "GBTClassifier","RandomForestClassifier"]
+import mlflow
+from pysparkling.ml import H2OXGBoostClassifier, H2OAutoMLClassifier
+from pyspark.sql.types import StringType, BooleanType
+from pyspark.sql import functions as F
+import h2o
+from pysparkling import *
+
+hc = H2OContext.getOrCreate()
+
 
 mlflow.end_run()
-with mlflow.start_run(
-    experiment_id=experiment_id,
-):
-    mlflow.pyspark.ml.autolog()
-    for model_name, model_class in KNOWN_REGRESSORS.items():
-        with mlflow.start_run(
-            run_name=f"premier_analysis_spark_ml_{model_name}",
-            experiment_id=experiment_id,
-            nested=True,
-        ):
-            model = model_class(featuresCol='features',labelCol='y')
-            model_fit = model.fit(X_train_spark)
-            
-            predictions_test = model_fit.transform(X_test_spark)
+mlflow.start_run(experiment_id=3845087247169382)
+mlflow.spark.autolog()
 
-            if model_name in KNOWN_REGRESSORS_THAT_YIELD_PROBABILITIES:
-                predictions_val = model_fit.transform(X_val_spark)
-                val_probs  = get_array_of_probs (predictions_val)
-                test_probs = get_array_of_probs (predictions_test)
-                stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name=model_name, average=AVERAGE)
-            else:
-                y_predict = predictions_test.select('prediction').toPandas()['prediction'].to_numpy()
+#h2o_cols = ['y'] + c_names
+#h2o_cols = ['y','c1','c2']
+#X_train_spark.printSchema()
 
-                stats = get_statistics_from_predict(y_predict, 
-                                            y_test, 
-                                            str(model_name), 
-                                            average=AVERAGE)
-            log_stats_in_mlflow(stats)
-            log_param_in_mlflow()
-            
-            if bool == True:
-                bool = False
-                all_stats = stats
-            else:
-                all_stats = all_stats.append(stats)
+X_train_spark =  X_train_spark.withColumn('y',F.col('y').cast('int'))
+X_train_spark =  X_train_spark.withColumn('y',F.col('y').cast('string'))
 
-    all_stats.to_csv("/tmp/stats.csv")
-    mlflow.log_artifact("/tmp/stats.csv")
-    display(all_stats)
-    
+a_sDF = (X_train_spark.select(['y', 'features']))
+
+#model = H2OXGBoostClassifier(labelCol = 'y')
+model = H2OAutoMLClassifier(labelCol = 'y', maxModels=10, stoppingMetric="logloss")
+
+model_fit = model.fit(a_sDF)
 
 
 # COMMAND ----------
 
-def get_best_model(experiment_id, metric = 'metrics.testing_auc'):
-    df_runs = mlflow.search_runs(experiment_ids=experiment_id)  # get child experiments under the parent experiment id
-    max_run = df_runs[df_runs[metric] == df_runs[metric].max()] # get the run that yield the max metric
-    run_id = 'runs:/'+str(max_run['run_id'].values[0])+'/model'        # prepare run id string
-    return run_id
+prediction_val = model_fit.transform(X_val_spark.select(['y', 'features']))
+prediction_test = model_fit.transform(X_test_spark.select(['y', 'features']))
 
 # COMMAND ----------
 
-def predict(sDF, experiment_id):
-    import mlflow
-    import pandas as pd
-    
-    # get best model
-    logged_model = get_best_model(experiment_id)
-
-    # Load model as a PyFuncModel.
-    loaded_model = mlflow.pyfunc.load_model(logged_model)
-
-    # Predict on a Pandas DataFrame.
-    p = loaded_model.predict(sDF.toPandas())
-    return p
+val_probs  = get_array_of_probabilities_from_sparkling_water_prediction (prediction_val)
+test_probs = get_array_of_probabilities_from_sparkling_water_prediction (prediction_test)
+stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name="H2OXGBoostClassifier", average=AVERAGE)
 
 # COMMAND ----------
 
-run_id = get_best_model(experiment_id=experiment_id)
+display(stats)
 
 # COMMAND ----------
 
-run_id
-
-# COMMAND ----------
-
-model = mlflow.spark.load_model(run_id)
-
-# COMMAND ----------
-
-prediction = model.transform(X_val_spark)
-
-
-# COMMAND ----------
-
-display(prediction)
-
-# COMMAND ----------
-
-predict(X_val_spark, experiment_id)
+log_stats_in_mlflow(stats)
+log_param_in_mlflow()
+mlflow.end_run()
 
 # COMMAND ----------
 
