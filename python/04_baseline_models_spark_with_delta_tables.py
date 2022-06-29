@@ -56,6 +56,7 @@ import tools.analysis as ta
 import tools.preprocessing as tp
 import mlflow
 
+
 # COMMAND ----------
 
 # Setting the globals
@@ -85,10 +86,6 @@ if output_dir is not None:
 pkl_dir = os.path.join(output_dir, "pkl", "")
 stats_dir = os.path.join(output_dir, "analysis", "")
 probs_dir = os.path.join(stats_dir, "probs", "")
-
-# COMMAND ----------
-
-stats_dir
 
 # COMMAND ----------
 
@@ -186,87 +183,11 @@ else:
 
 # COMMAND ----------
 
-X.shape
-
-# COMMAND ----------
-
-def convert_pandas_to_spark_with_vectors(a_dataframe,c_names):
-    from pyspark.sql import SparkSession
-    from pyspark.ml.feature import VectorAssembler
-
-    assert isinstance (a_dataframe,  pd.DataFrame)
-    assert c_names is not None
-    assert len(c_names)>0
-    
-    number_of_partitions = int(spark.sparkContext.defaultParallelism)*2
-
-    a_rdd = spark.sparkContext.parallelize(a_dataframe.to_numpy(), number_of_partitions)
-    #a_rdd = spark.sparkContext.parallelize(a_dataframe.to_numpy())
-    
-    a_df = (a_rdd.map(lambda x: x.tolist()).toDF(c_names+[LABEL_COLUMN]) )
-
-    vecAssembler = VectorAssembler(outputCol="features")
-    vecAssembler.setInputCols(c_names)
-    spark_df = vecAssembler.transform(a_df)
-    
-    #old_col_name = "_"+str(a_dataframe.shape[1]) 
-    #spark_df = spark_df.withColumnRenamed (old_col_name,'label')
-    
-    #display(spark_df)
-
-    return spark_df
-
-# COMMAND ----------
-
-def incrementaly_convert_pandas_to_spark_with_vectors(a_dataframe,c_names):
-    from pyspark.sql import SparkSession
-    from pyspark.ml.feature import VectorAssembler
-
-    assert isinstance (a_dataframe,  pd.DataFrame)
-    assert c_names is not None
-    assert len(c_names)>0
-
-    inc=min(10000, a_dataframe.shape[0])
-    bool = True
-    for i in range((a_dataframe.shape[0]//inc)+1):
-
-        
-        if (i*inc) < a_dataframe.shape[0]:
-            a_rdd = spark.sparkContext.parallelize(a_dataframe[i*inc:(1+i)*inc].to_numpy())
-            a_df = (a_rdd.map(lambda x: x.tolist()).toDF(c_names) )
-
-            #a_df = spark.createDataFrame(a_rdd, c_names)
-
-            vecAssembler = VectorAssembler(outputCol="features")
-            vecAssembler.setInputCols(c_names)
-            a_spark_vector = vecAssembler.transform(a_df)
-
-            if bool == True:
-                spark_df = a_spark_vector
-                bool = False
-            else:
-                spark_df = spark_df.union(a_spark_vector)
-    
-    old_col_name = "_"+str(a_dataframe.shape[1]) # vector assembler would change the name of collumn y
-    spark_df = spark_df.withColumnRenamed (old_col_name,LABEL_COLUMN)
-    return spark_df
-
-
 def change_columns_names (X):
     c_names = list()
     for i in range(0, X.shape[1]):
         c_names = c_names + ['c'+str(i)] 
     return c_names
-
-# COMMAND ----------
-
-def create_vector_of_features(sDF, c_names):
-    from pyspark.ml.feature import VectorAssembler
-
-    vecAssembler = VectorAssembler(outputCol="features")
-    vecAssembler.setInputCols(c_names)
-    vec = vecAssembler.transform(a_df)
-    return vec
 
 # COMMAND ----------
 
@@ -286,128 +207,104 @@ X_test_pandas[LABEL_COLUMN] = y[test][:ROWS].astype("int")
 
 # COMMAND ----------
 
-X_test_pandas.shape
+# MAGIC %sql
+# MAGIC CREATE DATABASE IF NOT EXISTS too9_premier_analysis_demo;
+
+# COMMAND ----------
+
+X_train_sdf = spark.createDataFrame(X_train_pandas)
+
+# COMMAND ----------
+
+X_train_sdf.write.mode("overwrite").format("delta").saveAsTable("too9_premier_analysis_demo.train_data_set")
 
 # COMMAND ----------
 
 #
-# working around to transform pandas DF to spark DF
+# convert delta table to spark data frame
 #
-def pandas_to_spark_via_parquet_files(pDF, c_names, results, index): 
+def get_sDF_from_delta_table(delta_table_name):
+    from delta.tables import DeltaTable
+    from pyspark.ml.functions import array_to_vector
     from pyspark.ml.feature import VectorAssembler
-    import time
+
     
-    seconds = time.time()
+    sDF = spark.table(delta_table_name)
     
-    fileName = "/FileStore/tmp/file"+str(seconds)+".parquet"
-
-    pDF.to_parquet("/dbfs/"+fileName, compression="gzip")  
-    sDF=spark.read.parquet(fileName)
-    results[index] = VectorAssembler(outputCol="features")\
-                    .setInputCols(c_names)\
-                    .transform(sDF)\
-                    .select([LABEL_COLUMN, 'features'])
+    sDF = sDF.withColumnRenamed ("target",LABEL_COLUMN)
+    #sDF = sDF.withColumn("features",array_to_vector("features").alias("features"))
     
-def convert_pDF_to_sDF_via_parquet_files(list_of_pandas, list_of_file_names):
-    from threading import Thread
-
-    results = [None] * len(list_of_pandas)
-    threads = [None] * len(list_of_pandas)
-
-    for index in range(0,len(threads)):
-            threads [index] = Thread(target=pandas_to_spark_via_parquet_files, 
-                                     args=(list_of_pandas[index], 
-                                           list_of_file_names[index],
-                                           c_names, 
-                                           results, 
-                                           index))
-            threads[index].start()
-
-    for i in range(len(threads)):
-        threads[i].join()
-
-    return results
-
+    return sDF
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC # Covert Pandas to Spark Data Frames in parallel
-# MAGIC 
-# MAGIC The convertion to Pandas DF to Spark DF proved to be very slow. 
-# MAGIC In order to improve the performance, the following code use Python threads to convert in parallel the required Pandas DF
+#
+# create spark data frames from delta tables
+#
+X_train_spark = get_sDF_from_delta_table("tnk6_premier_demo.output_train_dataset")
+X_val_spark = get_sDF_from_delta_table("tnk6_premier_demo.output_val_dataset")
+X_test_spark = get_sDF_from_delta_table("tnk6_premier_demo.output_test_dataset")
 
 # COMMAND ----------
 
-def pandas_to_spark(pDF, c_names, results, index): 
-    #results[index] = convert_pandas_to_spark_with_vectors(pDF, c_names)\
-    #.select(['label','features']).repartition(int(spark.sparkContext.defaultParallelism))
-    
-    results[index] = convert_pandas_to_spark_with_vectors(pDF, c_names).select([LABEL_COLUMN,'features']).cache()
+print(X_train_spark.rdd.getNumPartitions())
+print(X_train_spark.count())
+print(X_val_spark.rdd.getNumPartitions())
+print(X_val_spark.count())
+print(X_test_spark.rdd.getNumPartitions())
+print(X_test_spark.count())
+
+# COMMAND ----------
+
+from pyspark.ml.functions import vector_to_array
+
+#train_pDF=X_train_spark.withColumn("features",vector_to_array("features").alias("features")).toPandas()
+train_pDF=X_train_spark.toPandas()
+train_pDF.shape
+
+# COMMAND ----------
+
+D_train=train_pDF['features'][:1].apply(pd.Series).to_numpy().astype("int")
+D_train.shape
+print(type(D_train))
+print(D_train.shape)
+
+# COMMAND ----------
+
+X_train=np.array(X[train][:1].todense()).astype("int")
+X_train.shape
+print(type(X_train))
+print(X_train.shape)
+
+# COMMAND ----------
+
+D_train.sum()
+
+# COMMAND ----------
+
+X_train.sum()
+
+# COMMAND ----------
+
+(D_train==X_train).all()
+for i in range(D_train.shape[1]):
+    if D_train[0, i] != X_train[0,i]:
+        print( "D "+str(D_train[0, i]) )
+        print( "X "+str(X_train[0, i] ))
+
         
-def convert_pDF_to_sDF(list_of_pandas, c_names):
-    from threading import Thread
-
-    results = [None] * len(list_of_pandas)
-    threads = [None] * len(list_of_pandas)
-
-    for index in range(0,len(threads)):
-            threads [index] = Thread(target=pandas_to_spark, 
-                                     args=(list_of_pandas[index], 
-                                           c_names, 
-                                           results, 
-                                           index))
-            threads[index].start()
-
-    for i in range(len(threads)):
-        threads[i].join()
-
-    return results
 
 # COMMAND ----------
 
-results = None
-list_of_pandas = [X_train_pandas,X_val_pandas,X_test_pandas]
-results = convert_pDF_to_sDF(list_of_pandas,c_names)
-
-X_train_spark = results[0]
-X_val_spark = results[1]
-X_test_spark = results[2]
+X_train
 
 # COMMAND ----------
 
-
-for i in range(len(results)): 
-    print(results[i].count())
-    print(results[i].rdd.getNumPartitions())
-
-# COMMAND ----------
-
-
+#
 ### to be used only if the input are spark dataframes
+#
 y_val = X_val_spark.select(LABEL_COLUMN).toPandas()[LABEL_COLUMN].to_numpy()
 y_test = X_test_spark.select(LABEL_COLUMN).toPandas()[LABEL_COLUMN].to_numpy()
-
-# COMMAND ----------
-
-#X_train_pandas = None
-#X_test_pandas  = None
-#X_val_pandas   = None
-#X = None
-#y = None
-#list_of_pandas = None
-#results = None
-
-# COMMAND ----------
-
-def add_index_to_sDF(a_df,columns):
-    a_rdd =  a_df.rdd.zipWithIndex()
-    a_df =   a_rdd.toDF()
-    for column_name in collumns:
-        a_df =   a_df.withColumn(column_name,a_df['_1'].getItem(column_name))
-    a_df =   a_df.withColumnRenamed('_2','id')
-    a_df =   a_df.select(columns)
-    return a_df
 
 # COMMAND ----------
 
@@ -443,6 +340,17 @@ def get_statistics_from_predict(test_predict, y_test, mod_name, average=AVERAGE)
 
 # COMMAND ----------
 
+def get_array_of_probabilities_from_sparkling_water_prediction(predict_sDF):
+    p = predict_sDF.select('detailed_prediction').collect()
+    probs = list()
+    for row in range(len(p)):
+        prob = p[row].asDict()['detailed_prediction']['probabilities'][1]
+        probs = probs + [prob]
+    
+    return np.asarray(probs)
+
+# COMMAND ----------
+
 def log_stats_in_mlflow(stats):
     for i in stats:
         if not isinstance(stats[i].iloc[0], str):
@@ -455,92 +363,6 @@ def log_param_in_mlflow():
     mlflow.log_param("demographics", USE_DEMOG)
     mlflow.log_param("outcome", OUTCOME)
     mlflow.log_param("stratify", STRATIFY)
-
-# COMMAND ----------
-
-def get_array_of_probabilities_from_sparkling_water_prediction(predict_sDF):
-    p = predict_sDF.select('detailed_prediction').collect()
-    probs = list()
-    for row in range(len(p)):
-        prob = p[row].asDict()['detailed_prediction']['probabilities'][1]
-        probs = probs + [prob]
-    
-    return np.asarray(probs)
-
-# COMMAND ----------
-
-from scipy.sparse import lil_matrix
-from sklearn.ensemble import GradientBoostingClassifier as sk_gbc
-from sklearn.ensemble import RandomForestClassifier as sk_rfc
-from sklearn.linear_model import LogisticRegression as sk_lr
-from sklearn.model_selection import train_test_split
-from sklearn.svm import LinearSVC as sk_svc
-
-# Loading up some models to try
-stats = None
-mods = [
-    sk_lr(max_iter=5000, multi_class='ovr'),
-    sk_rfc(n_estimators=500, n_jobs=-1),
-    sk_gbc(),
-    sk_svc(class_weight='balanced', max_iter=10000)
-]
-mod_names = ['lgr', 'rf', 'gbc', 'svm']
-
-# Turning the crank like a proper data scientist
-for i, mod in enumerate(mods):
-    #
-    # add execution parameters to MLFLOW
-    #
-    mlflow.end_run()
-    modelName = mod_names[i]
-    run_name=f"sci-learn_{modelName}"
-
-    mlflow.start_run(experiment_id=experiment_id, run_name=run_name)
-    mlflow.log_param("average", AVERAGE)
-    mlflow.log_param("demographics", USE_DEMOG)
-    mlflow.log_param("outcome", OUTCOME)
-    mlflow.log_param("stratify", STRATIFY)
-    #
-    #
-    #
-    model_fit = mod.fit(X[train], y[train])
-    mlflow.sklearn.log_model(model_fit, mod_names[i])
-    mod_name = mod_names[i]
-    if DAY_ONE_ONLY:
-        mod_name += '_d1'
-
-    if 'predict_proba' in dir(mod):
-        if binary:
-            val_probs = model_fit.predict_proba(X[val])[:, 1]
-            val_gm = ta.grid_metrics(y[val], val_probs)
-            cutpoint = val_gm.cutoff.values[np.argmax(val_gm.f1)]
-            test_probs = model_fit.predict_proba(X[test])[:, 1]
-            test_preds = ta.threshold(test_probs, cutpoint)
-            stats = ta.clf_metrics(y[test],
-                                   test_probs,
-                                   cutpoint=cutpoint,
-                                   mod_name=mod_name,
-                                   average=AVERAGE)
-        else:
-            cutpoint = None
-            test_probs = model_fit.predict_proba(X[test])
-            test_preds = model_fit.predict(X[test])
-            stats = ta.clf_metrics(y[test],
-                                   test_probs,
-                                   mod_name=mod_name,
-                                   average=AVERAGE)
-    else:
-        test_preds = mod.predict(X[test])
-        stats = ta.clf_metrics(y[test],
-                               test_preds,
-                               mod_name=mod_name,
-                               average=AVERAGE)
-    #
-    #
-    # add metrics to MLFLow
-    #
-    log_stats_in_mlflow(stats)
-
 
 # COMMAND ----------
 
@@ -570,7 +392,7 @@ mlflow.end_run()
 
 for  i in range(len(model_class)):
     modelName = model_names[i]
-    run_name="spark_ml_NoRepartitions_"+modelName
+    run_name="spark_ml_delta_table_"+modelName
     with mlflow.start_run(run_name=run_name, experiment_id=experiment_id):
         model = model_class[i]
         model_fit = model.fit(X_train_spark)
@@ -602,22 +424,27 @@ display(all_stats)
 
 # COMMAND ----------
 
-from pyspark.ml.classification import LogisticRegression as spark_lr
+display(all_stats)
+
+# COMMAND ----------
+
+from pyspark.ml.classification import LogisticRegression
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.ml.tuning import CrossValidator, ParamGridBuilder, CrossValidatorModel
 
+run_name="premier_analysis_spark_ml_tunned_LR"
+
 mlflow.end_run()
-run_name="spark_ml_tunned_LR"
 with mlflow.start_run(
     run_name=run_name,
     experiment_id=experiment_id,
 ):
-    lr = spark_lr(featuresCol='features',labelCol=LABEL_COLUMN)
+    lr = LogisticRegression(featuresCol='features',labelCol='label')
 
     paramGrid = (ParamGridBuilder()
          .addGrid(lr.regParam, [0.01, 0.5, 2.0])
          .addGrid(lr.elasticNetParam, [0.0, 0.5, 1.0])
-         .addGrid(lr.maxIter, [100, 500, 1000])
+         .addGrid(lr.maxIter, [1, 5, 10])
          .build())
 
     evaluator = BinaryClassificationEvaluator()
@@ -627,11 +454,11 @@ with mlflow.start_run(
     cvModel = cv.fit(X_train_spark)
 
     mlflow.spark.log_model(cvModel.bestModel, run_name)
-    
     mlflow.log_param("elasticNetParam", cvModel.bestModel.getElasticNetParam())
     mlflow.log_param("maxIter", cvModel.bestModel.getMaxIter())
     mlflow.log_param("regParam", cvModel.bestModel.getRegParam())
 
+    
     predictions_test = cvModel.bestModel.transform(X_test_spark)
     predictions_val  = cvModel.bestModel.transform(X_val_spark)
     val_probs  = get_array_of_probs (predictions_val)
@@ -645,6 +472,20 @@ with mlflow.start_run(
 
     log_stats_in_mlflow(stats)
 
+
+
+# COMMAND ----------
+
+X_train_spark.count()
+
+# COMMAND ----------
+
+X_val_spark.count()
+
+# COMMAND ----------
+
+X_test_spark.count()
+
 # COMMAND ----------
 
 !pip install requests
@@ -655,19 +496,19 @@ with mlflow.start_run(
 # COMMAND ----------
 
 from pysparkling import *
-
+ 
 hc = H2OContext.getOrCreate()
 
 # COMMAND ----------
 
 from pysparkling.ml import H2OXGBoostClassifier 
 
-run_name = "SparkingWater_XGBoost"
+run_name = "Premier_Analysis_H2O_SparkingWater_XGBoost"
 mlflow.end_run()
 mlflow.start_run(experiment_id=experiment_id, 
                  run_name = run_name)
 
-model = H2OXGBoostClassifier(labelCol = LABEL_COLUMN, 
+model = H2OXGBoostClassifier(labelCol = 'label', 
                             stoppingMetric="logloss")
 
 model_fit = model.fit(X_train_spark)
@@ -684,48 +525,8 @@ stats = get_statistics_from_probabilities(val_probs,
                                           average=AVERAGE)
 
 log_stats_in_mlflow(stats)
+log_param_in_mlflow()
 mlflow.end_run()
-display(stats)
-
-# COMMAND ----------
-
-import mlflow
-from pysparkling.ml import H2ODeepLearningClassifier 
-
-X_train_spark = X_train_spark.withColumn("label", X_train_spark.label.cast("string"))
-X_val_spark = X_val_spark.withColumn("label", X_val_spark.label.cast("string"))
-X_test_spark = X_test_spark.withColumn("label", X_test_spark.label.cast("string"))
-
-
-run_name = "SparkingWater_DL"
-
-mlflow.end_run()
-mlflow.start_run(experiment_id=experiment_id, 
-                 run_name = run_name)
-
-model = H2ODeepLearningClassifier (labelCol = LABEL_COLUMN,
-                                   stoppingMetric="AUC",
-                                   stoppingRounds=10,
-                                   activation="RectifierWithDropout",
-                                   epochs=1000,
-                                   hidden=[1024,1024],
-                                   rate=0.001,
-                                   l1=0.1,
-                                   seed=2022,
-                                  splitRatio=.9)
-
-model_fit = model.fit(X_train_spark)
-mlflow.spark.log_model(model_fit,run_name)
-
-prediction_val = model_fit.transform(X_val_spark)
-prediction_test = model_fit.transform(X_test_spark)
-val_probs  = get_array_of_probabilities_from_sparkling_water_prediction (prediction_val)
-test_probs = get_array_of_probabilities_from_sparkling_water_prediction (prediction_test)
-stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name=run_name, average=AVERAGE)
-
-log_stats_in_mlflow(stats)
-mlflow.end_run()
-display(stats)
 
 # COMMAND ----------
 
@@ -742,40 +543,58 @@ algo = H2OXGBoostClassifier (labelCol = 'label',
                              stoppingMetric="logloss",
                              booster="gbtree",
                              treeMethod="hist",
-                             growPolicy="lossguide",
-                            backend="gpu")
+                             growPolicy="lossguide")
 
-hyperSpace = {"eta":       [0.001, 0.01, 0.1],
-             "maxDepth":   [5, 7, 11],
-             "ntrees":     [53, 61, 71],
-             "regAlpha":   [0, 0.1, 0.3],
-             "regLambda": [0, 0.1, 0.3],
-             "gamma":      [0, 0.1, 0.3]}
+hyperSpace = {"eta":       [0.01, 0.03, 0.06, 0.1, 0.15, 0.2, 0.25, 0.3],
+             "maxDepth":   [5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+             "ntrees":     [50, 65, 80, 100, 115, 130, 150],
+             "regAlpha":   [0, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2, 4.12, 25.6, 51.2, 102.4, 200],
+             "regLambda":  [0, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2, 4.12, 25.6, 51.2, 102.4, 200],
+             "gamma":      [0, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2, 4.12, 25.6, 51.2, 102.4, 200],}
 
 grid = H2OGridSearch(hyperParameters=hyperSpace, 
                      parallelism=0,
                      algo=algo, 
-                     strategy="RandomDiscrete",
+                     strategy="Cartesian",
                      maxModels=100,
                      seed=2022,)
 
 model = grid.fit(X_train_spark)
 
-mlflow.spark.lo
+mlflow.spark.log_model(model, run_name)
+
+prediction_val =  model.transform(X_val_spark)
+prediction_test = model.transform(X_test_spark)
+val_probs  = get_array_of_probabilities_from_sparkling_water_prediction (prediction_val)
+test_probs = get_array_of_probabilities_from_sparkling_water_prediction (prediction_test)
+stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name=run_name, average=AVERAGE)
+
+log_stats_in_mlflow(stats)
+log_param_in_mlflow()
+#
+# log XGBoost tunning parameters of best model
+#
+mlflow.log_param("eta", model.getEta())
+mlflow.log_param("maxDepth", model.getMaxDepth())
+mlflow.log_param("ntrees", model.getNtrees())
+mlflow.log_param("regAlpha", model.getRegAlpha())
+mlflow.log_param("regLambda", model.getRegLambda())
+mlflow.log_param("gamma", model.getGamma())
+mlflow.log_param("booster", model.getBooster())
+mlflow.log_param("treeMethod", model.getTreeMethod())
+mlflow.log_param("growPolicy", model.getGrowPolicy())
+
+mlflow.end_run()
 
 # COMMAND ----------
 
-import mlflow
-from pysparkling.ml import H2OAutoMLClassifier
-
 mlflow.end_run()
 mlflow.start_run(experiment_id=experiment_id, 
-                 run_name = "SparkingWater_AutoMl")
+                 run_name = "Premier_Analysis_H2O_SparkingWater_AutoMl")
 
-model = H2OAutoMLClassifier(labelCol = LABEL_COLUMN, 
+model = H2OAutoMLClassifier(labelCol = 'label', 
                             maxModels=100, 
-                            stoppingMetric="logloss",
-                           seed=2022)
+                            stoppingMetric="logloss")
 
 model_fit = model.fit(X_train_spark)
 
@@ -789,6 +608,7 @@ test_probs = get_array_of_probabilities_from_sparkling_water_prediction (predict
 stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name="H2O_sparking_water_AutoMl", average=AVERAGE)
 
 log_stats_in_mlflow(stats)
+log_param_in_mlflow()
 mlflow.end_run()
 
 # COMMAND ----------
@@ -798,6 +618,27 @@ def get_best_model(experiment_id, metric = 'metrics.testing_auc'):
     max_run = df_runs[df_runs[metric] == df_runs[metric].max()] # get the run that yield the max metric
     run_id = 'runs:/'+str(max_run['run_id'].values[0])+'/model'        # prepare run id string
     return run_id
+
+# COMMAND ----------
+
+def get_prediction(sDF, experiment_id):
+    
+    #
+    # get the run id of best model under the experiment id
+    #
+    run_id = get_best_model(experiment_id=experiment_id)
+    #
+    # load the best model based using the run id 
+    #
+    model = mlflow.spark.load_model(run_id)
+    #
+    # serve the model by appying.
+    # In this case, no need to transform to a Pandas DF
+    # You can provide the predictions directly from a given Spark DF
+    #
+    predictions = model.transform(sDF)
+    
+    return predictions
 
 # COMMAND ----------
 
@@ -814,10 +655,6 @@ def predict(sDF, experiment_id):
     # Predict on a Pandas DataFrame.
     p = loaded_model.predict(sDF.toPandas())
     return p
-
-# COMMAND ----------
-
-run_id = get_best_model(experiment_id=experiment_id)
 
 # COMMAND ----------
 

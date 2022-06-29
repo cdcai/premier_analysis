@@ -18,24 +18,7 @@ hc = H2OContext.getOrCreate()
 import mlflow
 import mlflow.h2o
 
-dbutils.widgets.removeAll()
-dbutils.widgets.text(
-  name='experiment_id',
-  defaultValue='2196115870945772',
-  label='Experiment ID'
-)
 
-experiment = dbutils.widgets.get("experiment_id")
-assert experiment is not None
-current_experiment = mlflow.get_experiment(experiment)
-assert current_experiment is not None
-experiment_id= current_experiment.experiment_id
-
-# COMMAND ----------
-
-mlflow.end_run()
-mlflow.start_run(experiment_id=experiment_id)
-mlflow.autolog()
 
 # COMMAND ----------
 
@@ -47,46 +30,25 @@ sparkDF = sparkDF.withColumn("CAPSULE", sparkDF.CAPSULE.cast("string"))
 
 # COMMAND ----------
 
-#from pysparkling.ml import H2OAutoML
-from h2o.automl import H2OAutoML
-
-automl = H2OAutoML(labelCol="CAPSULE", ignoredCols=["ID"])
+display(sparkDF)
 
 # COMMAND ----------
 
-automl.setMaxModels(10)
+from pysparkling.ml import H2OAutoML
+import mlflow
+
+mlflow.end_run()
+mlflow.start_run()
+automl = H2OAutoML(labelCol="CAPSULE", ignoredCols=["ID"]).setMaxModels(2).setSortMetric("logloss")
 
 # COMMAND ----------
 
-automl.setSortMetric("logloss")
 model = automl.fit(trainingDF)
 
 # COMMAND ----------
 
-leaderboard = automl.getLeaderboard()
-leaderboard.show(truncate = False)
-
-# COMMAND ----------
-
 bestmodel = automl.getAllModels()[0]
-type(bestmodel)
-bestmodel.getModelDetails()
-
-# COMMAND ----------
-
-bestmodel.getHGLM()
-
-# COMMAND ----------
-
-bestmodel.getTrainingMetrics().get('Logloss')
-
-# COMMAND ----------
-
-
-
-# after downloading mojo file, we treat it as an artifact
-# and log it using mlflow.log_artifact()
-mlflow.log_artifact(temp_folder+"h2o-model-mojo.zip", artifact_path="h2o-model-mojo")
+mlflow.spark.log_model(bestmodel,"test")
 
 # COMMAND ----------
 

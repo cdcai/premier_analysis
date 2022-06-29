@@ -70,6 +70,9 @@ CHRT_PRFX = ''
 #STRATIFY ='all'
 LABEL_COLUMN='label'
 
+# COMMAND ----------
+
+
 # Setting the directories and importing the data
 # If no args are passed to overwrite these values, use repo structure to construct
 # Setting the directories
@@ -277,12 +280,17 @@ c_names = change_columns_names(X)[:COLS]
 
 X_train_pandas = pd.DataFrame(X[train][:ROWS,:COLS].toarray(),columns=c_names)
 X_train_pandas[LABEL_COLUMN] = y[train][:ROWS].astype("int")
+X_train_pandas["validation"] = False
 
 X_val_pandas = pd.DataFrame(X[val][:ROWS,:COLS].toarray(),columns=c_names)
 X_val_pandas[LABEL_COLUMN] = y[val][:ROWS].astype("int")
+X_train_pandas["validation"] = True
+
 
 X_test_pandas = pd.DataFrame(X[test][:ROWS,:COLS].toarray(),columns=c_names)
 X_test_pandas[LABEL_COLUMN] = y[test][:ROWS].astype("int")
+
+X_train_val_pandas = pd.concat([X_train_pandas, X_val_pandas], axis=0)
 
 # COMMAND ----------
 
@@ -308,7 +316,7 @@ def pandas_to_spark_via_parquet_files(pDF, c_names, results, index):
                     .transform(sDF)\
                     .select([LABEL_COLUMN, 'features'])
     
-def convert_pDF_to_sDF_via_parquet_files(list_of_pandas, list_of_file_names):
+def convert_pDF_to_sDF_via_parquet_files(list_of_pandas, c_names):
     from threading import Thread
 
     results = [None] * len(list_of_pandas)
@@ -317,7 +325,6 @@ def convert_pDF_to_sDF_via_parquet_files(list_of_pandas, list_of_file_names):
     for index in range(0,len(threads)):
             threads [index] = Thread(target=pandas_to_spark_via_parquet_files, 
                                      args=(list_of_pandas[index], 
-                                           list_of_file_names[index],
                                            c_names, 
                                            results, 
                                            index))
@@ -367,12 +374,14 @@ def convert_pDF_to_sDF(list_of_pandas, c_names):
 # COMMAND ----------
 
 results = None
-list_of_pandas = [X_train_pandas,X_val_pandas,X_test_pandas]
-results = convert_pDF_to_sDF(list_of_pandas,c_names)
+list_of_pandas = [X_train_pandas,X_val_pandas,X_test_pandas,X_train_val_pandas]
+#results = convert_pDF_to_sDF(list_of_pandas,c_names)
+results = convert_pDF_to_sDF_via_parquet_files(list_of_pandas,c_names)
 
-X_train_spark = results[0]
-X_val_spark = results[1]
-X_test_spark = results[2]
+X_train_spark      = results[0].cache()
+X_val_spark        = results[1].cache()
+X_test_spark       = results[2].cache()
+X_train_val_spark  = results[3].cache()
 
 # COMMAND ----------
 
@@ -383,10 +392,38 @@ for i in range(len(results)):
 
 # COMMAND ----------
 
+# MAGIC %sql
+# MAGIC CREATE DATABASE IF NOT EXISTS too9_premier_analysis_demo;
+
+# COMMAND ----------
+
+X_train_spark.write.mode("overwrite").format("delta").saveAsTable("too9_premier_analysis_demo.train_data_set")
+X_val_spark.write.mode("overwrite").format("delta").saveAsTable("too9_premier_analysis_demo.val_data_set")
+X_test_spark.write.mode("overwrite").format("delta").saveAsTable("too9_premier_analysis_demo.test_data_set")
+X_train_val_pandas.write.mode("overwrite").format("delta").saveAsTable("too9_premier_analysis_demo.train_val_data_set")
+
+# COMMAND ----------
+
+from delta.tables import DeltaTable
+
+X_train_dt = spark.table("too9_premier_analysis_demo.train_data_set")
+X_val_dt = spark.table("too9_premier_analysis_demo.val_data_set")
+X_test_dt = spark.table("too9_premier_analysis_demo.test_data_set")
+X_train_val_dt = spark.table("too9_premier_analysis_demo.train_val_data_set")
+
+# COMMAND ----------
+
+print(X_train_spark.count())
+print(X_val_spark.count())
+print(X_test_spark.count())
+
+
+# COMMAND ----------
+
 
 ### to be used only if the input are spark dataframes
-y_val = X_val_spark.select(LABEL_COLUMN).toPandas()[LABEL_COLUMN].to_numpy()
-y_test = X_test_spark.select(LABEL_COLUMN).toPandas()[LABEL_COLUMN].to_numpy()
+y_val = X_val_dt.select(LABEL_COLUMN).toPandas()[LABEL_COLUMN].to_numpy()
+y_test = X_test_dt.select(LABEL_COLUMN).toPandas()[LABEL_COLUMN].to_numpy()
 
 # COMMAND ----------
 
@@ -570,7 +607,7 @@ mlflow.end_run()
 
 for  i in range(len(model_class)):
     modelName = model_names[i]
-    run_name="spark_ml_NoRepartitions_"+modelName
+    run_name="spark_with_delta_tables_"+modelName
     with mlflow.start_run(run_name=run_name, experiment_id=experiment_id):
         model = model_class[i]
         model_fit = model.fit(X_train_spark)
@@ -607,7 +644,7 @@ from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.ml.tuning import CrossValidator, ParamGridBuilder, CrossValidatorModel
 
 mlflow.end_run()
-run_name="spark_ml_tunned_LR"
+run_name="spark_with_delta_tables_tunned_lr"
 with mlflow.start_run(
     run_name=run_name,
     experiment_id=experiment_id,
@@ -647,6 +684,25 @@ with mlflow.start_run(
 
 # COMMAND ----------
 
+# MAGIC %pip install xgboost
+
+# COMMAND ----------
+
+from sparkdl.xgboost import XgboostClassifier
+xgb_classifier = XgboostClassifier(max_depth=5, 
+                                   missing=0.0,
+                                   use_gpu=True,
+                                   early_stopping_rounds=1, 
+                                   validationIndicatorCol="validation"
+                                   eval_metric='logloss')
+
+
+# COMMAND ----------
+
+xgb_clf_model = xgb_classifier.fit(X_train_val_dt)
+
+# COMMAND ----------
+
 !pip install requests
 !pip install tabulate
 !pip install future
@@ -657,6 +713,7 @@ with mlflow.start_run(
 from pysparkling import *
 
 hc = H2OContext.getOrCreate()
+
 
 # COMMAND ----------
 

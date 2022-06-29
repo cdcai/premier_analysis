@@ -310,10 +310,8 @@ X_val_h2o_df[target]   = X_val_h2o_df[target].asfactor()
 # COMMAND ----------
 
 from h2o.estimators import H2OXGBoostEstimator
-
-
-# Run AutoML for 20 base models
 import mlflow
+
 with mlflow.start_run(experiment_id=experiment_id) as run:
     aml = H2OXGBoostEstimator(booster='dart',
                                   normalize_type="tree",
