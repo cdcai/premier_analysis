@@ -69,7 +69,7 @@ VAL_SPLIT = 0.1
 RAND = 2022
 CHRT_PRFX = ''
 LABEL_COLUMN='label'
-FEATURES_COLUMN='featureS'
+FEATURES_COLUMN='features'
 VALIDATION_COLUMN="validation"
 
 # COMMAND ----------
@@ -90,10 +90,6 @@ if output_dir is not None:
 pkl_dir = os.path.join(output_dir, "pkl", "")
 stats_dir = os.path.join(output_dir, "analysis", "")
 probs_dir = os.path.join(stats_dir, "probs", "")
-
-# COMMAND ----------
-
-stats_dir
 
 # COMMAND ----------
 
@@ -182,6 +178,9 @@ train, val = train_test_split(train,
 
 # COMMAND ----------
 
+#
+# used for limiting the sample size for testing
+#
 if EXPERIMENTING == True: 
     ROWS = 1000
     COLS = 100
@@ -191,10 +190,21 @@ else:
 
 # COMMAND ----------
 
-X.shape
+#
+# when converting sparce/dense matrices to Spark Data Frames, column names are required.#
+#
+def change_columns_names (X):
+    c_names = list()
+    for i in range(0, X.shape[1]):
+        c_names = c_names + ['c'+str(i)] 
+    return c_names
 
 # COMMAND ----------
 
+#
+# If there is enough memory available in the master node,
+# this functions proved to be faster
+#
 def convert_pandas_to_spark_with_vectors(a_dataframe,c_names):
     from pyspark.sql import SparkSession
     from pyspark.ml.feature import VectorAssembler
@@ -206,23 +216,21 @@ def convert_pandas_to_spark_with_vectors(a_dataframe,c_names):
     number_of_partitions = int(spark.sparkContext.defaultParallelism)*2
 
     a_rdd = spark.sparkContext.parallelize(a_dataframe.to_numpy(), number_of_partitions)
-    #a_rdd = spark.sparkContext.parallelize(a_dataframe.to_numpy())
     
     a_df = (a_rdd.map(lambda x: x.tolist()).toDF(c_names+[LABEL_COLUMN]) )
 
     vecAssembler = VectorAssembler(outputCol="features")
     vecAssembler.setInputCols(c_names)
     spark_df = vecAssembler.transform(a_df)
-    
-    #old_col_name = "_"+str(a_dataframe.shape[1]) 
-    #spark_df = spark_df.withColumnRenamed (old_col_name,'label')
-    
-    #display(spark_df)
 
     return spark_df
 
 # COMMAND ----------
 
+#
+# If there is NOT enough memory available in the master node,
+# this functions proved to be useful
+#
 def incrementaly_convert_pandas_to_spark_with_vectors(a_dataframe,c_names):
     from pyspark.sql import SparkSession
     from pyspark.ml.feature import VectorAssembler
@@ -240,8 +248,6 @@ def incrementaly_convert_pandas_to_spark_with_vectors(a_dataframe,c_names):
             a_rdd = spark.sparkContext.parallelize(a_dataframe[i*inc:(1+i)*inc].to_numpy())
             a_df = (a_rdd.map(lambda x: x.tolist()).toDF(c_names+LABEL_COLUMN) )
 
-            #a_df = spark.createDataFrame(a_rdd, c_names)
-
             vecAssembler = VectorAssembler(outputCol="features")
             vecAssembler.setInputCols(c_names)
             a_spark_vector = vecAssembler.transform(a_df)
@@ -254,48 +260,6 @@ def incrementaly_convert_pandas_to_spark_with_vectors(a_dataframe,c_names):
     
  
     return spark_df
-
-
-def change_columns_names (X):
-    c_names = list()
-    for i in range(0, X.shape[1]):
-        c_names = c_names + ['c'+str(i)] 
-    return c_names
-
-# COMMAND ----------
-
-def create_vector_of_features(sDF, c_names):
-    from pyspark.ml.feature import VectorAssembler
-
-    vecAssembler = VectorAssembler(outputCol="features")
-    vecAssembler.setInputCols(c_names)
-    vec = vecAssembler.transform(a_df)
-    return vec
-
-# COMMAND ----------
-
-#
-# create pandas frames from X
-#
-c_names = change_columns_names(X)[:COLS]
-
-X_train_pandas = pd.DataFrame(X[train][:ROWS,:COLS].toarray(),columns=c_names)
-X_train_pandas[LABEL_COLUMN] = y[train][:ROWS].astype("int")
-X_train_pandas[VALIDATION_COLUMN] = False
-
-X_val_pandas = pd.DataFrame(X[val][:ROWS,:COLS].toarray(),columns=c_names)
-X_val_pandas[LABEL_COLUMN] = y[val][:ROWS].astype("int")
-X_train_pandas[VALIDATION_COLUMN] = True
-
-
-X_test_pandas = pd.DataFrame(X[test][:ROWS,:COLS].toarray(),columns=c_names)
-X_test_pandas[LABEL_COLUMN] = y[test][:ROWS].astype("int")
-
-X_train_val_pandas = pd.concat([X_train_pandas, X_val_pandas], axis=0)
-
-# COMMAND ----------
-
-X_test_pandas.shape
 
 # COMMAND ----------
 
@@ -312,9 +276,9 @@ def pandas_to_spark_via_parquet_files(pDF, c_names, results, index):
 
     pDF.to_parquet("/dbfs/"+fileName, compression="gzip")  
     sDF=spark.read.parquet(fileName)
-    results[index] = VectorAssembler(outputCol="features")\
+    results[index] = VectorAssembler(outputCol=FEATURES_COLUMN)\
                     .setInputCols(c_names)\
-                    .transform(sDF)
+                    .transform(sDF).select(LABEL_COLUMN, FEATURES_COLUMN).cache()
     
 def convert_pDF_to_sDF_via_parquet_files(list_of_pandas, c_names):
     from threading import Thread
@@ -338,19 +302,12 @@ def convert_pDF_to_sDF_via_parquet_files(list_of_pandas, c_names):
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC # Covert Pandas to Spark Data Frames in parallel
-# MAGIC 
-# MAGIC The convertion to Pandas DF to Spark DF proved to be very slow. 
-# MAGIC In order to improve the performance, the following code use Python threads to convert in parallel the required Pandas DF
-
-# COMMAND ----------
-
+#
+# Since the converstion from Pandas to Spark have been extremelly slow,
+# this function allows the converstion to be done in parallel
+#
 def pandas_to_spark(pDF, c_names, results, index): 
-    #results[index] = convert_pandas_to_spark_with_vectors(pDF, c_names)\
-    #.select(['label','features']).repartition(int(spark.sparkContext.defaultParallelism))
-    
-    results[index] = convert_pandas_to_spark_with_vectors(pDF, c_names).select([LABEL_COLUMN,'features']).cache()
+    results[index] = convert_pandas_to_spark_with_vectors(pDF, c_names).select([LABEL_COLUMN,FEATURES_COLUMN]).cache()
         
 def convert_pDF_to_sDF(list_of_pandas, c_names):
     from threading import Thread
@@ -373,19 +330,35 @@ def convert_pDF_to_sDF(list_of_pandas, c_names):
 
 # COMMAND ----------
 
-results = None
-list_of_pandas = [X_train_pandas,X_val_pandas,X_test_pandas,X_train_val_pandas]
-#results = convert_pDF_to_sDF(list_of_pandas,c_names)
-results = convert_pDF_to_sDF_via_parquet_files(list_of_pandas,c_names)
+#
+# create pandas frames from X
+#
+c_names = change_columns_names(X)[:COLS]
 
-X_train_spark      = results[0].select(LABEL_COLUMN, FEATURES_COLUMN)
-X_val_spark        = results[1].select(LABEL_COLUMN, FEATURES_COLUMN)
-X_test_spark       = results[2].select(LABEL_COLUMN, FEATURES_COLUMN)
-X_train_val_spark  = results[3].select(LABEL_COLUMN, VALIDATION_COLUMN, FEATURES_COLUMN)
+X_train_pandas = pd.DataFrame(X[train][:ROWS,:COLS].toarray(),columns=c_names)
+X_train_pandas[LABEL_COLUMN] = y[train][:ROWS].astype("int")
+
+X_val_pandas = pd.DataFrame(X[val][:ROWS,:COLS].toarray(),columns=c_names)
+X_val_pandas[LABEL_COLUMN] = y[val][:ROWS].astype("int")
+
+X_test_pandas = pd.DataFrame(X[test][:ROWS,:COLS].toarray(),columns=c_names)
+X_test_pandas[LABEL_COLUMN] = y[test][:ROWS].astype("int")
 
 # COMMAND ----------
 
+results = None
+list_of_pandas = [X_train_pandas,X_val_pandas,X_test_pandas]
+results = convert_pDF_to_sDF(list_of_pandas,c_names)
 
+X_train_spark = results[0]
+X_val_spark   = results[1]
+X_test_spark  = results[2]
+
+# COMMAND ----------
+
+#
+# .count() forces the cache
+#
 for i in range(len(results)): 
     print(results[i].count())
     print(results[i].rdd.getNumPartitions())
@@ -397,29 +370,30 @@ for i in range(len(results)):
 # MAGIC drop table IF  EXISTS   too9_premier_analysis_demo.train_data_set;
 # MAGIC drop table IF  EXISTS   too9_premier_analysis_demo.val_data_set;
 # MAGIC drop table IF  EXISTS   too9_premier_analysis_demo.test_data_set;
-# MAGIC drop table IF  EXISTS   too9_premier_analysis_demo.train_val_data_set;
 
 # COMMAND ----------
 
+#
+# save Spark Data Frames to Delta Tables
+# it seems that Spark Frames created from delta tables
+# work faster
+#
 X_train_spark.write.mode("overwrite").format("delta").saveAsTable("too9_premier_analysis_demo.train_data_set")
 X_val_spark.write.mode("overwrite").format("delta").saveAsTable("too9_premier_analysis_demo.val_data_set")
 X_test_spark.write.mode("overwrite").format("delta").saveAsTable("too9_premier_analysis_demo.test_data_set")
-X_train_val_spark.write.mode("overwrite").format("delta").saveAsTable("too9_premier_analysis_demo.train_val_data_set")
+
 
 # COMMAND ----------
 
+#
+# working around to import data frames from delta tables
+# ML algorithms work significally faster
+#
 from delta.tables import DeltaTable
 
 X_train_dt = spark.table("too9_premier_analysis_demo.train_data_set")
 X_val_dt = spark.table("too9_premier_analysis_demo.val_data_set")
 X_test_dt = spark.table("too9_premier_analysis_demo.test_data_set")
-X_train_val_dt = spark.table("too9_premier_analysis_demo.train_val_data_set")
-
-# COMMAND ----------
-
-print(X_train_spark.count())
-print(X_val_spark.count())
-print(X_test_spark.count())
 
 
 # COMMAND ----------
@@ -431,27 +405,10 @@ y_test = X_test_dt.select(LABEL_COLUMN).toPandas()[LABEL_COLUMN].to_numpy()
 
 # COMMAND ----------
 
-#X_train_pandas = None
-#X_test_pandas  = None
-#X_val_pandas   = None
-#X = None
-#y = None
-#list_of_pandas = None
-#results = None
-
-# COMMAND ----------
-
-def add_index_to_sDF(a_df,columns):
-    a_rdd =  a_df.rdd.zipWithIndex()
-    a_df =   a_rdd.toDF()
-    for column_name in collumns:
-        a_df =   a_df.withColumn(column_name,a_df['_1'].getItem(column_name))
-    a_df =   a_df.withColumnRenamed('_2','id')
-    a_df =   a_df.select(columns)
-    return a_df
-
-# COMMAND ----------
-
+#
+# Spark ML return predictions as vector of probabilities
+# this function return the positive probabilities
+#
 def get_array_of_probs (predictions_sDF):
     from pyspark.ml.functions import vector_to_array
     import numpy as np
@@ -462,6 +419,9 @@ def get_array_of_probs (predictions_sDF):
 
 # COMMAND ----------
 
+#
+# this function calculates the statistics from validation and testing predictions
+#
 def get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name, average=AVERAGE):
     val_gm = ta.grid_metrics(y_val, val_probs)
     cutpoint = val_gm.cutoff.values[np.argmax(val_gm.f1)]
@@ -475,6 +435,10 @@ def get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_
 
 # COMMAND ----------
 
+#
+# some Spark ML algorithms do not return probabilities
+# this function calculates statistics from predictions without probabilities
+#
 def get_statistics_from_predict(test_predict, y_test, mod_name, average=AVERAGE):
     stats = ta.clf_metrics(y_test,
                            test_predict,
@@ -484,6 +448,9 @@ def get_statistics_from_predict(test_predict, y_test, mod_name, average=AVERAGE)
 
 # COMMAND ----------
 
+#
+# this function logs statistics on MLFLow
+#
 def log_stats_in_mlflow(stats):
     for i in stats:
         if not isinstance(stats[i].iloc[0], str):
@@ -491,6 +458,9 @@ def log_stats_in_mlflow(stats):
 
 # COMMAND ----------
 
+#
+# this function logs a few MLFlow parameters about the type of prediction
+#
 def log_param_in_mlflow():
     mlflow.log_param("average", AVERAGE)
     mlflow.log_param("demographics", USE_DEMOG)
@@ -499,6 +469,10 @@ def log_param_in_mlflow():
 
 # COMMAND ----------
 
+#
+# H2O returns predicit probabilities in a different way of Spark ML
+# this functions returns the probabilities
+#
 def get_array_of_probabilities_from_sparkling_water_prediction(predict_sDF):
     p = predict_sDF.select('detailed_prediction').collect()
     probs = list()
@@ -509,6 +483,10 @@ def get_array_of_probabilities_from_sparkling_water_prediction(predict_sDF):
     return np.asarray(probs)
 
 # COMMAND ----------
+
+#
+# this part user ski-learn 
+#
 
 from scipy.sparse import lil_matrix
 from sklearn.ensemble import GradientBoostingClassifier as sk_gbc
@@ -547,7 +525,7 @@ for i, mod in enumerate(mods):
     model_fit = mod.fit(X[train], y[train])
     
     mlflow.sklearn.log_model(model_fit, "model")
- ,    # to make sure model can be found progrmatically, 
+    # to make sure model can be found progrmatically, 
     # use "model" as the name of the model
     
     
@@ -590,6 +568,9 @@ for i, mod in enumerate(mods):
 
 # COMMAND ----------
 
+#
+# This part use Spark ML binary classification algoritms#
+#
 from pyspark.ml.classification import LinearSVC as svc
 from pyspark.ml.classification import DecisionTreeClassifier as dtc
 from pyspark.ml.classification import GBTClassifier as gbt
@@ -625,10 +606,10 @@ for  i in range(len(model_class)):
         # to make sure model can be found progrmatically, 
         # use "model" as the name of the model
 
-        predictions_test = model_fit.transform(X_test_spark)
+        predictions_test = model_fit.transform(X_test_dt)
 
         if modelName in KNOWN_REGRESSORS_THAT_YIELD_PROBABILITIES:
-            predictions_val = model_fit.transform(X_val_spark)
+            predictions_val = model_fit.transform(X_val_dt)
             val_probs  = get_array_of_probs (predictions_val)
             test_probs = get_array_of_probs (predictions_test)
             stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name=modelName, average=AVERAGE)
@@ -650,6 +631,9 @@ display(all_stats)
 
 # COMMAND ----------
 
+#
+# This part provides an examples about how to use hyper parameters with Spark ML
+#
 from pyspark.ml.classification import LogisticRegression as spark_lr
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.ml.tuning import CrossValidator, ParamGridBuilder, CrossValidatorModel
@@ -672,7 +656,7 @@ with mlflow.start_run(
 
     cv = CrossValidator(estimator=lr, estimatorParamMaps=paramGrid, evaluator=evaluator, parallelism=100)
 
-    cvModel = cv.fit(X_train_spark)
+    cvModel = cv.fit(X_train_dt)
 
     mlflow.spark.log_model(cvModel.bestModel,  "model")
     # to make sure model can be found progrmatically, 
@@ -682,8 +666,8 @@ with mlflow.start_run(
     mlflow.log_param("maxIter", cvModel.bestModel.getMaxIter())
     mlflow.log_param("regParam", cvModel.bestModel.getRegParam())
 
-    predictions_test = cvModel.bestModel.transform(X_test_spark)
-    predictions_val  = cvModel.bestModel.transform(X_val_spark)
+    predictions_test = cvModel.bestModel.transform(X_test_dt)
+    predictions_val  = cvModel.bestModel.transform(X_val_dt)
     val_probs  = get_array_of_probs (predictions_val)
     test_probs = get_array_of_probs (predictions_test)
     stats = get_statistics_from_probabilities(val_probs, 
@@ -698,14 +682,20 @@ with mlflow.start_run(
 
 # COMMAND ----------
 
-from sparkdl.xgboost import XgboostClassifier
+#
+# This park uses XGBoost with Spark Data Frames
+# It is provided by Databricks
+#
+from sparkdl.xgboost import XgboostClassifier as dbr_xgb
+
 mlflow.end_run()
 run_name="spark_with_xgboost"
 with mlflow.start_run(
     run_name=run_name,
     experiment_id=experiment_id,
 ):
-    model = XgboostClassifier(missing=0.0, 
+    
+    model = dbr_xgb(missing=0.0, 
                                    eval_metric='logloss')    
     
     model_fit = model.fit(X_train_dt)
@@ -730,9 +720,10 @@ with mlflow.start_run(
 
 # COMMAND ----------
 
-
-
-# COMMAND ----------
+#
+# This part uses H2O Sparking Water
+# Fi1st of all, you must install required libaries
+#
 
 !pip install requests
 !pip install tabulate
@@ -741,6 +732,9 @@ with mlflow.start_run(
 
 # COMMAND ----------
 
+#
+# Import required libraries and start H2O
+#
 from pysparkling import *
 
 hc = H2OContext.getOrCreate()
@@ -748,6 +742,11 @@ hc = H2OContext.getOrCreate()
 
 # COMMAND ----------
 
+#
+# Here you will use H2O XGBoost algorithim
+# ATTENTION:
+#          For reasons I do not undestand, H2O does not work with Spark Data Frames created from Delta Tables
+#
 from pysparkling.ml import H2OXGBoostClassifier 
 
 run_name = "SparkingWater_XGBoost"
@@ -758,7 +757,7 @@ mlflow.start_run(experiment_id=experiment_id,
 model = H2OXGBoostClassifier(labelCol = LABEL_COLUMN, 
                             stoppingMetric="logloss")
 
-model_fit = model.fit(X_train_spark)
+model_fit = model.fit(X_train_dt)
 
 mlflow.spark.log_model(model_fit, "model")
 # to make sure model can be found progrmatically, 
@@ -780,6 +779,9 @@ display(stats)
 
 # COMMAND ----------
 
+#
+# This part uses H2O Deep Learning
+#
 import mlflow
 from pysparkling.ml import H2ODeepLearningClassifier 
 
@@ -805,14 +807,14 @@ model = H2ODeepLearningClassifier (labelCol = LABEL_COLUMN,
                                    seed=2022,
                                   splitRatio=.9)
 
-model_fit = model.fit(X_train_spark)
+model_fit = model.fit(X_train_dt)
 
 mlflow.spark.log_model(model_fit, "model")
 # to make sure model can be found progrmatically, 
 # use "model" as the name of the model
 
-prediction_val = model_fit.transform(X_val_spark)
-prediction_test = model_fit.transform(X_test_spark)
+prediction_val = model_fit.transform(X_val_dt)
+prediction_test = model_fit.transform(X_test_dt)
 val_probs  = get_array_of_probabilities_from_sparkling_water_prediction (prediction_val)
 test_probs = get_array_of_probabilities_from_sparkling_water_prediction (prediction_test)
 stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name=run_name, average=AVERAGE)
@@ -823,7 +825,9 @@ display(stats)
 
 # COMMAND ----------
 
-import mlflow
+#
+# This part use H2O AutoML
+#
 from pysparkling.ml import H2OAutoMLClassifier
 
 mlflow.end_run()
@@ -835,16 +839,20 @@ model = H2OAutoMLClassifier(labelCol = LABEL_COLUMN,
                             stoppingMetric="logloss",
                            seed=2022)
 
-model_fit = model.fit(X_train_spark)
+model_fit = model.fit(X_train_dt)
 
 bestmodel = automl.getAllModels()[0]
 mlflow.spark.log_model(bestmodel,"model")
 
-prediction_val = bestmodel.transform(X_val_spark)
-prediction_test = bestmodel.transform(X_test_spark)
+prediction_val = bestmodel.transform(X_val_dt)
+prediction_test = bestmodel.transform(X_test_dt)
 val_probs  = get_array_of_probabilities_from_sparkling_water_prediction (prediction_val)
 test_probs = get_array_of_probabilities_from_sparkling_water_prediction (prediction_test)
 stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name="H2O_sparking_water_AutoMl", average=AVERAGE)
 
 log_stats_in_mlflow(stats)
 mlflow.end_run()
+
+# COMMAND ----------
+
+
