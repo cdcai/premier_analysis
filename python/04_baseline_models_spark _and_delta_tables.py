@@ -545,7 +545,12 @@ for i, mod in enumerate(mods):
     #
     #
     model_fit = mod.fit(X[train], y[train])
-    mlflow.sklearn.log_model(model_fit, mod_names[i])
+    
+    mlflow.sklearn.log_model(model_fit, "model")
+ ,    # to make sure model can be found progrmatically, 
+    # use "model" as the name of the model
+    
+    
     mod_name = mod_names[i]
     if DAY_ONE_ONLY:
         mod_name += '_d1'
@@ -616,7 +621,9 @@ for  i in range(len(model_class)):
         model = model_class[i]
         model_fit = model.fit(X_train_spark)
 
-        mlflow.spark.log_model(model_fit, run_name)
+        mlflow.spark.log_model(model_fit, "model")
+        # to make sure model can be found progrmatically, 
+        # use "model" as the name of the model
 
         predictions_test = model_fit.transform(X_test_spark)
 
@@ -667,7 +674,9 @@ with mlflow.start_run(
 
     cvModel = cv.fit(X_train_spark)
 
-    mlflow.spark.log_model(cvModel.bestModel, run_name)
+    mlflow.spark.log_model(cvModel.bestModel,  "model")
+    # to make sure model can be found progrmatically, 
+    # use "model" as the name of the model
     
     mlflow.log_param("elasticNetParam", cvModel.bestModel.getElasticNetParam())
     mlflow.log_param("maxIter", cvModel.bestModel.getMaxIter())
@@ -725,10 +734,6 @@ with mlflow.start_run(
 
 # COMMAND ----------
 
-display(xgb_clf_model.transform(X_test_dt).select("probability"))
-
-# COMMAND ----------
-
 !pip install requests
 !pip install tabulate
 !pip install future
@@ -754,7 +759,10 @@ model = H2OXGBoostClassifier(labelCol = LABEL_COLUMN,
                             stoppingMetric="logloss")
 
 model_fit = model.fit(X_train_spark)
-mlflow.spark.log_model(model_fit,run_name)
+
+mlflow.spark.log_model(model_fit, "model")
+# to make sure model can be found progrmatically, 
+# use "model" as the name of the model
 
 prediction_val = model_fit.transform(X_val_spark)
 prediction_test = model_fit.transform(X_test_spark)
@@ -798,7 +806,10 @@ model = H2ODeepLearningClassifier (labelCol = LABEL_COLUMN,
                                   splitRatio=.9)
 
 model_fit = model.fit(X_train_spark)
-mlflow.spark.log_model(model_fit,run_name)
+
+mlflow.spark.log_model(model_fit, "model")
+# to make sure model can be found progrmatically, 
+# use "model" as the name of the model
 
 prediction_val = model_fit.transform(X_val_spark)
 prediction_test = model_fit.transform(X_test_spark)
@@ -809,42 +820,6 @@ stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, 
 log_stats_in_mlflow(stats)
 mlflow.end_run()
 display(stats)
-
-# COMMAND ----------
-
-from pysparkling.ml import H2OXGBoostClassifier 
-from pysparkling.ml import H2OGridSearch
-
-run_name = "Premier_Analysis_H2O_SparkingWater_tunned_XGBoost"
-
-mlflow.end_run()
-mlflow.start_run(experiment_id=experiment_id, 
-                 run_name = run_name)
-
-algo = H2OXGBoostClassifier (labelCol = 'label', 
-                             stoppingMetric="logloss",
-                             booster="gbtree",
-                             treeMethod="hist",
-                             growPolicy="lossguide",
-                            backend="gpu")
-
-hyperSpace = {"eta":       [0.001, 0.01, 0.1],
-             "maxDepth":   [5, 7, 11],
-             "ntrees":     [53, 61, 71],
-             "regAlpha":   [0, 0.1, 0.3],
-             "regLambda": [0, 0.1, 0.3],
-             "gamma":      [0, 0.1, 0.3]}
-
-grid = H2OGridSearch(hyperParameters=hyperSpace, 
-                     parallelism=0,
-                     algo=algo, 
-                     strategy="RandomDiscrete",
-                     maxModels=100,
-                     seed=2022,)
-
-model = grid.fit(X_train_spark)
-
-mlflow.spark.lo
 
 # COMMAND ----------
 
@@ -863,7 +838,7 @@ model = H2OAutoMLClassifier(labelCol = LABEL_COLUMN,
 model_fit = model.fit(X_train_spark)
 
 bestmodel = automl.getAllModels()[0]
-mlflow.spark.log_model(bestmodel,"h2o_sparking_water")
+mlflow.spark.log_model(bestmodel,"model")
 
 prediction_val = bestmodel.transform(X_val_spark)
 prediction_test = bestmodel.transform(X_test_spark)
@@ -873,56 +848,3 @@ stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, 
 
 log_stats_in_mlflow(stats)
 mlflow.end_run()
-
-# COMMAND ----------
-
-def get_best_model(experiment_id, metric = 'metrics.testing_auc'):
-    df_runs = mlflow.search_runs(experiment_ids=experiment_id)  # get child experiments under the parent experiment id
-    max_run = df_runs[df_runs[metric] == df_runs[metric].max()] # get the run that yield the max metric
-    run_id = 'runs:/'+str(max_run['run_id'].values[0])+'/model'        # prepare run id string
-    return run_id
-
-# COMMAND ----------
-
-def predict(sDF, experiment_id):
-    import mlflow
-    import pandas as pd
-    
-    # get best model
-    logged_model = get_best_model(experiment_id)
-
-    # Load model as a PyFuncModel.
-    loaded_model = mlflow.pyfunc.load_model(logged_model)
-
-    # Predict on a Pandas DataFrame.
-    p = loaded_model.predict(sDF.toPandas())
-    return p
-
-# COMMAND ----------
-
-run_id = get_best_model(experiment_id=experiment_id)
-
-# COMMAND ----------
-
-run_id
-
-# COMMAND ----------
-
-model = mlflow.spark.load_model(run_id)
-
-# COMMAND ----------
-
-prediction = model.transform(X_val_spark)
-
-
-# COMMAND ----------
-
-display(prediction)
-
-# COMMAND ----------
-
-predict(X_val_spark, experiment_id)
-
-# COMMAND ----------
-
-
