@@ -1,5 +1,6 @@
 # Databricks notebook source
-!pip install mlflow --quiet
+# MAGIC %pip install xgboost
+# MAGIC !pip install mlflow --quiet
 
 # COMMAND ----------
 
@@ -67,8 +68,9 @@ TEST_SPLIT = 0.2
 VAL_SPLIT = 0.1
 RAND = 2022
 CHRT_PRFX = ''
-#STRATIFY ='all'
 LABEL_COLUMN='label'
+FEATURES_COLUMN='featureS'
+VALIDATION_COLUMN="validation"
 
 # COMMAND ----------
 
@@ -236,7 +238,7 @@ def incrementaly_convert_pandas_to_spark_with_vectors(a_dataframe,c_names):
         
         if (i*inc) < a_dataframe.shape[0]:
             a_rdd = spark.sparkContext.parallelize(a_dataframe[i*inc:(1+i)*inc].to_numpy())
-            a_df = (a_rdd.map(lambda x: x.tolist()).toDF(c_names) )
+            a_df = (a_rdd.map(lambda x: x.tolist()).toDF(c_names+LABEL_COLUMN) )
 
             #a_df = spark.createDataFrame(a_rdd, c_names)
 
@@ -250,8 +252,7 @@ def incrementaly_convert_pandas_to_spark_with_vectors(a_dataframe,c_names):
             else:
                 spark_df = spark_df.union(a_spark_vector)
     
-    old_col_name = "_"+str(a_dataframe.shape[1]) # vector assembler would change the name of collumn y
-    spark_df = spark_df.withColumnRenamed (old_col_name,LABEL_COLUMN)
+ 
     return spark_df
 
 
@@ -280,11 +281,11 @@ c_names = change_columns_names(X)[:COLS]
 
 X_train_pandas = pd.DataFrame(X[train][:ROWS,:COLS].toarray(),columns=c_names)
 X_train_pandas[LABEL_COLUMN] = y[train][:ROWS].astype("int")
-X_train_pandas["validation"] = False
+X_train_pandas[VALIDATION_COLUMN] = False
 
 X_val_pandas = pd.DataFrame(X[val][:ROWS,:COLS].toarray(),columns=c_names)
 X_val_pandas[LABEL_COLUMN] = y[val][:ROWS].astype("int")
-X_train_pandas["validation"] = True
+X_train_pandas[VALIDATION_COLUMN] = True
 
 
 X_test_pandas = pd.DataFrame(X[test][:ROWS,:COLS].toarray(),columns=c_names)
@@ -313,8 +314,7 @@ def pandas_to_spark_via_parquet_files(pDF, c_names, results, index):
     sDF=spark.read.parquet(fileName)
     results[index] = VectorAssembler(outputCol="features")\
                     .setInputCols(c_names)\
-                    .transform(sDF)\
-                    .select([LABEL_COLUMN, 'features'])
+                    .transform(sDF)
     
 def convert_pDF_to_sDF_via_parquet_files(list_of_pandas, c_names):
     from threading import Thread
@@ -378,10 +378,10 @@ list_of_pandas = [X_train_pandas,X_val_pandas,X_test_pandas,X_train_val_pandas]
 #results = convert_pDF_to_sDF(list_of_pandas,c_names)
 results = convert_pDF_to_sDF_via_parquet_files(list_of_pandas,c_names)
 
-X_train_spark      = results[0].cache()
-X_val_spark        = results[1].cache()
-X_test_spark       = results[2].cache()
-X_train_val_spark  = results[3].cache()
+X_train_spark      = results[0].select(LABEL_COLUMN, FEATURES_COLUMN)
+X_val_spark        = results[1].select(LABEL_COLUMN, FEATURES_COLUMN)
+X_test_spark       = results[2].select(LABEL_COLUMN, FEATURES_COLUMN)
+X_train_val_spark  = results[3].select(LABEL_COLUMN, VALIDATION_COLUMN, FEATURES_COLUMN)
 
 # COMMAND ----------
 
@@ -394,13 +394,17 @@ for i in range(len(results)):
 
 # MAGIC %sql
 # MAGIC CREATE DATABASE IF NOT EXISTS too9_premier_analysis_demo;
+# MAGIC drop table IF  EXISTS   too9_premier_analysis_demo.train_data_set;
+# MAGIC drop table IF  EXISTS   too9_premier_analysis_demo.val_data_set;
+# MAGIC drop table IF  EXISTS   too9_premier_analysis_demo.test_data_set;
+# MAGIC drop table IF  EXISTS   too9_premier_analysis_demo.train_val_data_set;
 
 # COMMAND ----------
 
 X_train_spark.write.mode("overwrite").format("delta").saveAsTable("too9_premier_analysis_demo.train_data_set")
 X_val_spark.write.mode("overwrite").format("delta").saveAsTable("too9_premier_analysis_demo.val_data_set")
 X_test_spark.write.mode("overwrite").format("delta").saveAsTable("too9_premier_analysis_demo.test_data_set")
-X_train_val_pandas.write.mode("overwrite").format("delta").saveAsTable("too9_premier_analysis_demo.train_val_data_set")
+X_train_val_spark.write.mode("overwrite").format("delta").saveAsTable("too9_premier_analysis_demo.train_val_data_set")
 
 # COMMAND ----------
 
@@ -681,25 +685,47 @@ with mlflow.start_run(
                                               average=AVERAGE)
 
     log_stats_in_mlflow(stats)
-
-# COMMAND ----------
-
-# MAGIC %pip install xgboost
+    display(stats)
 
 # COMMAND ----------
 
 from sparkdl.xgboost import XgboostClassifier
-xgb_classifier = XgboostClassifier(max_depth=5, 
-                                   missing=0.0,
-                                   use_gpu=True,
-                                   early_stopping_rounds=1, 
-                                   validationIndicatorCol="validation"
-                                   eval_metric='logloss')
+mlflow.end_run()
+run_name="spark_with_xgboost"
+with mlflow.start_run(
+    run_name=run_name,
+    experiment_id=experiment_id,
+):
+    model = XgboostClassifier(missing=0.0, 
+                                   eval_metric='logloss')    
+    
+    model_fit = model.fit(X_train_dt)
+    
+    mlflow.spark.log_model(model_fit, "model")
+    
+    predictions_test = model_fit.transform(X_test_dt)
+    predictions_val  = model_fit.transform(X_val_dt)
+    
+    val_probs  = get_array_of_probs (predictions_val)
+    test_probs = get_array_of_probs (predictions_test)
+    
+    stats = get_statistics_from_probabilities(val_probs, 
+                                              test_probs, 
+                                              y_val, 
+                                              y_test,
+                                              mod_name=run_name, 
+                                              average=AVERAGE)
+    
+    log_stats_in_mlflow(stats)
+    display(stats)
+
+# COMMAND ----------
+
 
 
 # COMMAND ----------
 
-xgb_clf_model = xgb_classifier.fit(X_train_val_dt)
+display(xgb_clf_model.transform(X_test_dt).select("probability"))
 
 # COMMAND ----------
 
