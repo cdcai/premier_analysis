@@ -53,13 +53,6 @@ OUTPUT_TABLE=DATABASE+"."+OUTPUT_TABLE
 
 # COMMAND ----------
 
-print(experiment_id)
-print(INPUT_TABLE)
-print(OUTPUT_TABLE)
-print(METRIC)
-
-# COMMAND ----------
-
 def get_best_model(experiment_id, metric = 'metrics.testing_auc'):
     df_runs = mlflow.search_runs(experiment_ids=experiment_id)  # get child experiments under the parent experiment id
     max_run = df_runs[df_runs[metric] == df_runs[metric].max()] # get the run that yield the max metric
@@ -84,46 +77,18 @@ def predict(sDF, experiment_id):
 
 # COMMAND ----------
 
+dbutils.fs.rm("hive_metastore.too9_premier_analysis_demo.prediction_results")
+
+
+# COMMAND ----------
+
 run_id = get_best_model(experiment_id=experiment_id, metric=METRIC)
-
-# COMMAND ----------
-
-run_id
-
-# COMMAND ----------
-
 model = mlflow.spark.load_model(run_id)
-
-# COMMAND ----------
-
 batch_spark = spark.table(INPUT_TABLE)
 prediction = model.transform(batch_spark)
-
-# COMMAND ----------
-
-display(prediction)
-
-# COMMAND ----------
-
+spark.sql("drop table if exists "+OUTPUT_TABLE+";")
 prediction.write.mode("overwrite").format("delta").saveAsTable(OUTPUT_TABLE)
 
 # COMMAND ----------
 
-    df_runs = mlflow.search_runs(experiment_ids=experiment_id)  # get child experiments under the parent experiment id
-    max_run = df_runs[df_runs[METRIC] == df_runs[METRIC].max()]
-
-# COMMAND ----------
-
-print(max_run)
-
-# COMMAND ----------
-
-max_run.
-
-# COMMAND ----------
-
-type(max_run.artifact_uri[0])
-
-# COMMAND ----------
-
-
+›

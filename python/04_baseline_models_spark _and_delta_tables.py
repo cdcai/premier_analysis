@@ -579,7 +579,7 @@ from pyspark.ml.classification import LogisticRegression as lr
 
 bool = True
 
-model_class = [lr(maxIter=100,featuresCol='features',labelCol=LABEL_COLUMN),
+model_class = [lr(maxIter=5000,featuresCol='features',labelCol=LABEL_COLUMN),
               gbt(seed=2022,featuresCol='features',labelCol=LABEL_COLUMN), 
               dtc(seed=2022,featuresCol='features',labelCol=LABEL_COLUMN), 
               rfc (numTrees=500,seed=2022,featuresCol='features',labelCol=LABEL_COLUMN), 
@@ -600,7 +600,7 @@ for  i in range(len(model_class)):
     run_name="spark_with_delta_tables_"+modelName
     with mlflow.start_run(run_name=run_name, experiment_id=experiment_id):
         model = model_class[i]
-        model_fit = model.fit(X_train_spark)
+        model_fit = model.fit(X_train_dt)
 
         mlflow.spark.log_model(model_fit, "model")
         # to make sure model can be found progrmatically, 
@@ -695,8 +695,7 @@ with mlflow.start_run(
     experiment_id=experiment_id,
 ):
     
-    model = dbr_xgb(missing=0.0, 
-                                   eval_metric='logloss')    
+    model = dbr_xgb(missing=0.0, eval_metric='logloss')    
     
     model_fit = model.fit(X_train_dt)
     
@@ -763,8 +762,8 @@ mlflow.spark.log_model(model_fit, "model")
 # to make sure model can be found progrmatically, 
 # use "model" as the name of the model
 
-prediction_val = model_fit.transform(X_val_spark)
-prediction_test = model_fit.transform(X_test_spark)
+prediction_val = model_fit.transform(X_val_dt)
+prediction_test = model_fit.transform(X_test_dt)
 val_probs  = get_array_of_probabilities_from_sparkling_water_prediction (prediction_val)
 test_probs = get_array_of_probabilities_from_sparkling_water_prediction (prediction_test)
 stats = get_statistics_from_probabilities(val_probs, 
@@ -810,7 +809,7 @@ model = H2ODeepLearningClassifier (labelCol = LABEL_COLUMN,
 model_fit = model.fit(X_train_dt)
 
 mlflow.spark.log_model(model_fit, "model")
-# to make sure model can be found progrmatically, 
+# to make sure model can be found programatically, 
 # use "model" as the name of the model
 
 prediction_val = model_fit.transform(X_val_dt)
