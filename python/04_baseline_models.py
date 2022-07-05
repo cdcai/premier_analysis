@@ -400,7 +400,7 @@ for i, mod in enumerate(mods):
     print(stats)
     for i in stats.columns:
         if not isinstance(stats[i].iloc[0], str):
-            mlflow.log_metric("Testing "+i, stats[i].iloc[0])
+            mlflow.log_metric("testing_"+i, stats[i].iloc[0])
     #
     #
     #

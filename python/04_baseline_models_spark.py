@@ -186,10 +186,6 @@ else:
 
 # COMMAND ----------
 
-X.shape
-
-# COMMAND ----------
-
 def convert_pandas_to_spark_with_vectors(a_dataframe,c_names):
     from pyspark.sql import SparkSession
     from pyspark.ml.feature import VectorAssembler
@@ -198,22 +194,18 @@ def convert_pandas_to_spark_with_vectors(a_dataframe,c_names):
     assert c_names is not None
     assert len(c_names)>0
     
+    # rule of thumb: # of partitions equal to # of cores * 2
     number_of_partitions = int(spark.sparkContext.defaultParallelism)*2
 
     a_rdd = spark.sparkContext.parallelize(a_dataframe.to_numpy(), number_of_partitions)
-    #a_rdd = spark.sparkContext.parallelize(a_dataframe.to_numpy())
     
+    # incrementally transform rdd into Spark Data Frames
     a_df = (a_rdd.map(lambda x: x.tolist()).toDF(c_names+[LABEL_COLUMN]) )
 
     vecAssembler = VectorAssembler(outputCol="features")
     vecAssembler.setInputCols(c_names)
     spark_df = vecAssembler.transform(a_df)
     
-    #old_col_name = "_"+str(a_dataframe.shape[1]) 
-    #spark_df = spark_df.withColumnRenamed (old_col_name,'label')
-    
-    #display(spark_df)
-
     return spark_df
 
 # COMMAND ----------
@@ -286,10 +278,6 @@ X_test_pandas[LABEL_COLUMN] = y[test][:ROWS].astype("int")
 
 # COMMAND ----------
 
-X_test_pandas.shape
-
-# COMMAND ----------
-
 #
 # working around to transform pandas DF to spark DF
 #
@@ -306,9 +294,9 @@ def pandas_to_spark_via_parquet_files(pDF, c_names, results, index):
     results[index] = VectorAssembler(outputCol="features")\
                     .setInputCols(c_names)\
                     .transform(sDF)\
-                    .select([LABEL_COLUMN, 'features'])
+                    .select([LABEL_COLUMN, 'features']).cache()
     
-def convert_pDF_to_sDF_via_parquet_files(list_of_pandas, list_of_file_names):
+def convert_pDF_to_sDF_via_parquet_files(list_of_pandas, c_names):
     from threading import Thread
 
     results = [None] * len(list_of_pandas)
@@ -317,7 +305,6 @@ def convert_pDF_to_sDF_via_parquet_files(list_of_pandas, list_of_file_names):
     for index in range(0,len(threads)):
             threads [index] = Thread(target=pandas_to_spark_via_parquet_files, 
                                      args=(list_of_pandas[index], 
-                                           list_of_file_names[index],
                                            c_names, 
                                            results, 
                                            index))
@@ -331,18 +318,7 @@ def convert_pDF_to_sDF_via_parquet_files(list_of_pandas, list_of_file_names):
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC # Covert Pandas to Spark Data Frames in parallel
-# MAGIC 
-# MAGIC The convertion to Pandas DF to Spark DF proved to be very slow. 
-# MAGIC In order to improve the performance, the following code use Python threads to convert in parallel the required Pandas DF
-
-# COMMAND ----------
-
 def pandas_to_spark(pDF, c_names, results, index): 
-    #results[index] = convert_pandas_to_spark_with_vectors(pDF, c_names)\
-    #.select(['label','features']).repartition(int(spark.sparkContext.defaultParallelism))
-    
     results[index] = convert_pandas_to_spark_with_vectors(pDF, c_names).select([LABEL_COLUMN,'features']).cache()
         
 def convert_pDF_to_sDF(list_of_pandas, c_names):
@@ -366,20 +342,88 @@ def convert_pDF_to_sDF(list_of_pandas, c_names):
 
 # COMMAND ----------
 
-results = None
-list_of_pandas = [X_train_pandas,X_val_pandas,X_test_pandas]
-results = convert_pDF_to_sDF(list_of_pandas,c_names)
+def convert_pDF_to_sDF_via_spark_list_converter(pDF, schema, c_names, results, index):
+    from pyspark.ml.feature import VectorAssembler
 
-X_train_spark = results[0]
-X_val_spark = results[1]
-X_test_spark = results[2]
+    a_rdd = spark.sparkContext.parallelize(pDF.to_numpy(), int(spark.sparkContext.defaultParallelism)*2)
+    sDF = spark.createDataFrame(a_rdd, schema)
+    vecAssembler = VectorAssembler(outputCol="features")
+    vecAssembler.setInputCols(c_names)
+    a_spark_vector = vecAssembler.transform(sDF)
+    results[index] = a_spark_vector.select([LABEL_COLUMN, 'features']).cache()
 
 # COMMAND ----------
 
+def multi_thread_convert_pDF_to_sDF_via_spark_list_converter(list_of_pandas, c_names):
+    from threading import Thread
+    from pyspark.sql.types import StructField, StructType, IntegerType
 
-for i in range(len(results)): 
-    print(results[i].count())
-    print(results[i].rdd.getNumPartitions())
+    list_of_columns = c_names + [LABEL_COLUMN]
+    structures = list()
+    for i in range(len(list_of_columns)):
+        sf = StructField(list_of_columns[i], IntegerType(), True)
+        structures =  structures + [sf]
+    schema = StructType(structures)                        
+
+    results = [None] * len(list_of_pandas)
+    threads = [None] * len(list_of_pandas)
+
+    for index in range(0,len(threads)):
+            threads [index] = Thread(target=convert_pDF_to_sDF_via_spark_list_converter, 
+                                     args=(list_of_pandas[index], 
+                                           schema,
+                                           c_names, 
+                                           results, 
+                                           index))
+            threads[index].start()
+
+    for i in range(len(threads)):
+        threads[i].join()
+
+    return results   
+
+# COMMAND ----------
+
+#
+# it can take aproximately 10 min to complete
+#
+#list_of_pandas = [X_train_pandas,X_val_pandas,X_test_pandas]
+#convert_pDF_to_sDF_via_parquet_files(list_of_pandas, c_names)
+
+# COMMAND ----------
+
+#
+# it takes approximately 6 min to complete
+#
+#list_of_pandas = [X_train_pandas,X_val_pandas,X_test_pandas]
+#results = multi_thread_convert_pDF_to_sDF_via_spark_list_converter(list_of_pandas,c_names)
+
+# COMMAND ----------
+
+#
+# it takes approximately 5 min to complete
+#
+#list_of_pandas = [X_train_pandas,X_val_pandas,X_test_pandas]
+#results = convert_pDF_to_sDF(list_of_pandas,c_names)
+
+# COMMAND ----------
+
+#
+# testing direct convertion from pandas to spark DFs
+# it can take almost 1h to complete
+#
+from pyspark.ml.feature import VectorAssembler
+
+X_train_spark = VectorAssembler(outputCol="features").setInputCols(c_names).transform(spark.createDataFrame(X_train_pandas)).select(['label','features']).cache()
+X_val_spark = VectorAssembler(outputCol="features").setInputCols(c_names).transform(spark.createDataFrame(X_val_pandas)).select(['label','features']).cache()
+X_test_spark = VectorAssembler(outputCol="features").setInputCols(c_names).transform(spark.createDataFrame(X_test_pandas)).select(['label','features']).cache()
+
+
+# COMMAND ----------
+
+#X_train_spark = results[0]
+#X_val_spark = results[1]
+#X_test_spark = results[2]
 
 # COMMAND ----------
 
@@ -469,6 +513,109 @@ def get_array_of_probabilities_from_sparkling_water_prediction(predict_sDF):
 
 # COMMAND ----------
 
+from pyspark.ml.classification import LinearSVC as svc
+from pyspark.ml.classification import DecisionTreeClassifier as dtc
+from pyspark.ml.classification import GBTClassifier as gbt
+from pyspark.ml.classification import RandomForestClassifier as rfc
+from pyspark.ml.classification import LogisticRegression as lr
+
+bool = True
+
+model_class = [lr(maxIter=100,featuresCol='features',labelCol=LABEL_COLUMN),
+              gbt(seed=2022,featuresCol='features',labelCol=LABEL_COLUMN), 
+              dtc(seed=2022,featuresCol='features',labelCol=LABEL_COLUMN), 
+              rfc (numTrees=500,seed=2022,featuresCol='features',labelCol=LABEL_COLUMN), 
+              svc(maxIter=100,featuresCol='features',labelCol=LABEL_COLUMN)]
+model_names = ["LogisticRegression",
+              "GBTClassifier", 
+              "DecisionTreeClassifier", 
+              "RandomForestClassifier", 
+              "LinearSVC"]
+KNOWN_REGRESSORS_THAT_YIELD_PROBABILITIES = ["LogisticRegression", 
+                                             "GBTClassifier",
+                                             "RandomForestClassifier"]
+
+mlflow.end_run()
+
+for  i in range(len(model_class)):
+    modelName = model_names[i]
+    run_name="sDF_from_pDF_"+modelName
+    with mlflow.start_run(run_name=run_name, experiment_id=experiment_id):
+        model = model_class[i]
+        model_fit = model.fit(X_train_spark)
+
+        mlflow.spark.log_model(model_fit, run_name)
+
+        predictions_test = model_fit.transform(X_test_spark)
+
+        if modelName in KNOWN_REGRESSORS_THAT_YIELD_PROBABILITIES:
+            predictions_val = model_fit.transform(X_val_spark)
+            val_probs  = get_array_of_probs (predictions_val)
+            test_probs = get_array_of_probs (predictions_test)
+            stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name=modelName, average=AVERAGE)
+        else:
+            y_predict = predictions_test.select('prediction').toPandas()['prediction'].to_numpy()
+
+            stats = get_statistics_from_predict(y_predict, 
+                                        y_test, 
+                                        str(modelName), 
+                                        average=AVERAGE)
+        log_stats_in_mlflow(stats)
+
+        if bool == True:
+            bool = False
+            all_stats = stats
+        else:
+            all_stats = all_stats.append(stats)
+display(all_stats)
+
+# COMMAND ----------
+
+from pyspark.ml.classification import LogisticRegression as spark_lr
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.ml.tuning import CrossValidator, ParamGridBuilder, CrossValidatorModel
+
+mlflow.end_run()
+run_name="sDF_from_pDF_tunned_LR"
+with mlflow.start_run(
+    run_name=run_name,
+    experiment_id=experiment_id,
+):
+    lr = spark_lr(featuresCol='features',labelCol=LABEL_COLUMN)
+
+    paramGrid = (ParamGridBuilder()
+         .addGrid(lr.regParam, [0.01, 0.5, 2.0])
+         .addGrid(lr.elasticNetParam, [0.0, 0.5, 1.0])
+         .addGrid(lr.maxIter, [100, 500, 1000])
+         .build())
+
+    evaluator = BinaryClassificationEvaluator()
+
+    cv = CrossValidator(estimator=lr, estimatorParamMaps=paramGrid, evaluator=evaluator, parallelism=100)
+
+    cvModel = cv.fit(X_train_spark)
+
+    mlflow.spark.log_model(cvModel.bestModel, run_name)
+    
+    mlflow.log_param("elasticNetParam", cvModel.bestModel.getElasticNetParam())
+    mlflow.log_param("maxIter", cvModel.bestModel.getMaxIter())
+    mlflow.log_param("regParam", cvModel.bestModel.getRegParam())
+
+    predictions_test = cvModel.bestModel.transform(X_test_spark)
+    predictions_val  = cvModel.bestModel.transform(X_val_spark)
+    val_probs  = get_array_of_probs (predictions_val)
+    test_probs = get_array_of_probs (predictions_test)
+    stats = get_statistics_from_probabilities(val_probs, 
+                                              test_probs, 
+                                              y_val, 
+                                              y_test, 
+                                              mod_name="lr", 
+                                              average=AVERAGE)
+
+    log_stats_in_mlflow(stats)
+
+# COMMAND ----------
+
 from scipy.sparse import lil_matrix
 from sklearn.ensemble import GradientBoostingClassifier as sk_gbc
 from sklearn.ensemble import RandomForestClassifier as sk_rfc
@@ -544,109 +691,6 @@ for i, mod in enumerate(mods):
 
 # COMMAND ----------
 
-from pyspark.ml.classification import LinearSVC as svc
-from pyspark.ml.classification import DecisionTreeClassifier as dtc
-from pyspark.ml.classification import GBTClassifier as gbt
-from pyspark.ml.classification import RandomForestClassifier as rfc
-from pyspark.ml.classification import LogisticRegression as lr
-
-bool = True
-
-model_class = [lr(maxIter=100,featuresCol='features',labelCol=LABEL_COLUMN),
-              gbt(seed=2022,featuresCol='features',labelCol=LABEL_COLUMN), 
-              dtc(seed=2022,featuresCol='features',labelCol=LABEL_COLUMN), 
-              rfc (numTrees=500,seed=2022,featuresCol='features',labelCol=LABEL_COLUMN), 
-              svc(maxIter=100,featuresCol='features',labelCol=LABEL_COLUMN)]
-model_names = ["LogisticRegression",
-              "GBTClassifier", 
-              "DecisionTreeClassifier", 
-              "RandomForestClassifier", 
-              "LinearSVC"]
-KNOWN_REGRESSORS_THAT_YIELD_PROBABILITIES = ["LogisticRegression", 
-                                             "GBTClassifier",
-                                             "RandomForestClassifier"]
-
-mlflow.end_run()
-
-for  i in range(len(model_class)):
-    modelName = model_names[i]
-    run_name="spark_ml_NoRepartitions_"+modelName
-    with mlflow.start_run(run_name=run_name, experiment_id=experiment_id):
-        model = model_class[i]
-        model_fit = model.fit(X_train_spark)
-
-        mlflow.spark.log_model(model_fit, run_name)
-
-        predictions_test = model_fit.transform(X_test_spark)
-
-        if modelName in KNOWN_REGRESSORS_THAT_YIELD_PROBABILITIES:
-            predictions_val = model_fit.transform(X_val_spark)
-            val_probs  = get_array_of_probs (predictions_val)
-            test_probs = get_array_of_probs (predictions_test)
-            stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name=modelName, average=AVERAGE)
-        else:
-            y_predict = predictions_test.select('prediction').toPandas()['prediction'].to_numpy()
-
-            stats = get_statistics_from_predict(y_predict, 
-                                        y_test, 
-                                        str(modelName), 
-                                        average=AVERAGE)
-        log_stats_in_mlflow(stats)
-
-        if bool == True:
-            bool = False
-            all_stats = stats
-        else:
-            all_stats = all_stats.append(stats)
-display(all_stats)
-
-# COMMAND ----------
-
-from pyspark.ml.classification import LogisticRegression as spark_lr
-from pyspark.ml.evaluation import BinaryClassificationEvaluator
-from pyspark.ml.tuning import CrossValidator, ParamGridBuilder, CrossValidatorModel
-
-mlflow.end_run()
-run_name="spark_ml_tunned_LR"
-with mlflow.start_run(
-    run_name=run_name,
-    experiment_id=experiment_id,
-):
-    lr = spark_lr(featuresCol='features',labelCol=LABEL_COLUMN)
-
-    paramGrid = (ParamGridBuilder()
-         .addGrid(lr.regParam, [0.01, 0.5, 2.0])
-         .addGrid(lr.elasticNetParam, [0.0, 0.5, 1.0])
-         .addGrid(lr.maxIter, [100, 500, 1000])
-         .build())
-
-    evaluator = BinaryClassificationEvaluator()
-
-    cv = CrossValidator(estimator=lr, estimatorParamMaps=paramGrid, evaluator=evaluator, parallelism=100)
-
-    cvModel = cv.fit(X_train_spark)
-
-    mlflow.spark.log_model(cvModel.bestModel, run_name)
-    
-    mlflow.log_param("elasticNetParam", cvModel.bestModel.getElasticNetParam())
-    mlflow.log_param("maxIter", cvModel.bestModel.getMaxIter())
-    mlflow.log_param("regParam", cvModel.bestModel.getRegParam())
-
-    predictions_test = cvModel.bestModel.transform(X_test_spark)
-    predictions_val  = cvModel.bestModel.transform(X_val_spark)
-    val_probs  = get_array_of_probs (predictions_val)
-    test_probs = get_array_of_probs (predictions_test)
-    stats = get_statistics_from_probabilities(val_probs, 
-                                              test_probs, 
-                                              y_val, 
-                                              y_test, 
-                                              mod_name="lr", 
-                                              average=AVERAGE)
-
-    log_stats_in_mlflow(stats)
-
-# COMMAND ----------
-
 !pip install requests
 !pip install tabulate
 !pip install future
@@ -662,7 +706,7 @@ hc = H2OContext.getOrCreate()
 
 from pysparkling.ml import H2OXGBoostClassifier 
 
-run_name = "SparkingWater_XGBoost"
+run_name = "sDF_from_pDF_SparkingWater_XGBoost"
 mlflow.end_run()
 mlflow.start_run(experiment_id=experiment_id, 
                  run_name = run_name)
@@ -689,50 +733,10 @@ display(stats)
 
 # COMMAND ----------
 
-import mlflow
-from pysparkling.ml import H2ODeepLearningClassifier 
-
-X_train_spark = X_train_spark.withColumn("label", X_train_spark.label.cast("string"))
-X_val_spark = X_val_spark.withColumn("label", X_val_spark.label.cast("string"))
-X_test_spark = X_test_spark.withColumn("label", X_test_spark.label.cast("string"))
-
-
-run_name = "SparkingWater_DL"
-
-mlflow.end_run()
-mlflow.start_run(experiment_id=experiment_id, 
-                 run_name = run_name)
-
-model = H2ODeepLearningClassifier (labelCol = LABEL_COLUMN,
-                                   stoppingMetric="AUC",
-                                   stoppingRounds=10,
-                                   activation="RectifierWithDropout",
-                                   epochs=1000,
-                                   hidden=[1024,1024],
-                                   rate=0.001,
-                                   l1=0.1,
-                                   seed=2022,
-                                  splitRatio=.9)
-
-model_fit = model.fit(X_train_spark)
-mlflow.spark.log_model(model_fit,run_name)
-
-prediction_val = model_fit.transform(X_val_spark)
-prediction_test = model_fit.transform(X_test_spark)
-val_probs  = get_array_of_probabilities_from_sparkling_water_prediction (prediction_val)
-test_probs = get_array_of_probabilities_from_sparkling_water_prediction (prediction_test)
-stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, mod_name=run_name, average=AVERAGE)
-
-log_stats_in_mlflow(stats)
-mlflow.end_run()
-display(stats)
-
-# COMMAND ----------
-
 from pysparkling.ml import H2OXGBoostClassifier 
 from pysparkling.ml import H2OGridSearch
 
-run_name = "Premier_Analysis_H2O_SparkingWater_tunned_XGBoost"
+run_name = "sDF_from_pDF_SparkingWater_tunned_XGBoost"
 
 mlflow.end_run()
 mlflow.start_run(experiment_id=experiment_id, 
@@ -756,12 +760,12 @@ grid = H2OGridSearch(hyperParameters=hyperSpace,
                      parallelism=0,
                      algo=algo, 
                      strategy="RandomDiscrete",
-                     maxModels=100,
+                     maxModels=10,
                      seed=2022,)
 
 model = grid.fit(X_train_spark)
 
-mlflow.spark.lo
+mlflow.spark.log(model.)
 
 # COMMAND ----------
 
@@ -770,7 +774,7 @@ from pysparkling.ml import H2OAutoMLClassifier
 
 mlflow.end_run()
 mlflow.start_run(experiment_id=experiment_id, 
-                 run_name = "SparkingWater_AutoMl")
+                 run_name = "sDF_from_pDF_SparkingWater_AutoMl")
 
 model = H2OAutoMLClassifier(labelCol = LABEL_COLUMN, 
                             maxModels=100, 
@@ -790,55 +794,6 @@ stats = get_statistics_from_probabilities(val_probs, test_probs, y_val, y_test, 
 
 log_stats_in_mlflow(stats)
 mlflow.end_run()
-
-# COMMAND ----------
-
-def get_best_model(experiment_id, metric = 'metrics.testing_auc'):
-    df_runs = mlflow.search_runs(experiment_ids=experiment_id)  # get child experiments under the parent experiment id
-    max_run = df_runs[df_runs[metric] == df_runs[metric].max()] # get the run that yield the max metric
-    run_id = 'runs:/'+str(max_run['run_id'].values[0])+'/model'        # prepare run id string
-    return run_id
-
-# COMMAND ----------
-
-def predict(sDF, experiment_id):
-    import mlflow
-    import pandas as pd
-    
-    # get best model
-    logged_model = get_best_model(experiment_id)
-
-    # Load model as a PyFuncModel.
-    loaded_model = mlflow.pyfunc.load_model(logged_model)
-
-    # Predict on a Pandas DataFrame.
-    p = loaded_model.predict(sDF.toPandas())
-    return p
-
-# COMMAND ----------
-
-run_id = get_best_model(experiment_id=experiment_id)
-
-# COMMAND ----------
-
-run_id
-
-# COMMAND ----------
-
-model = mlflow.spark.load_model(run_id)
-
-# COMMAND ----------
-
-prediction = model.transform(X_val_spark)
-
-
-# COMMAND ----------
-
-display(prediction)
-
-# COMMAND ----------
-
-predict(X_val_spark, experiment_id)
 
 # COMMAND ----------
 
