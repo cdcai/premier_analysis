@@ -577,8 +577,6 @@ from pyspark.ml.classification import GBTClassifier as gbt
 from pyspark.ml.classification import RandomForestClassifier as rfc
 from pyspark.ml.classification import LogisticRegression as lr
 
-bool = True
-
 model_class = [lr(maxIter=5000,featuresCol='features',labelCol=LABEL_COLUMN),
               gbt(seed=2022,featuresCol='features',labelCol=LABEL_COLUMN), 
               dtc(seed=2022,featuresCol='features',labelCol=LABEL_COLUMN), 
@@ -621,13 +619,6 @@ for  i in range(len(model_class)):
                                         str(modelName), 
                                         average=AVERAGE)
         log_stats_in_mlflow(stats)
-
-        if bool == True:
-            bool = False
-            all_stats = stats
-        else:
-            all_stats = all_stats.append(stats)
-display(all_stats)
 
 # COMMAND ----------
 
