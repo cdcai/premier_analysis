@@ -88,7 +88,3 @@ batch_spark = spark.table(INPUT_TABLE)
 prediction = model.transform(batch_spark)
 spark.sql("drop table if exists "+OUTPUT_TABLE+";")
 prediction.write.mode("overwrite").format("delta").saveAsTable(OUTPUT_TABLE)
-
-# COMMAND ----------
-
-›
