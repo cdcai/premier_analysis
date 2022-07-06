@@ -8,7 +8,7 @@ import mlflow
 dbutils.widgets.removeAll()
 dbutils.widgets.text(
   name='experiment_id',
-  defaultValue='3289544690048618',
+  defaultValue='32908833595366',
   label='Experiment ID'
 )
 
@@ -21,7 +21,7 @@ DATABASE=dbutils.widgets.get("database")
 
 dbutils.widgets.text(
   name='input_table',
-  defaultValue='test_data_set',
+  defaultValue='test_data_set_t',
   label='Input Table'
 )
 INPUT_TABLE=dbutils.widgets.get("input_table")
