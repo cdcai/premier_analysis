@@ -38,7 +38,7 @@ dbutils.widgets.text(
 
 # COMMAND ----------
 
-dbutils.widgets.dropdown("model", "lstm", ["dan", "lstm", "hp_lstm", "hp_dan"])
+dbutils.widgets.dropdown("model", "dan", ["dan", "lstm", "hp_lstm", "hp_dan"])
 MOD_NAME = dbutils.widgets.get("model")
 
 # COMMAND ----------
@@ -582,7 +582,7 @@ else:
 print(stats)
 for i in stats.columns:
     if not isinstance(stats[i].iloc[0], str):
-        mlflow.log_metric("Testing "+i, stats[i].iloc[0])
+        mlflow.log_metric("Testing_"+i, stats[i].iloc[0])
 #
 # END MLFLOW RUN
 #
