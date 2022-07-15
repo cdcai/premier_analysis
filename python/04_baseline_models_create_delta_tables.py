@@ -17,6 +17,12 @@ EXPERIMENTING = dbutils.widgets.get("experimenting")
 if EXPERIMENTING == "True": EXPERIMENTING = True
 else: EXPERIMENTING = False
 
+dbutils.widgets.dropdown("overwrite_delta_tables", "False",  ["True", "False"])
+OVERWRITE = dbutils.widgets.get("overwrite_delta_tables")
+if OVERWRITE == "True": OVERWRITE = True
+else: OVERWRITE = False
+
+
 dbutils.widgets.text(
   name='database',
   defaultValue='too9_premier_analysis_demo',
@@ -45,6 +51,37 @@ dbutils.widgets.text(
   label='Testing Table'
 )
 TESTING_DT=dbutils.widgets.get("test_dt")
+
+
+# COMMAND ----------
+
+#
+# if OVERWRITE is false, you must make sure that the DB  and Tables actually exist
+# if they do not exist, OVERWRITE will be ignored and tables and DBs will be created
+#
+bool = True
+if OVERWRITE == False:
+    for db in spark.catalog.listDatabases():
+        if db.name == DATABASE:
+            tables = list()
+            for table in spark.catalog.listTables(DATABASE):
+                tables = tables + [table.name]
+            if TRAINNING_DT in tables \
+            and VALIDATION_DT in tables \
+            and TESTING_DT in tables:
+                bool = False
+                break
+if bool:
+    OVERWRITE = True
+
+# COMMAND ----------
+
+print(DATABASE)
+print(TRAINNING_DT)
+print(VALIDATION_DT)
+print(TESTING_DT)
+print(OVERWRITE)
+print(bool)
 
 
 # COMMAND ----------
@@ -341,52 +378,47 @@ def convert_pDF_to_sDF(list_of_pandas, c_names):
 #
 # create pandas frames from X
 #
-c_names = change_columns_names(X)[:COLS]
+def create_pDF_from_sparse_matrix(X, c_names):
+   
+    X_train_pandas = pd.DataFrame(X[train][:ROWS,:COLS].toarray(),columns=c_names)
+    X_train_pandas[LABEL_COLUMN] = y[train][:ROWS].astype("int")
 
-X_train_pandas = pd.DataFrame(X[train][:ROWS,:COLS].toarray(),columns=c_names)
-X_train_pandas[LABEL_COLUMN] = y[train][:ROWS].astype("int")
+    X_val_pandas = pd.DataFrame(X[val][:ROWS,:COLS].toarray(),columns=c_names)
+    X_val_pandas[LABEL_COLUMN] = y[val][:ROWS].astype("int")
 
-X_val_pandas = pd.DataFrame(X[val][:ROWS,:COLS].toarray(),columns=c_names)
-X_val_pandas[LABEL_COLUMN] = y[val][:ROWS].astype("int")
-
-X_test_pandas = pd.DataFrame(X[test][:ROWS,:COLS].toarray(),columns=c_names)
-X_test_pandas[LABEL_COLUMN] = y[test][:ROWS].astype("int")
-
-# COMMAND ----------
-
-results = None
-list_of_pandas = [X_train_pandas,X_val_pandas,X_test_pandas]
-results = convert_pDF_to_sDF(list_of_pandas,c_names)
-
-X_train_spark = results[0]
-X_val_spark   = results[1]
-X_test_spark  = results[2]
+    X_test_pandas = pd.DataFrame(X[test][:ROWS,:COLS].toarray(),columns=c_names)
+    X_test_pandas[LABEL_COLUMN] = y[test][:ROWS].astype("int")
+    
+    return [X_train_pandas, X_val_pandas,X_test_pandas ]
 
 # COMMAND ----------
 
 #
-# .count() forces the cache
+# DB and Delta Tables will be created, if they do not exist or if overwrite_delta_tables is equal to True
 #
-for i in range(len(results)): 
-    print(results[i].count())
-    print(results[i].rdd.getNumPartitions())
+if OVERWRITE == True:
+    c_names = change_columns_names(X)[:COLS]
+    list_of_pandas = create_pDF_from_sparse_matrix(X, c_names)
+    results = convert_pDF_to_sDF(list_of_pandas, c_names)
+
+    X_train_spark = results[0]
+    X_val_spark   = results[1]
+    X_test_spark  = results[2]
+    
+    #
+    # create database if it does not exist
+    #
+    sql = [f'CREATE DATABASE IF NOT EXISTS {DATABASE};']
+    for sql_st in sql: spark.sql(sql_st)
+    #
+    # save Spark Data Frames to Delta Tables
+    # it seems that Spark Frames created from delta tables
+    # work faster
+    #
+    X_train_spark.write.mode("overwrite").format("delta").saveAsTable(f'{DATABASE}.{TRAINNING_DT}')
+    X_train_spark.write.mode("overwrite").format("delta").saveAsTable(f'{DATABASE}.{VALIDATION_DT}')
+    X_train_spark.write.mode("overwrite").format("delta").saveAsTable(f'{DATABASE}.{TESTING_DT}')
 
 # COMMAND ----------
 
-sql = [f'CREATE DATABASE IF NOT EXISTS {DATABASE};']
-
-# COMMAND ----------
-
-for sql_st in sql: spark.sql(sql_st)
-
-# COMMAND ----------
-
-#
-# save Spark Data Frames to Delta Tables
-# it seems that Spark Frames created from delta tables
-# work faster
-#
-X_train_spark.write.mode("overwrite").format("delta").saveAsTable(f'{DATABASE}.{TRAINNING_DT}')
-X_train_spark.write.mode("overwrite").format("delta").saveAsTable(f'{DATABASE}.{VALIDATION_DT}')
-X_train_spark.write.mode("overwrite").format("delta").saveAsTable(f'{DATABASE}.{TESTING_DT}')
 
