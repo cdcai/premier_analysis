@@ -20,7 +20,7 @@ DATABASE=dbutils.widgets.get("database")
 
 dbutils.widgets.text(
   name='train_dt',
-  defaultValue='train_data_set_demo_july',
+  defaultValue='train_data_set',
   label='Trainning Table'
 )
 TRAINNING_DT=dbutils.widgets.get("train_dt")
@@ -28,14 +28,14 @@ TRAINNING_DT=dbutils.widgets.get("train_dt")
 
 dbutils.widgets.text(
   name='val_dt',
-  defaultValue='val_data_set_demo_july',
+  defaultValue='val_data_set',
   label='Validation Table'
 )
 VALIDATION_DT=dbutils.widgets.get("val_dt")
 
 dbutils.widgets.text(
   name='test_dt',
-  defaultValue='test_data_set_demo_july',
+  defaultValue='test_data_set',
   label='Testing Table'
 )
 TESTING_DT=dbutils.widgets.get("test_dt")

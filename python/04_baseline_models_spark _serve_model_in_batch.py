@@ -89,7 +89,7 @@ run_id = get_best_model(experiment_id=experiment_id, metric=METRIC)
 model = mlflow.spark.load_model(run_id)
 batch_spark = spark.table(INPUT_TABLE)
 prediction = model.transform(batch_spark)
-spark.sql("drop table if exists "+OUTPUT_TABLE+";")
+#spark.sql("drop table if exists "+OUTPUT_TABLE+";")
 prediction.write.mode("overwrite").format("delta").saveAsTable(OUTPUT_TABLE)
 
 # COMMAND ----------
