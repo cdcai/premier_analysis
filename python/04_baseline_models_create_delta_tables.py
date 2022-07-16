@@ -416,8 +416,8 @@ if OVERWRITE == True:
     # work faster
     #
     X_train_spark.write.mode("overwrite").format("delta").saveAsTable(f'{DATABASE}.{TRAINNING_DT}')
-    X_train_spark.write.mode("overwrite").format("delta").saveAsTable(f'{DATABASE}.{VALIDATION_DT}')
-    X_train_spark.write.mode("overwrite").format("delta").saveAsTable(f'{DATABASE}.{TESTING_DT}')
+    X_val_spark.write.mode("overwrite").format("delta").saveAsTable(f'{DATABASE}.{VALIDATION_DT}')
+    X_test_spark.write.mode("overwrite").format("delta").saveAsTable(f'{DATABASE}.{TESTING_DT}')
 
 # COMMAND ----------
 
