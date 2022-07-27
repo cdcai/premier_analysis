@@ -322,7 +322,8 @@ for i, mod in enumerate(mods):
     #
     
     mlflow.end_run()
-    mlflow.start_run(experiment_id=experiment_id)
+    mlflow.start_run(experiment_id=experiment_id, 
+                     run_name = "scikit-learn-"+mod_names[i])
     mlflow.autolog()
     mlflow.log_param("average", AVERAGE)
     mlflow.log_param("demographics", USE_DEMOG)

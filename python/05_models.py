@@ -304,7 +304,8 @@ with open(os.path.join(tensorboard_dir, "emb_metadata.tsv"), "w") as f:
 #
 
 mlflow.end_run()
-mlflow.start_run(experiment_id=experiment_id)
+mlflow.start_run(experiment_id=experiment_id, 
+                     run_name = "keras")
 mlflow.autolog()
 mlflow.log_param("demographics", DEMOG)
 mlflow.log_param("outcome", OUTCOME)

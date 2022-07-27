@@ -21,7 +21,7 @@ DATABASE=dbutils.widgets.get("database")
 
 dbutils.widgets.text(
   name='input_table',
-  defaultValue='test_data_set_t',
+  defaultValue='test_data_set',
   label='Input Table'
 )
 INPUT_TABLE=dbutils.widgets.get("input_table")
@@ -33,7 +33,7 @@ dbutils.widgets.text(
 )
 OUTPUT_TABLE=dbutils.widgets.get("output_table")
 
-dbutils.widgets.dropdown("Metric","auc",["auc","f1", "npv", "ppv", "sens","spec"])
+dbutils.widgets.dropdown("Metric","f1",["auc","f1", "npv", "ppv", "sens","spec"])
 METRIC = dbutils.widgets.get("Metric")
 
 # COMMAND ----------
