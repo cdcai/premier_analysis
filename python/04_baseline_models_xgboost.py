@@ -5,40 +5,20 @@
 # COMMAND ----------
 
 dbutils.widgets.removeAll()
-dbutils.widgets.text(
-  name='experiment_id',
-  defaultValue='1767884267538855',
-  label='Experiment ID'
-)
+dbutils.widgets.text( name='experiment_id', defaultValue='1767884267538855', label='Experiment ID')
 
 
-dbutils.widgets.text(
-  name='database',
-  defaultValue='too9_premier_analysis_demo',
-  label='Database'
-)
+dbutils.widgets.text( name='database', defaultValue='too9_premier_analysis_demo', label='Database')
 DATABASE=dbutils.widgets.get("database")
 
-dbutils.widgets.text(
-  name='train_dt',
-  defaultValue='train_data_set',
-  label='Trainning Table'
-)
+dbutils.widgets.text(name='train_dt', defaultValue='train_data_set', label='Trainning Table')
 TRAINNING_DT=dbutils.widgets.get("train_dt")
 
 
-dbutils.widgets.text(
-  name='val_dt',
-  defaultValue='val_data_set',
-  label='Validation Table'
-)
+dbutils.widgets.text( name='val_dt', defaultValue='val_data_set', label='Validation Table')
 VALIDATION_DT=dbutils.widgets.get("val_dt")
 
-dbutils.widgets.text(
-  name='test_dt',
-  defaultValue='test_data_set',
-  label='Testing Table'
-)
+dbutils.widgets.text( name='test_dt', defaultValue='test_data_set',label='Testing Table')
 TESTING_DT=dbutils.widgets.get("test_dt")
 
 # COMMAND ----------
@@ -168,23 +148,16 @@ from sparkdl.xgboost import XgboostClassifier as dbr_xgb
 
 mlflow.end_run()
 run_name="spark_with_xgboost"
-with mlflow.start_run(
-    run_name=run_name,
-    experiment_id=experiment_id,
-):
+with mlflow.start_run( run_name=run_name, experiment_id=experiment_id):
     
     model = dbr_xgb(missing=0.0, eval_metric='logloss')    
-    
     model_fit = model.fit(X_train_dt)
-    
     mlflow.spark.log_model(model_fit, "model")
-    
     predictions_test = model_fit.transform(X_test_dt)
     predictions_val  = model_fit.transform(X_val_dt)
     
     val_probs  = get_array_of_probs (predictions_val)
     test_probs = get_array_of_probs (predictions_test)
-    
     stats = get_statistics_from_probabilities(val_probs, 
                                               test_probs, 
                                               y_val, 
@@ -193,7 +166,6 @@ with mlflow.start_run(
                                               average=AVERAGE)
     
     log_stats_in_mlflow(stats)
-    display(stats)
 
 # COMMAND ----------
 
