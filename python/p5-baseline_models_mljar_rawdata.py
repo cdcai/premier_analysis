@@ -28,7 +28,7 @@ import mlflow
 dbutils.widgets.removeAll()
 dbutils.widgets.text(
   name='experiment_id',
-  defaultValue='388290745206631',
+  defaultValue='1006044204069715',
   label='Experiment ID'
 )
 
@@ -175,22 +175,18 @@ train, val = train_test_split(train_set,
 # COMMAND ----------
 
 suffix = "_outcome_"+OUTCOME+"_stratify_"+STRATIFY
-if EXPERIMENTING == True:
-    X_train = X[train][:100]
-    X_val = X[val][:100]
-    X_test = X[test][:100]
 
-    y_train = y[train][:100]
-    y_val = y[val][:100]
-    y_test = y[test][:100]
-else:
-    X_train = X[train]
-    X_val = X[val]
-    X_test = X[test]
+if EXPERIMENTING == True: SAMPLE = 1000
+else: SAMPLE = X.shape[0]
 
-    y_train = y[train]
-    y_val = y[val]
-    y_test = y[test]
+X_train = X[train][:SAMPLE]
+X_val = X[val][:SAMPLE]
+X_test = X[test][:SAMPLE]
+
+y_train = y[train][:SAMPLE]
+y_val = y[val][:SAMPLE]
+y_test = y[test][:SAMPLE]
+
 
 # COMMAND ----------
 
@@ -238,7 +234,7 @@ vs = {"validation_type" : "split", "train_ratio":.8, "shuffle":False, "stratify"
 
 
 
-automl = AutoML(results_path=mljar_folder, validation_strategy=vs)
+automl = AutoML(results_path=mljar_folder, validation_strategy=vs, n_jobs=-1)
 automl.fit(X_train_df, y_train_df)
 
 # COMMAND ----------
@@ -268,6 +264,10 @@ mlflow.log_artifacts(mljar_folder)
 # COMMAND ----------
 
 mlflow.end_run()
+
+# COMMAND ----------
+
+display(out)
 
 # COMMAND ----------
 

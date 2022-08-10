@@ -32,13 +32,13 @@ import mlflow
 dbutils.widgets.removeAll()
 dbutils.widgets.text(
   name='experiment_id',
-  defaultValue='1910247067387441',
+  defaultValue='1645704359340635',
   label='Experiment ID'
 )
 
 # COMMAND ----------
 
-dbutils.widgets.dropdown("model", "lstm", ["dan", "lstm", "hp_lstm", "hp_dan"])
+dbutils.widgets.dropdown("model", "dan", ["dan", "lstm", "hp_lstm", "hp_dan"])
 MOD_NAME = dbutils.widgets.get("model")
 
 # COMMAND ----------
@@ -304,7 +304,8 @@ with open(os.path.join(tensorboard_dir, "emb_metadata.tsv"), "w") as f:
 #
 
 mlflow.end_run()
-mlflow.start_run(experiment_id=experiment_id)
+mlflow.start_run(experiment_id=experiment_id, 
+                     run_name = "keras")
 mlflow.autolog()
 mlflow.log_param("demographics", DEMOG)
 mlflow.log_param("outcome", OUTCOME)
@@ -525,7 +526,6 @@ elif "dan" in MOD_NAME:
                   validation_data=(X[val], y[val]),
                   #callbacks=callbacks,
                   class_weight=weight_dict)
-        mlflow.keras.log_model(model, "dan")
 
 
     # Produce DAN predictions on validation and test sets
@@ -542,10 +542,7 @@ if N_CLASS <= 2:
     # NOTE: we could change that too. Maybe that's not the best objective
     cutpoint = val_gm.cutoff.values[np.argmax(val_gm.f1)]
     
-    #
-    # add f1 to mlflow metrics
-    #
-    mlflow.log_metric("F1", np.max(val_gm.f1))
+
 
     # Getting the stats
     stats = ta.clf_metrics(y[test],
@@ -578,44 +575,15 @@ else:
 #
 # add metrics to MLFLow
 #
-
-print(stats)
+mlflow.keras.log_model(model, "model")
 for i in stats.columns:
     if not isinstance(stats[i].iloc[0], str):
-        mlflow.log_metric("Testing "+i, stats[i].iloc[0])
+        mlflow.log_metric("testing_"+i, stats[i].iloc[0])
 #
 # END MLFLOW RUN
 #
 mlflow.end_run()
 
-
-# COMMAND ----------
-
-# --- Writing the metrics results to disk
-# Optionally append results if file already exists
-append_file = os.path.exists(stats_file)
-
-stats.to_csv(stats_file,
-             mode="a" if append_file else "w",
-             header=False if append_file else True,
-             index=False)
-
-# --- Writing the predicted probabilities to disk
-with open(probs_file, "wb") as f:
-    pkl.dump(prob_out, f)
-
-# --- Writing the test predictions to the test predictions CSV
-
-if os.path.exists(preds_file):
-    preds_df = pd.read_csv(preds_file)
-else:
-    preds_df = pd.read_csv(
-        os.path.join(output_dir, OUTCOME + "_cohort.csv"))
-    preds_df = preds_df.iloc[test, :]
-
-preds_df[MOD_NAME + '_prob'] = test_probs
-preds_df[MOD_NAME + '_pred'] = test_preds
-preds_df.to_csv(preds_file, index=False)
 
 # COMMAND ----------
 

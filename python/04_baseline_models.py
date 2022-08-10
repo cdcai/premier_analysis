@@ -6,7 +6,7 @@
 dbutils.widgets.removeAll()
 dbutils.widgets.text(
   name='experiment_id',
-  defaultValue='1910247067387441',
+  defaultValue='1645704359340635',
   label='Experiment ID'
 )
 
@@ -21,6 +21,11 @@ else: USE_DEMOG = False
 
 dbutils.widgets.dropdown("stratify", "all", ['all', 'death', 'misa_pt', 'icu'])
 STRATIFY = dbutils.widgets.get("stratify")
+
+dbutils.widgets.dropdown("experimenting", "False",  ["True", "False"])
+EXPERIMENTING = dbutils.widgets.get("experimenting")
+if EXPERIMENTING == "True": EXPERIMENTING = True
+else: EXPERIMENTING = False
 
 # COMMAND ----------
 
@@ -260,7 +265,7 @@ lgr = LogisticRegression(max_iter=5000, multi_class='ovr')
 mlflow.sklearn.autolog(log_models=True)
 with mlflow.start_run(experiment_id=experiment_id) as run:
     lgr.fit(X, y)
-    mlflow.sklearn.log_model(lgr, "lgr")
+    mlflow.sklearn.log_model(lgr, "model")
 coef_list = []
 
 # Sorting the coefficients for
@@ -317,7 +322,8 @@ for i, mod in enumerate(mods):
     #
     
     mlflow.end_run()
-    mlflow.start_run(experiment_id=experiment_id)
+    mlflow.start_run(experiment_id=experiment_id, 
+                     run_name = "scikit-learn-"+mod_names[i])
     mlflow.autolog()
     mlflow.log_param("average", AVERAGE)
     mlflow.log_param("demographics", USE_DEMOG)
@@ -328,7 +334,7 @@ for i, mod in enumerate(mods):
     #
     
     mod.fit(X[train], y[train])
-    mlflow.sklearn.log_model(mod, mod_names[i])
+    mlflow.sklearn.log_model(mod, "model")
     mod_name = mod_names[i]
     if DAY_ONE_ONLY:
         mod_name += '_d1'
@@ -387,31 +393,19 @@ for i, mod in enumerate(mods):
                        test_idx=test)
 
     # Saving the results to disk
-    ta.write_stats(stats, OUTCOME, stats_dir=stats_dir)
+    #ta.write_stats(stats, OUTCOME, stats_dir=stats_dir)
     #
     #
     # add metrics to MLFLow
     #
-    print(stats)
     for i in stats.columns:
         if not isinstance(stats[i].iloc[0], str):
-            mlflow.log_metric("Testing "+i, stats[i].iloc[0])
+            mlflow.log_metric("testing_"+i, stats[i].iloc[0])
+    display(stats)
     #
     #
     #
     
-
-# COMMAND ----------
-
-stats_dir
-
-# COMMAND ----------
-
-stats_pd = pd.read_csv('/dbfs/home/tnk6/premier_output/analysis/icu_stats.csv')
-
-# COMMAND ----------
-
-stats_pd
 
 # COMMAND ----------
 
