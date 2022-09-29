@@ -19,6 +19,22 @@ import tools.analysis as ta
 import tools.preprocessing as tp
 import tools.keras as tk
 
+from azureml.core import Workspace, Dataset
+from azureml.core import Run
+
+
+class LogToAzure(keras.callbacks.Callback):
+    '''Keras Callback for realtime logging to Azure'''
+    def __init__(self, run):
+        super(LogToAzure, self).__init__()
+        self.run = run
+
+    def on_epoch_end(self, epoch, logs=None):
+        # Log all log data to Azure
+        for k, v in logs.items():
+            self.run.log(k, v)
+
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
@@ -134,12 +150,40 @@ if __name__ == "__main__":
     RAND = args.rand_seed
     TB_UPDATE_FREQ = args.tb_update_freq
 
+
+    ########## Run AZUREML ######################
+    run = Run.get_context()
+    print("run name:",run.display_name)
+    print("run details:",run.get_details())
+    
+    run.log("MOD_NAME",MOD_NAME)
+    run.log("Outcome",OUTCOME)
+    run.log("DAY_ONE_ONLY",DAY_ONE_ONLY)
+    run.log("DEMOG",DEMOG)
+    run.log("BATCH_SIZE",BATCH_SIZE)
+    run.log("EPOCHS",EPOCHS)
+    
+    ws = run.experiment.workspace
+    data_store = ws.get_default_datastore()
+
+       ##########Loading the data from datastore
+    print("Creating dataset from Datastore")
+    inputs = Dataset.File.from_files(path=data_store.path('pkl/trimmed_seqs.pkl'))
+    vocab = Dataset.File.from_files(path=data_store.path('pkl/all_ftrs_dict.pkl'))
+    all_feats = Dataset.File.from_files(path=data_store.path('pkl/feature_lookup.pkl'))
+    demog_dict = Dataset.File.from_files(path=data_store.path('pkl/demog_dict.pkl'))
+    cohort = Dataset.Tabular.from_delimited_files(path=data_store.path('cohort/cohort.csv'))
+
+
     # DIRS
     pwd = os.path.dirname(__file__)
 
     # If no args are passed to overwrite these values, use repo structure to construct
-    data_dir = os.path.abspath(os.path.join(pwd, "..", "data", "data", ""))
-    output_dir = os.path.abspath(os.path.join(pwd, "..","output/", ""))
+    #data_dir = os.path.abspath(os.path.join(pwd, "..", "data", "data", ""))
+    #output_dir = os.path.abspath(os.path.join(pwd, "..","output/", ""))
+
+    data_dir = os.path.abspath(os.path.join(pwd,"data", "data", ""))
+    output_dir = os.path.abspath(os.path.join(pwd,"output"))
 
     if args.data_dir is not None:
         data_dir = os.path.abspath(args.data_dir)
@@ -152,17 +196,26 @@ if __name__ == "__main__":
     pkl_dir = os.path.join(output_dir, "pkl")
     stats_dir = os.path.join(output_dir, "analysis")
     probs_dir = os.path.join(stats_dir, "probs")
+    cohort_dir = os.path.join(output_dir, "cohort")
 
     # Create analysis dir if it doesn't exist
     [
         os.makedirs(directory, exist_ok=True)
-        for directory in [stats_dir, probs_dir,tensorboard_dir]
+        for directory in [stats_dir, probs_dir,tensorboard_dir,pkl_dir,cohort_dir]
     ]
 
     # FILES Created
     stats_file = os.path.join(stats_dir, OUTCOME + "_stats.csv")
     probs_file = os.path.join(probs_dir, MOD_NAME + "_" + OUTCOME + ".pkl")
     preds_file = os.path.join(stats_dir, OUTCOME + "_preds.csv")
+
+
+    ########################## Download data in pkl dir
+    inputs.download(target_path=pkl_dir,overwrite=True,ignore_not_found=True)
+    vocab.download(target_path=pkl_dir,overwrite=True,ignore_not_found=True)
+    all_feats.download(target_path=pkl_dir,overwrite=True,ignore_not_found=True)
+    demog_dict.download(target_path=pkl_dir,overwrite=True,ignore_not_found=True)
+    cohort.to_pandas_dataframe().to_csv(os.path.join(cohort_dir,'cohort.csv'))
 
     # Data load
     with open(os.path.join(pkl_dir, CHRT_PRFX, "trimmed_seqs.pkl"), "rb") as f:
@@ -192,7 +245,7 @@ if __name__ == "__main__":
     MAX_DEMOG = max(len(x) for _, x, _ in inputs)
 
     # Setting y here so it's stable
-    cohort = pd.read_csv(os.path.join(output_dir, CHRT_PRFX, 'cohort.csv'))
+    cohort = pd.read_csv(os.path.join(output_dir, CHRT_PRFX, 'cohort','cohort.csv'))
     labels = cohort[OUTCOME]
     y = cohort[OUTCOME].values.astype(np.uint8)
 
@@ -266,7 +319,10 @@ if __name__ == "__main__":
         keras.callbacks.EarlyStopping(monitor="val_loss",
                                       min_delta=0,
                                       patience=2,
-                                      mode="auto")
+                                      mode="auto"),
+        
+        # Log epochs
+        LogToAzure(run)
     ]
 
     # === Long short-term memory model
@@ -414,6 +470,7 @@ if __name__ == "__main__":
                                test_probs,
                                cutpoint=cutpoint,
                                mod_name=MOD_NAME)
+        run.log(name="fscore1",value=stats.to_dict()['f1'][0])
 
         # Creating probability dict to save
         prob_out = {'cutpoint': cutpoint, 'probs': test_probs}
@@ -427,6 +484,7 @@ if __name__ == "__main__":
                                test_probs,
                                average="weighted",
                                mod_name=MOD_NAME)
+        run.log(name="fscore1",value=stats.to_dict()['f1'][0])
 
         # Creating probability dict to save
         prob_out = {'cutpoint': 0.5, 'probs': test_probs}
@@ -452,13 +510,13 @@ if __name__ == "__main__":
 
     # --- Writing the test predictions to the test predictions CSV
 
-    if os.path.exists(preds_file):
-        preds_df = pd.read_csv(preds_file)
-    else:
-        preds_df = pd.read_csv(
-            os.path.join(output_dir, OUTCOME + "_cohort.csv"))
-        preds_df = preds_df.iloc[test, :]
+    #if os.path.exists(preds_file):
+    #    preds_df = pd.read_csv(preds_file)
+    #else:
+    #    preds_df = pd.read_csv(
+    #        os.path.join(output_dir, OUTCOME + "_cohort.csv"))
+    #    preds_df = preds_df.iloc[test, :]
 
-    preds_df[MOD_NAME + '_prob'] = test_probs
-    preds_df[MOD_NAME + '_pred'] = test_preds
-    preds_df.to_csv(preds_file, index=False)
+    #preds_df[MOD_NAME + '_prob'] = test_probs
+    #preds_df[MOD_NAME + '_pred'] = test_preds
+    #preds_df.to_csv(preds_file, index=False)

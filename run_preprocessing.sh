@@ -32,7 +32,7 @@ run_feature_extraction() {
 # Run features to integers to encode text features to integer representation
 run_encoding() {
     # Run DAN
-    python "${PWD}/python/features_tokenization.py"
+    python "${PWD}/python/feature_tokenization.py"
 }
 
 echo "Running feature extraction >>"
