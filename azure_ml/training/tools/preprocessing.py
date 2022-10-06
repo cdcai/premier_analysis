@@ -115,8 +115,7 @@ def df_to_features(df,
     # Optionally quantizing the numeric column
     if num_col is not None:
         # Converting the numeric values to quantiles
-        df['q'] = df.groupby(text_col)[num_col].transform(
-            lambda x: pd.qcut(x=x, q=buckets, labels=False, duplicates='drop'))
+        df['q'] = df.groupby(text_col)[num_col].transform(lambda x: pd.qcut(x=x, q=buckets, labels=False, duplicates='drop'))
 
         # Figuring out which tests have non-numeric results
         missing_num = np.where(np.isnan(df.q))[0]

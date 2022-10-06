@@ -123,6 +123,19 @@ if __name__ == "__main__":
         help="How frequently (in batches) should Tensorboard write diagnostics?"
     )
 
+    ################# Pipelinedata
+    parser.add_argument("--trimmed_seq_pkl_file",type=str)
+    parser.add_argument("--demog_dict_file",type=str)
+    parser.add_argument("--all_ftrs_dict_file",type=str)
+    parser.add_argument("--feature_lookup",type=str)
+    parser.add_argument("--cohort",type=str)
+
+    parser.add_argument("--model_file",type=str)
+    parser.add_argument("--probs_file",type=str)
+    parser.add_argument("--stats_file",type=str)
+    parser.add_argument("--preds_file",type=str)
+
+
     # Parse Args, assign to globals
     args = parser.parse_args()
 
@@ -166,15 +179,6 @@ if __name__ == "__main__":
     ws = run.experiment.workspace
     data_store = ws.get_default_datastore()
 
-       ##########Loading the data from datastore
-    print("Creating dataset from Datastore")
-    inputs = Dataset.File.from_files(path=data_store.path('pkl/trimmed_seqs.pkl'))
-    vocab = Dataset.File.from_files(path=data_store.path('pkl/all_ftrs_dict.pkl'))
-    all_feats = Dataset.File.from_files(path=data_store.path('pkl/feature_lookup.pkl'))
-    demog_dict = Dataset.File.from_files(path=data_store.path('pkl/demog_dict.pkl'))
-    cohort = Dataset.Tabular.from_delimited_files(path=data_store.path('cohort/cohort.csv'))
-
-
     # DIRS
     pwd = os.path.dirname(__file__)
 
@@ -197,38 +201,35 @@ if __name__ == "__main__":
     stats_dir = os.path.join(output_dir, "analysis")
     probs_dir = os.path.join(stats_dir, "probs")
     cohort_dir = os.path.join(output_dir, "cohort")
-    model_outputs_dir = os.path.join("outputs", "model")
 
     # Create analysis dir if it doesn't exist
     [
         os.makedirs(directory, exist_ok=True)
-        for directory in [stats_dir, probs_dir,tensorboard_dir,pkl_dir,cohort_dir,model_outputs_dir]
+        for directory in [stats_dir, probs_dir,tensorboard_dir,pkl_dir,cohort_dir]
     ]
 
+    ####### SAVE in the Pipeline Data ##############
+    os.makedirs(args.model_file, exist_ok=True)
+    os.makedirs(args.stats_file, exist_ok=True)
+    os.makedirs(args.preds_file, exist_ok=True)
+    os.makedirs(args.probs_file, exist_ok=True)
+
     # FILES Created
-    stats_file = os.path.join(stats_dir, OUTCOME + "_stats.csv")
-    probs_file = os.path.join(probs_dir, MOD_NAME + "_" + OUTCOME + ".pkl")
-    preds_file = os.path.join(stats_dir, OUTCOME + "_preds.csv")
-
-
-    ########################## Download data in pkl dir
-    inputs.download(target_path=pkl_dir,overwrite=True,ignore_not_found=True)
-    vocab.download(target_path=pkl_dir,overwrite=True,ignore_not_found=True)
-    all_feats.download(target_path=pkl_dir,overwrite=True,ignore_not_found=True)
-    demog_dict.download(target_path=pkl_dir,overwrite=True,ignore_not_found=True)
-    cohort.to_pandas_dataframe().to_csv(os.path.join(cohort_dir,'cohort.csv'))
+    stats_file = os.path.join(args.stats_file, OUTCOME + "_stats.csv")
+    probs_file = os.path.join(args.probs_file, MOD_NAME + "_" + OUTCOME + ".pkl")
+    preds_file = os.path.join(args.preds_file, OUTCOME + "_preds.csv")
 
     # Data load
-    with open(os.path.join(pkl_dir, CHRT_PRFX, "trimmed_seqs.pkl"), "rb") as f:
+    with open(os.path.join(args.trimmed_seq_pkl_file, CHRT_PRFX, "trimmed_seqs.pkl"), "rb") as f:
         inputs = pkl.load(f)
 
-    with open(os.path.join(pkl_dir, "all_ftrs_dict.pkl"), "rb") as f:
+    with open(os.path.join(args.all_ftrs_dict_file, "all_ftrs_dict.pkl"), "rb") as f:
         vocab = pkl.load(f)
 
-    with open(os.path.join(pkl_dir, "feature_lookup.pkl"), "rb") as f:
+    with open(os.path.join(args.feature_lookup, "feature_lookup.pkl"), "rb") as f:
         all_feats = pkl.load(f)
 
-    with open(os.path.join(pkl_dir, "demog_dict.pkl"), "rb") as f:
+    with open(os.path.join(args.demog_dict_file, "demog_dict.pkl"), "rb") as f:
         demog_lookup = pkl.load(f)
 
     # Save Embedding metadata
@@ -246,7 +247,7 @@ if __name__ == "__main__":
     MAX_DEMOG = max(len(x) for _, x, _ in inputs)
 
     # Setting y here so it's stable
-    cohort = pd.read_csv(os.path.join(output_dir, CHRT_PRFX, 'cohort','cohort.csv'))
+    cohort = pd.read_csv(os.path.join(args.cohort, CHRT_PRFX, 'cohort.csv'))
     labels = cohort[OUTCOME]
     y = cohort[OUTCOME].values.astype(np.uint8)
 
@@ -392,11 +393,7 @@ if __name__ == "__main__":
         # DAN Model feeds in all features at once, so there's no need to limit to the
         # sequence length, which is a size of time steps. Here we take the maximum size
         # of features that pad_sequences padded all the samples up to in the previous step.
-        print("X shape:",X.shape)
-
         TIME_SEQ = X.shape[1]
-
-        print("maximum feature seq: ",TIME_SEQ)
 
         if "hp_dan" in MOD_NAME:
             # NOTE: IF HP-tuned, we want to use SGD with the
@@ -504,6 +501,7 @@ if __name__ == "__main__":
     # Optionally append results if file already exists
     append_file = os.path.exists(stats_file)
 
+    ## SHOULD SAVE STATSFILE
     stats.to_csv(stats_file,
                  mode="a" if append_file else "w",
                  header=False if append_file else True,
@@ -512,11 +510,20 @@ if __name__ == "__main__":
     # --- Writing the predicted probabilities to disk
     with open(probs_file, "wb") as f:
         pkl.dump(prob_out, f)
-    
-    ##### SAVING model in azure outputs folder
-    model.save(os.path.join(model_outputs_dir,MOD_NAME + "_" + OUTCOME +".h5"))
 
     # --- Writing the test predictions to the test predictions CSV
+    
+    #### SAVING ONLY TEST PREDICTIONS FOR PATIENT TEST IN COHORT FILE
+    preds_df = pd.read_csv(
+            os.path.join(args.cohort, 'cohort.csv'))
+    preds_df = preds_df.iloc[test, :]
+
+    preds_df[MOD_NAME + '_prob'] = test_probs
+    preds_df[MOD_NAME + '_pred'] = test_preds
+    preds_df.to_csv(preds_file, index=False)
+
+    ### SAVING THE MODEL
+    model.save(os.path.join(args.model_file, MOD_NAME + "_" + OUTCOME + ".h5"))
 
     #if os.path.exists(preds_file):
     #    preds_df = pd.read_csv(preds_file)

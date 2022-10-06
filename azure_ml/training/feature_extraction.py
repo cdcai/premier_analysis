@@ -12,6 +12,12 @@ import pandas as pd
 import tools.multi as tm
 import tools.preprocessing as tp
 
+import argparse
+
+########## AZUREML package ######################
+from azureml.core import Workspace, Datastore, Dataset
+from azureml.core import Run
+
 # Unit of time to use for aggregation
 TIME_UNIT = 'dfi'
 
@@ -19,6 +25,14 @@ TIME_UNIT = 'dfi'
 COVID_ONLY = True
 
 # Setting the file directories
+#pwd = os.path.abspath(os.path.dirname(__file__))
+#prem_dir = os.path.join(pwd, "..", "data", "data", "")
+#out_dir = os.path.join(pwd, "..", "output", "")
+#parq_dir = os.path.join(out_dir, "parquet", "")
+#pkl_dir = os.path.join(out_dir, "pkl", "")
+#samp_dir = os.path.join(out_dir, "samples", "")
+
+##### Setting the file directories for AZURE Container
 pwd = os.path.abspath(os.path.dirname(__file__))
 prem_dir = os.path.join(pwd, "..", "data", "data", "")
 out_dir = os.path.join(pwd, "..", "output", "")
@@ -26,11 +40,62 @@ parq_dir = os.path.join(out_dir, "parquet", "")
 pkl_dir = os.path.join(out_dir, "pkl", "")
 samp_dir = os.path.join(out_dir, "samples", "")
 
-[os.makedirs(path, exist_ok=True) for path in [parq_dir, pkl_dir, samp_dir]]
 
+datastore_name = 'edav_dev_ds'
+cdh_path = 'exploratory/databricks_ml/mitre_premier/data/'
+datasets_path_name =  ['vw_covid_pat','vw_covid_id','vw_covid_genlab',
+                            'vw_covid_hx_genlab','vw_covid_lab_res','vw_covid_hx_lab_res','vw_covid_vitals',
+                            'vw_covid_hx_vitals','vw_covid_bill_lab','vw_covid_bill_pharm','vw_covid_bill_oth',
+                            'vw_covid_hx_bill','vw_covid_paticd_diag','vw_covid_paticd_proc','vw_covid_additional_paticd_diag',
+                            'vw_covid_additional_paticd_proc','icdcode','vw_covid_pat_all','providers']
+
+
+[os.makedirs(path, exist_ok=True) for path in [parq_dir, pkl_dir, samp_dir,prem_dir]]
+
+
+
+def download_files(datastore,_path_name,src_dir,download_dir):
+    print(f"Downloading data :{_path_name}.....")
+    
+    # Azure data lake storage path
+    patient_datapath = os.path.join(src_dir,_path_name)
+    # print(patient_datapath)
+    datastore_paths = [(datastore, patient_datapath)]
+
+    #load parquet files from # Azure data lake storage
+    ds = Dataset.File.from_files(path= datastore_paths)
+
+    # local path to download data
+    download_data_path = os.path.join(download_dir,_path_name)
+     # create folder
+    os.makedirs(download_data_path,exist_ok=True)
+
+    ds.download(target_path=download_data_path,overwrite=True,ignore_not_found=True)
 
 
 def main():
+
+    parser = argparse.ArgumentParser("prepare")
+
+    parser.add_argument("--flat_features",type=str)
+    parser.add_argument("--feature_lookup",type=str)
+
+    args = parser.parse_args()
+
+    ########## Run AZUREML ######################
+    run = Run.get_context()
+    print("run name:",run.display_name)
+    print("run details:",run.get_details())
+    
+    ws = run.experiment.workspace
+    # retrieve an existing datastore in the workspace by name
+    datastore = Datastore.get(ws, datastore_name)
+
+    print("Downloading premier parquet files..")
+    for ds_name in datasets_path_name:
+        download_files(datastore,ds_name,cdh_path,prem_dir)
+
+
     # Importing the parquet files
     print('')
     print('Loading the parquet files...')
@@ -50,7 +115,25 @@ def main():
 
     print('Converting the free-text fields to features...')
 
+    print("# genlab:", len(pq.genlab))
+    print("cols genlab:",pq.genlab.columns)
+
+
     # Vectorizing the single free text fields
+    print("genlab features extraction..")
+    genlab, genlab_dict = tp.df_to_features(
+        pq.genlab,
+        feature_prefix='genl',
+        text_col='lab_test_loinc_desc',
+        time_cols=['collection_day_number', 'collection_time_of_day'],
+        replace_col='lab_test_result',
+        num_col='numeric_value')
+    pq.genlab = []
+
+    print("# vitals:", len(pq.vitals))
+    print("cols vitals:",pq.vitals.columns)
+
+    print("vitals features extraction..")
     vitals, v_dict = tp.df_to_features(
         pq.vitals,
         feature_prefix='vtl',
@@ -65,14 +148,6 @@ def main():
                                         time_cols=['serv_day'])
     pq.bill = []
 
-    genlab, genlab_dict = tp.df_to_features(
-        pq.genlab,
-        feature_prefix='genl',
-        text_col='lab_test_loinc_desc',
-        time_cols=['collection_day_number', 'collection_time_of_day'],
-        replace_col='lab_test_result',
-        num_col='numeric_value')
-    pq.genlab = []
 
     proc, proc_dict = tp.df_to_features(pq.proc,
                                         feature_prefix='proc',
@@ -194,6 +269,13 @@ def main():
 
     # And saving the feature dict to disk
     pickle.dump(ftr_dict, open(pkl_dir + 'feature_lookup.pkl', 'wb'))
+
+    ####### SAVE in the Pipeline Data ##############
+    os.makedirs(args.flat_features, exist_ok=True)
+    os.makedirs(args.feature_lookup, exist_ok=True)
+
+    agg_all.to_parquet(os.path.join(args.flat_features,'flat_features.parquet') , index=False)
+    pickle.dump(ftr_dict, open(os.path.join(args.feature_lookup, 'feature_lookup.pkl'), 'wb'))
 
 
 if __name__ == "__main__":

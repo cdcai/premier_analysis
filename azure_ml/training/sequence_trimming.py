@@ -101,6 +101,16 @@ if __name__ == "__main__":
                         type=int,
                         default=8,
                         help='number of processes to use for multiprocessing')
+    #### PipelineData
+
+    parser.add_argument("--trimmed_seq_pkl_file",type=str)
+    parser.add_argument("--pat_data_file",type=str)
+    parser.add_argument("--all_ftrs_dict_file",type=str)
+    parser.add_argument("--int_seqs_file",type=str)
+    parser.add_argument("--feature_lookup",type=str)
+    parser.add_argument("--cohort",type=str)
+
+    
     args = parser.parse_args()
 
     # Setting the globals
@@ -117,17 +127,22 @@ if __name__ == "__main__":
     data_dir = os.path.abspath(args.data_dir)
     pkl_dir = os.path.join(output_dir, "pkl")
 
+
+    ####### SAVE in the Pipeline Data ##############
+    os.makedirs(args.trimmed_seq_pkl_file, exist_ok=True)
+    os.makedirs(args.cohort, exist_ok=True)
+
     # Reading in the full dataset
-    with open(os.path.join(pkl_dir, 'int_seqs.pkl'), 'rb') as f:
+    with open(os.path.join(args.int_seqs_file, 'int_seqs.pkl'), 'rb') as f:
         int_seqs = pkl.load(f)
 
-    with open(os.path.join(pkl_dir, 'pat_data.pkl'), 'rb') as f:
+    with open(os.path.join(args.pat_data_file, 'pat_data.pkl'), 'rb') as f:
         pat_data = pkl.load(f)
 
-    with open(os.path.join(pkl_dir, "all_ftrs_dict.pkl"), "rb") as f:
+    with open(os.path.join(args.all_ftrs_dict_file, "all_ftrs_dict.pkl"), "rb") as f:
         vocab = pkl.load(f)
 
-    with open(os.path.join(pkl_dir, "feature_lookup.pkl"), "rb") as f:
+    with open(os.path.join(args.feature_lookup, "feature_lookup.pkl"), "rb") as f:
         all_feats = pkl.load(f)
 
     # Total number of patients
@@ -200,8 +215,8 @@ if __name__ == "__main__":
             cohort_df.columns = [
                 'key', 'age', 'length', 'misa_pt', 'icu', 'death'
             ]
-            cohort_df.to_csv(os.path.join(output_dir, "cohort.csv"), index=False)
+            cohort_df.to_csv(os.path.join(args.cohort, "cohort.csv"), index=False)
 
     # Saving the trimmed sequences to disk
-    with open(os.path.join(pkl_dir, 'trimmed_seqs.pkl'), 'wb') as f:
+    with open(os.path.join(args.trimmed_seq_pkl_file, 'trimmed_seqs.pkl'), 'wb') as f:
         pkl.dump(trim_out, f)

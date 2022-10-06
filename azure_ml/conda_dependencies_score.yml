@@ -1,5 +1,3 @@
-
-name: premier_train_model_env
 channels:
 - anaconda
 - default
@@ -11,8 +9,8 @@ dependencies:
   - pandas
   - argparse
   - joblib
+  - inference-schema[numpy-support]
   - scikit-learn
   - azureml-sdk
   - openpyxl
   - tensorflow
-  - keras-tuner
