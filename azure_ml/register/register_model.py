@@ -9,7 +9,7 @@ def main():
 
 
     parser = argparse.ArgumentParser("register")
-    
+
     parser.add_argument("--model_file", type=str, help="model file")
     parser.add_argument("--model",
                         type=str,
@@ -21,15 +21,17 @@ def main():
                         default="misa_pt",
                         choices=["misa_pt", "multi_class", "death", "icu"],
                         help="which outcome to use as the prediction target")
-    
+
     args = parser.parse_args()
     MOD_NAME = args.model
+    if 'lstm' not in MOD_NAME:
+        MOD_NAME +='_d1'
     OUTCOME = args.outcome
-    
+
     run = Run.get_context()
     ws = run.experiment.workspace
 
-    model_path = os.path.join(args.model_file, MOD_NAME + "_d1" + "_" + OUTCOME + ".h5")
+    model_path = os.path.join(args.model_file, MOD_NAME + "_" + OUTCOME + ".h5")
 
     print("model path:",model_path)
 
