@@ -1,4 +1,4 @@
-# Ignore all data files  
+# Ignore all data files
 *.parquet
 *.pkl
 *.csv
@@ -145,3 +145,7 @@ dask-worker-space/
 
 # pylint
 *.pylintrc
+
+# Projects
+azure_ml/aml_outputs
+azure_ml/azureml-models

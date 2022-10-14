@@ -5,6 +5,7 @@ dependencies:
 - python=3.8
 - pip:
   - azureml-defaults
+  - azureml-core
   - matplotlib
   - pandas
   - argparse
@@ -14,3 +15,4 @@ dependencies:
   - azureml-sdk
   - openpyxl
   - tensorflow
+  - azureml-dataset-runtime[fuse,pandas] 

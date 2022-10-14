@@ -56,7 +56,7 @@ datasets_path_name =  ['vw_covid_pat','vw_covid_id','vw_covid_genlab',
 
 def download_files(datastore,_path_name,src_dir,download_dir):
     print(f"Downloading data :{_path_name}.....")
-    
+
     # Azure data lake storage path
     patient_datapath = os.path.join(src_dir,_path_name)
     # print(patient_datapath)
@@ -86,7 +86,7 @@ def main():
     run = Run.get_context()
     print("run name:",run.display_name)
     print("run details:",run.get_details())
-    
+
     ws = run.experiment.workspace
     # retrieve an existing datastore in the workspace by name
     datastore = Datastore.get(ws, datastore_name)
@@ -101,7 +101,7 @@ def main():
     print('Loading the parquet files...')
 
     pq = tp.load_parquets(prem_dir)
-    
+
     # Replacing NaN with 0
     pq.id.dropna(axis=0, subset=['days_from_index'], inplace=True)
 
@@ -115,8 +115,6 @@ def main():
 
     print('Converting the free-text fields to features...')
 
-    print("# genlab:", len(pq.genlab))
-    print("cols genlab:",pq.genlab.columns)
 
 
     # Vectorizing the single free text fields
@@ -131,7 +129,7 @@ def main():
     pq.genlab = []
 
     print("# vitals:", len(pq.vitals))
-    print("cols vitals:",pq.vitals.columns)
+
 
     print("vitals features extraction..")
     vitals, v_dict = tp.df_to_features(
@@ -142,19 +140,21 @@ def main():
         num_col='test_result_numeric_value')
     pq.vitals = []
 
+    print("billing features extraction..")
     bill, bill_dict = tp.df_to_features(pq.bill,
                                         feature_prefix='bill',
                                         text_col='std_chg_desc',
                                         time_cols=['serv_day'])
     pq.bill = []
 
-
+    print("procesure features extraction..")
     proc, proc_dict = tp.df_to_features(pq.proc,
                                         feature_prefix='proc',
                                         text_col='icd_code',
                                         time_cols=['proc_day'])
     pq.proc = []
 
+    print("diagnosis features extraction..")
     diag, diag_dict = tp.df_to_features(pq.diag,
                                         feature_prefix='dx',
                                         text_col='icd_code')
@@ -163,6 +163,7 @@ def main():
     # Dropping pat_keys that won't have a days_from_index
     bill = bill.merge(pq.id.pat_key, how='right')
 
+    print("lab feature features extraction..")
     # Vectorizing the microbiology lab results
     lab_text = pq.lab_res.test.astype(str)
     lab_text = lab_text + ' ' + pq.lab_res.observation.astype(str)

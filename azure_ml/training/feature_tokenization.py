@@ -49,7 +49,7 @@ datasets_path_name =  ['vw_covid_id','vw_covid_pat_all','providers']
 
 def download_files(datastore,_path_name,src_dir,download_dir):
     print(f"Downloading data :{_path_name}.....")
-    
+
     # Azure data lake storage path
     patient_datapath = os.path.join(src_dir,_path_name)
     # print(patient_datapath)
@@ -70,7 +70,7 @@ def main() :
     parser = argparse.ArgumentParser("prepare")
 
     parser.add_argument("--flat_features",type=str)
-    
+
     parser.add_argument("--trimmed_seq_file",type=str)
     parser.add_argument("--pat_data_file",type=str)
     parser.add_argument("--demog_dict_file",type=str)
@@ -90,7 +90,7 @@ def main() :
     run = Run.get_context()
     print("run name:",run.display_name)
     print("run details:",run.get_details())
-    
+
     ws = run.experiment.workspace
     # retrieve an existing datastore in the workspace by name
     datastore = Datastore.get(ws, datastore_name)
@@ -98,7 +98,7 @@ def main() :
     print("Downloading premier parquet files..")
     for ds_name in datasets_path_name:
         download_files(datastore,ds_name,cdh_path,data_dir)
-    
+
     print("Download icu targets")
     # Azure data lake storage path
     icu_datapath = os.path.join(cdh_path_targets,'icu_targets.csv')
@@ -126,7 +126,7 @@ def main() :
 
     # Read in the flat feature file
     # trimmed_seq = pd.read_parquet(output_dir + "parquet/flat_features.parquet")
-    
+
     #### READING from the Pipeline Data parameters
     trimmed_seq = pd.read_parquet(os.path.join(args.flat_features,"flat_features.parquet"))
 
@@ -150,6 +150,7 @@ def main() :
         ["None", "nan"], "").agg(" ".join, axis=1))
 
     # %% Fitting the vectorizer to the features
+    print("Create vocab using CountVectorizer")
     ftrs = [doc for doc in trimmed_seq.ftrs]
     vec = CountVectorizer(ngram_range=(1, 1), min_df=MIN_DF, binary=True)
     vec.fit(ftrs)
@@ -173,6 +174,7 @@ def main() :
     seq_gen = [[seq for seq in medrec] for medrec in int_seqs]
 
     # %% Optionally add demographics
+    print("Optionally add demographics")
     if ADD_DEMOG:
         # Append demog
         trimmed_plus_demog = trimmed_seq.merge(pat_df[["medrec_key"] + demog_vars],
