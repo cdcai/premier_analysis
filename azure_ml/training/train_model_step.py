@@ -168,14 +168,14 @@ if __name__ == "__main__":
     run = Run.get_context()
     print("run name:",run.display_name)
     print("run details:",run.get_details())
-    
+
     run.log("MOD_NAME",MOD_NAME)
     run.log("Outcome",OUTCOME)
     run.log("DAY_ONE_ONLY",DAY_ONE_ONLY)
     run.log("DEMOG",DEMOG)
     run.log("BATCH_SIZE",BATCH_SIZE)
     run.log("EPOCHS",EPOCHS)
-    
+
     ws = run.experiment.workspace
     data_store = ws.get_default_datastore()
 
@@ -322,7 +322,7 @@ if __name__ == "__main__":
                                       min_delta=0,
                                       patience=2,
                                       mode="auto"),
-        
+
         # Log epochs
         LogToAzure(run)
     ]
@@ -472,7 +472,8 @@ if __name__ == "__main__":
                                test_probs,
                                cutpoint=cutpoint,
                                mod_name=MOD_NAME)
-        run.log(name="fscore1",value=stats.to_dict()['f1'][0])
+        run.log(name="f1-score",value=stats.to_dict()['f1'][0])
+        run.log(name="auc",value=stats.to_dict()['auc'][0])
 
         # Creating probability dict to save
         prob_out = {'cutpoint': cutpoint, 'probs': test_probs}
@@ -486,7 +487,8 @@ if __name__ == "__main__":
                                test_probs,
                                average="weighted",
                                mod_name=MOD_NAME)
-        run.log(name="fscore1",value=stats.to_dict()['f1'][0])
+        run.log(name="f1-score",value=stats.to_dict()['f1'][0])
+        run.log(name="auc",value=stats.to_dict()['auc'][0])
 
         # Creating probability dict to save
         prob_out = {'cutpoint': 0.5, 'probs': test_probs}
@@ -512,7 +514,7 @@ if __name__ == "__main__":
         pkl.dump(prob_out, f)
 
     # --- Writing the test predictions to the test predictions CSV
-    
+
     #### SAVING ONLY TEST PREDICTIONS FOR PATIENT TEST IN COHORT FILE
     preds_df = pd.read_csv(
             os.path.join(args.cohort, 'cohort.csv'))
