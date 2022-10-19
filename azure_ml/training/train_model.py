@@ -21,6 +21,7 @@ import tools.keras as tk
 
 from azureml.core import Workspace, Dataset
 from azureml.core import Run
+import mlflow
 
 
 class LogToAzure(keras.callbacks.Callback):
@@ -156,12 +157,12 @@ if __name__ == "__main__":
     print("run name:",run.display_name)
     print("run details:",run.get_details())
 
-    run.log("MOD_NAME",MOD_NAME)
-    run.log("Outcome",OUTCOME)
-    run.log("DAY_ONE_ONLY",DAY_ONE_ONLY)
-    run.log("DEMOG",DEMOG)
-    run.log("BATCH_SIZE",BATCH_SIZE)
-    run.log("EPOCHS",EPOCHS)
+    mlflow.log_param("MOD_NAME",MOD_NAME)
+    mlflow.log_param("Outcome",OUTCOME)
+    mlflow.log_param("DAY_ONE_ONLY",DAY_ONE_ONLY)
+    mlflow.log_param("DEMOG",DEMOG)
+    mlflow.log_param("BATCH_SIZE",BATCH_SIZE)
+    mlflow.log_param("EPOCHS",EPOCHS)
 
     ws = run.experiment.workspace
     data_store = ws.get_default_datastore()
@@ -323,8 +324,10 @@ if __name__ == "__main__":
                                       mode="auto"),
 
         # Log epochs
-        LogToAzure(run)
+        # LogToAzure(run)
     ]
+
+    mlflow.keras.autolog(log_models=False)
 
     # === Long short-term memory model
     if "lstm" in MOD_NAME:
@@ -475,8 +478,8 @@ if __name__ == "__main__":
                                test_probs,
                                cutpoint=cutpoint,
                                mod_name=MOD_NAME)
-        run.log(name="f1-score",value=stats.to_dict()['f1'][0])
-        run.log(name="auc",value=stats.to_dict()['auc'][0])
+        mlflow.log_param("f1-score",stats.to_dict()['f1'][0])
+        mlflow.log_param("auc",stats.to_dict()['auc'][0])
 
         # Creating probability dict to save
         prob_out = {'cutpoint': cutpoint, 'probs': test_probs}
@@ -490,8 +493,8 @@ if __name__ == "__main__":
                                test_probs,
                                average="weighted",
                                mod_name=MOD_NAME)
-        run.log(name="f1-score",value=stats.to_dict()['f1'][0])
-        run.log(name="auc",value=stats.to_dict()['auc'][0])
+        mlflow.log_metric("f1-score",stats.to_dict()['f1'][0])
+        mlflow.log_metric("auc",stats.to_dict()['auc'][0])
 
         # Creating probability dict to save
         prob_out = {'cutpoint': 0.5, 'probs': test_probs}
@@ -517,6 +520,11 @@ if __name__ == "__main__":
 
     ##### SAVING model in azure outputs folder
     model.save(os.path.join(model_outputs_dir,MOD_NAME + "_" + OUTCOME +".h5"))
+    # Signature
+    signature = mlflow.models.infer_signature(X[test],test_preds)
+    mlflow.keras.log_model(model,
+                           model_outputs_dir,
+                           signature=signature)
 
     # --- Writing the test predictions to the test predictions CSV
 

@@ -1,4 +1,3 @@
-
 channels:
 - anaconda
 - default
@@ -13,3 +12,7 @@ dependencies:
   - scikit-learn
   - azureml-sdk
   - openpyxl
+  - tensorflow
+  - keras-tuner
+  - mlflow
+  - azureml-mlflow

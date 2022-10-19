@@ -19,6 +19,7 @@ import tools.preprocessing as tp
 
 from azureml.core import Workspace, Dataset
 from azureml.core import Run
+import mlflow
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -87,19 +88,23 @@ if __name__ == '__main__':
     RAND = args.rand_seed
     CHRT_PRFX = args.cohort_prefix
     STRATIFY = args.stratify
-    
+
     ########## Run AZUREML ######################
     run = Run.get_context()
     print("run name:",run.display_name)
     print("run details:",run.get_details())
-    
-    run.log("Outcome",OUTCOME)
-    run.log("DAY_ONE_ONLY",DAY_ONE_ONLY)
-    run.log("USE_DEMOG",USE_DEMOG)
+
+    #run.log("Outcome",OUTCOME)
+    #run.log("DAY_ONE_ONLY",DAY_ONE_ONLY)
+    #run.log("USE_DEMOG",USE_DEMOG)
+
+    mlflow.log_param("Outcome",OUTCOME)
+    mlflow.log_param("DAY_ONE_ONLY",DAY_ONE_ONLY)
+    mlflow.log_param("USE_DEMOG",USE_DEMOG)
 
     ws = run.experiment.workspace
     data_store = ws.get_default_datastore()
-    
+
     ##########Loading the data from datastore
     print("Creating dataset from Datastore")
     inputs = Dataset.File.from_files(path=data_store.path('pkl/trimmed_seqs.pkl'))
@@ -114,12 +119,12 @@ if __name__ == '__main__':
     # If no args are passed to overwrite these values, use repo structure to construct
     #data_dir = os.path.abspath(os.path.join(pwd, "..", "data", "data", ""))
     #output_dir = os.path.abspath(os.path.join(pwd, "..", "output", ""))
-    
+
     data_dir = os.path.abspath(os.path.join(pwd, "..", "data", "data", ""))
     output_dir = os.path.abspath(os.path.join(pwd,"output"))
-    
+
     print("output directory:",output_dir)
-        
+
 
     if args.data_dir is not None:
         data_dir = os.path.abspath(args.data_dir)
@@ -130,23 +135,23 @@ if __name__ == '__main__':
     pkl_dir = os.path.join(output_dir, "pkl", "")
     stats_dir = os.path.join(output_dir, "analysis", "")
     probs_dir = os.path.join(stats_dir, "probs", "")
-    
-    
+
+
     # Create analysis dirs if it doesn't exist
     [
         os.makedirs(directory, exist_ok=True)
         for directory in [stats_dir, probs_dir, pkl_dir]
     ]
-    
+
     ########################## Download data in pkl dir
     inputs.download(target_path=pkl_dir,overwrite=True,ignore_not_found=True)
     vocab.download(target_path=pkl_dir,overwrite=True,ignore_not_found=True)
     all_feats.download(target_path=pkl_dir,overwrite=True,ignore_not_found=True)
     demog_dict.download(target_path=pkl_dir,overwrite=True,ignore_not_found=True)
     cohort.to_pandas_dataframe().to_csv(os.path.join(output_dir,'cohort.csv'))
-    
+
     print("pkl directory:",pkl_dir)
-    
+
     with open(pkl_dir + CHRT_PRFX + "trimmed_seqs.pkl", "rb") as f:
         inputs = pkl.load(f)
 
@@ -159,8 +164,8 @@ if __name__ == '__main__':
     with open(pkl_dir + "demog_dict.pkl", "rb") as f:
         demog_dict = pkl.load(f)
         demog_dict = {k: v for v, k in demog_dict.items()}
-    
-    
+
+
     # Separating the inputs and labels
     features = [t[0] for t in inputs]
     demog = [t[1] for t in inputs]
@@ -172,10 +177,10 @@ if __name__ == '__main__':
     n_features = np.max(list(vocab.keys()))
     n_classes = len(np.unique(labels))
     binary = n_classes <= 2
-    
-    run.log("n_patients",n_patients)
-    run.log("n_features",n_features)
-    run.log("n_classes",n_classes)
+
+    mlflow.log_param("n_patients",n_patients)
+    mlflow.log_param("n_features",n_features)
+    mlflow.log_param("n_classes",n_classes)
 
     # Converting the labels to an array
     y = np.array(labels, dtype=np.uint8)
@@ -286,6 +291,7 @@ if __name__ == '__main__':
 
 
     results ={}
+    mlflow.sklearn.autolog()
 
     # Turning the crank like a proper data scientist
     for i, mod in enumerate(mods):
@@ -307,7 +313,7 @@ if __name__ == '__main__':
                                        cutpoint=cutpoint,
                                        mod_name=mod_name,
                                        average=args.average)
-                               
+
                 ta.write_preds(preds=test_preds,
                                outcome=OUTCOME,
                                mod_name=mod_name,
@@ -334,6 +340,13 @@ if __name__ == '__main__':
             with open(probs_dir + probs_file, 'wb') as f:
                 pkl.dump(prob_out, f)
 
+            mlflow.autolog(log_models=False)
+            # Signature
+            signature = mlflow.models.infer_signature(X[test], y[test])
+            mlflow.sklearn.log_model(mod,
+                                     artifact_path="classifier",
+                                     signature=signature)
+
         else:
             test_preds = mod.predict(X[test])
             stats = ta.clf_metrics(y[test],
@@ -344,11 +357,13 @@ if __name__ == '__main__':
                            outcome=OUTCOME,
                            mod_name=mod_name,
                            test_idx=test)
-        
+
         ### LOG METRICS
         print(mod_names[i],stats.to_dict())
-        run.log(name="f1-score",value=stats.to_dict()['f1'][0])
-        run.log(name="auc",value=stats.to_dict()['auc'][0])
+        #run.log(name="f1-score",value=stats.to_dict()['f1'][0])
+        #run.log(name="auc",value=stats.to_dict()['auc'][0])
+        mlflow.log_metric("f1-score",value=stats.to_dict()['f1'][0])
+        mlflow.log_metric("auc",value=stats.to_dict()['auc'][0],)
 
         # Saving the results to disk
         ta.write_stats(stats, OUTCOME)
