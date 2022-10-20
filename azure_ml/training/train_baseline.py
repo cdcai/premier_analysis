@@ -107,11 +107,11 @@ if __name__ == '__main__':
 
     ##########Loading the data from datastore
     print("Creating dataset from Datastore")
-    inputs = Dataset.File.from_files(path=data_store.path('pkl/trimmed_seqs.pkl'))
-    vocab = Dataset.File.from_files(path=data_store.path('pkl/all_ftrs_dict.pkl'))
-    all_feats = Dataset.File.from_files(path=data_store.path('pkl/feature_lookup.pkl'))
-    demog_dict = Dataset.File.from_files(path=data_store.path('pkl/demog_dict.pkl'))
-    cohort = Dataset.Tabular.from_delimited_files(path=data_store.path('cohort/cohort.csv'))
+    inputs = Dataset.File.from_files(path=data_store.path('output/pkl/trimmed_seqs.pkl'))
+    vocab = Dataset.File.from_files(path=data_store.path('output/pkl/all_ftrs_dict.pkl'))
+    all_feats = Dataset.File.from_files(path=data_store.path('output/pkl/feature_lookup.pkl'))
+    demog_dict = Dataset.File.from_files(path=data_store.path('output/pkl/demog_dict.pkl'))
+    cohort = Dataset.Tabular.from_delimited_files(path=data_store.path('output/cohort/cohort.csv'))
 
     # Setting the directories and importing the data
     pwd = os.path.abspath(os.path.dirname(__file__))

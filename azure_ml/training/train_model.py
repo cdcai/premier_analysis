@@ -169,11 +169,11 @@ if __name__ == "__main__":
 
        ##########Loading the data from datastore
     print("Creating dataset from Datastore")
-    inputs = Dataset.File.from_files(path=data_store.path('pkl/trimmed_seqs.pkl'))
-    vocab = Dataset.File.from_files(path=data_store.path('pkl/all_ftrs_dict.pkl'))
-    all_feats = Dataset.File.from_files(path=data_store.path('pkl/feature_lookup.pkl'))
-    demog_dict = Dataset.File.from_files(path=data_store.path('pkl/demog_dict.pkl'))
-    cohort = Dataset.Tabular.from_delimited_files(path=data_store.path('cohort/cohort.csv'))
+    inputs = Dataset.File.from_files(path=data_store.path('output/pkl/trimmed_seqs.pkl'))
+    vocab = Dataset.File.from_files(path=data_store.path('output/pkl/all_ftrs_dict.pkl'))
+    all_feats = Dataset.File.from_files(path=data_store.path('output/pkl/feature_lookup.pkl'))
+    demog_dict = Dataset.File.from_files(path=data_store.path('output/pkl/demog_dict.pkl'))
+    cohort = Dataset.Tabular.from_delimited_files(path=data_store.path('output/cohort/cohort.csv'))
 
 
     # DIRS
@@ -521,10 +521,14 @@ if __name__ == "__main__":
     ##### SAVING model in azure outputs folder
     model.save(os.path.join(model_outputs_dir,MOD_NAME + "_" + OUTCOME +".h5"))
     # Signature
-    signature = mlflow.models.infer_signature(X[test],test_preds)
-    mlflow.keras.log_model(model,
-                           model_outputs_dir,
-                           signature=signature)
+    if 'dan' in MOD_NAME:
+        signature = mlflow.models.infer_signature(X[test],test_preds)
+        mlflow.keras.log_model(model,
+                            model_outputs_dir,
+                            signature=signature)
+    if 'lstm' in MOD_NAME:
+        mlflow.keras.log_model(model,
+                            model_outputs_dir)
 
     # --- Writing the test predictions to the test predictions CSV
 

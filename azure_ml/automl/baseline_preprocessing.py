@@ -158,7 +158,8 @@ if __name__ == '__main__':
     os.makedirs(feature_dir,exist_ok=True)
 
     print("Saving train_data...")
-    np.savetxt(os.path.join(feature_dir,"train_data.csv"), train_data, delimiter=",")
+    # np.savetxt(os.path.join(feature_dir,"train_data.csv"), train_data, delimiter=",")
+    train_data.to_csv(os.path.join(feature_dir,"train_data.csv"),index=False)
 
     dataset_name = f"train-data-baseline-{OUTCOME}"
     #ds_train = Dataset.Tabular.register_pandas_dataframe(train_data,target=data_store,name=dataset_name,show_progress=True)

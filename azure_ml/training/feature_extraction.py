@@ -76,7 +76,6 @@ def download_files(datastore,_path_name,src_dir,download_dir):
 def main():
 
     parser = argparse.ArgumentParser("prepare")
-
     parser.add_argument("--flat_features",type=str)
     parser.add_argument("--feature_lookup",type=str)
 
@@ -91,7 +90,7 @@ def main():
     # retrieve an existing datastore in the workspace by name
     datastore = Datastore.get(ws, datastore_name)
 
-    print("Downloading premier parquet files..")
+    #print("Downloading premier parquet files..")
     for ds_name in datasets_path_name:
         download_files(datastore,ds_name,cdh_path,prem_dir)
 

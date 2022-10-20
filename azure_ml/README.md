@@ -22,9 +22,18 @@ You can also run this code from your computer by connecting to AML from Visual S
 
 The code is avaialble on the github repo in the branch **azure_ml**. Make sure you clone and checkout that branch.
 
+```
+git clone https://github.com/mayerantoine/premier_analysis
+cd premier_analysis
+git branch -a
+git checkout azure_ml
+```
+
 ## Create a reference to the data
 
 For this experiment the data is located in the EDAV Azure Data Lake Storage Gen 2. You will need to create a **datastore** referencing the premier data in the Data Lake. For that you will need a **service principal**.
+
+!['Create datastore'](./assets/new-datastore.png)
 
 You will need to note the name and path of the premier data location to run the scripts.
 
@@ -32,7 +41,7 @@ You will need to note the name and path of the premier data location to run the 
 
 Once you have access to the data:
 
-*   You need to set your environment parameters  : workspace name, resource group, subscription id
+
 *   Create the conda environment for premier analysis
 *   Download the data using the **01_download_data.ipynb** notebook
 *   Run the bash scripts
@@ -40,12 +49,13 @@ Once you have access to the data:
 
 ## Run Training jobs Experiments
 
+First, you need to set your environment parameters  : workspace name, resource group, subscription id.
 To run AML training jobs you do not need to download the data on the compute instance.
 you can go in the folder azure_ml and run the followwing notebooks :
 
 *   **02_prepare_feature_data.ipynb** : Create 3 jobs to extract features and prepare the data
-*   **03_experiments_baseline.ipynb** : Create experiments and run  training jobs for each baseline model
-*   **04_experiments_model.ipynb** : Create experiments and run training jobs for each deep learning model
+*   **03_experiments_baseline.ipynb** : Create experiments and run  training jobs for each baseline model and for each outcome.
+*   **04_experiments_model.ipynb** : Create experiments and run training jobs for each deep learning model and for each outcome.
 *   **05_hyperparameters_tuning.ipynb** : Example running hyperparameter tuning on the LSTM model
 
 
