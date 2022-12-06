@@ -19,6 +19,23 @@ import tools.analysis as ta
 import tools.preprocessing as tp
 import tools.keras as tk
 
+from azureml.core import Workspace, Dataset
+from azureml.core import Run
+import mlflow
+
+
+class LogToAzure(keras.callbacks.Callback):
+    '''Keras Callback for realtime logging to Azure'''
+    def __init__(self, run):
+        super(LogToAzure, self).__init__()
+        self.run = run
+
+    def on_epoch_end(self, epoch, logs=None):
+        # Log all log data to Azure
+        for k, v in logs.items():
+            self.run.log(k, v)
+
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
@@ -134,12 +151,40 @@ if __name__ == "__main__":
     RAND = args.rand_seed
     TB_UPDATE_FREQ = args.tb_update_freq
 
+
+    ########## Run AZUREML ######################
+    run = Run.get_context()
+    print("run name:",run.display_name)
+    print("run details:",run.get_details())
+
+    mlflow.log_param("MOD_NAME",MOD_NAME)
+    mlflow.log_param("Outcome",OUTCOME)
+    mlflow.log_param("DAY_ONE_ONLY",DAY_ONE_ONLY)
+    mlflow.log_param("DEMOG",DEMOG)
+    mlflow.log_param("BATCH_SIZE",BATCH_SIZE)
+    mlflow.log_param("EPOCHS",EPOCHS)
+
+    ws = run.experiment.workspace
+    data_store = ws.get_default_datastore()
+
+       ##########Loading the data from datastore
+    print("Creating dataset from Datastore")
+    inputs = Dataset.File.from_files(path=data_store.path('output/pkl/trimmed_seqs.pkl'))
+    vocab = Dataset.File.from_files(path=data_store.path('output/pkl/all_ftrs_dict.pkl'))
+    all_feats = Dataset.File.from_files(path=data_store.path('output/pkl/feature_lookup.pkl'))
+    demog_dict = Dataset.File.from_files(path=data_store.path('output/pkl/demog_dict.pkl'))
+    cohort = Dataset.Tabular.from_delimited_files(path=data_store.path('output/cohort/cohort.csv'))
+
+
     # DIRS
     pwd = os.path.dirname(__file__)
 
     # If no args are passed to overwrite these values, use repo structure to construct
-    data_dir = os.path.abspath(os.path.join(pwd, "..", "data", "data", ""))
-    output_dir = os.path.abspath(os.path.join(pwd, "..","output/", ""))
+    #data_dir = os.path.abspath(os.path.join(pwd, "..", "data", "data", ""))
+    #output_dir = os.path.abspath(os.path.join(pwd, "..","output/", ""))
+
+    data_dir = os.path.abspath(os.path.join(pwd,"data", "data", ""))
+    output_dir = os.path.abspath(os.path.join(pwd,"output"))
 
     if args.data_dir is not None:
         data_dir = os.path.abspath(args.data_dir)
@@ -152,17 +197,27 @@ if __name__ == "__main__":
     pkl_dir = os.path.join(output_dir, "pkl")
     stats_dir = os.path.join(output_dir, "analysis")
     probs_dir = os.path.join(stats_dir, "probs")
+    cohort_dir = os.path.join(output_dir, "cohort")
+    model_outputs_dir = os.path.join("outputs", "model")
 
     # Create analysis dir if it doesn't exist
     [
         os.makedirs(directory, exist_ok=True)
-        for directory in [stats_dir, probs_dir,tensorboard_dir]
+        for directory in [stats_dir, probs_dir,tensorboard_dir,pkl_dir,cohort_dir,model_outputs_dir]
     ]
 
     # FILES Created
     stats_file = os.path.join(stats_dir, OUTCOME + "_stats.csv")
     probs_file = os.path.join(probs_dir, MOD_NAME + "_" + OUTCOME + ".pkl")
     preds_file = os.path.join(stats_dir, OUTCOME + "_preds.csv")
+
+
+    ########################## Download data in pkl dir
+    inputs.download(target_path=pkl_dir,overwrite=True,ignore_not_found=True)
+    vocab.download(target_path=pkl_dir,overwrite=True,ignore_not_found=True)
+    all_feats.download(target_path=pkl_dir,overwrite=True,ignore_not_found=True)
+    demog_dict.download(target_path=pkl_dir,overwrite=True,ignore_not_found=True)
+    cohort.to_pandas_dataframe().to_csv(os.path.join(cohort_dir,'cohort.csv'))
 
     # Data load
     with open(os.path.join(pkl_dir, CHRT_PRFX, "trimmed_seqs.pkl"), "rb") as f:
@@ -192,7 +247,7 @@ if __name__ == "__main__":
     MAX_DEMOG = max(len(x) for _, x, _ in inputs)
 
     # Setting y here so it's stable
-    cohort = pd.read_csv(os.path.join(output_dir, CHRT_PRFX, 'cohort.csv'))
+    cohort = pd.read_csv(os.path.join(output_dir, CHRT_PRFX, 'cohort','cohort.csv'))
     labels = cohort[OUTCOME]
     y = cohort[OUTCOME].values.astype(np.uint8)
 
@@ -266,8 +321,13 @@ if __name__ == "__main__":
         keras.callbacks.EarlyStopping(monitor="val_loss",
                                       min_delta=0,
                                       patience=2,
-                                      mode="auto")
+                                      mode="auto"),
+
+        # Log epochs
+        # LogToAzure(run)
     ]
+
+    mlflow.keras.autolog(log_models=False)
 
     # === Long short-term memory model
     if "lstm" in MOD_NAME:
@@ -335,7 +395,11 @@ if __name__ == "__main__":
         # DAN Model feeds in all features at once, so there's no need to limit to the
         # sequence length, which is a size of time steps. Here we take the maximum size
         # of features that pad_sequences padded all the samples up to in the previous step.
+        print("X shape:",X.shape)
+
         TIME_SEQ = X.shape[1]
+
+        print("maximum feature seq: ",TIME_SEQ)
 
         if "hp_dan" in MOD_NAME:
             # NOTE: IF HP-tuned, we want to use SGD with the
@@ -414,6 +478,8 @@ if __name__ == "__main__":
                                test_probs,
                                cutpoint=cutpoint,
                                mod_name=MOD_NAME)
+        mlflow.log_param("f1-score",stats.to_dict()['f1'][0])
+        mlflow.log_param("auc",stats.to_dict()['auc'][0])
 
         # Creating probability dict to save
         prob_out = {'cutpoint': cutpoint, 'probs': test_probs}
@@ -427,6 +493,8 @@ if __name__ == "__main__":
                                test_probs,
                                average="weighted",
                                mod_name=MOD_NAME)
+        mlflow.log_metric("f1-score",stats.to_dict()['f1'][0])
+        mlflow.log_metric("auc",stats.to_dict()['auc'][0])
 
         # Creating probability dict to save
         prob_out = {'cutpoint': 0.5, 'probs': test_probs}
@@ -450,15 +518,27 @@ if __name__ == "__main__":
     with open(probs_file, "wb") as f:
         pkl.dump(prob_out, f)
 
+    ##### SAVING model in azure outputs folder
+    model.save(os.path.join(model_outputs_dir,MOD_NAME + "_" + OUTCOME +".h5"))
+    # Signature
+    if 'dan' in MOD_NAME:
+        signature = mlflow.models.infer_signature(X[test],test_preds)
+        mlflow.keras.log_model(model,
+                            model_outputs_dir,
+                            signature=signature)
+    if 'lstm' in MOD_NAME:
+        mlflow.keras.log_model(model,
+                            model_outputs_dir)
+
     # --- Writing the test predictions to the test predictions CSV
 
-    if os.path.exists(preds_file):
-        preds_df = pd.read_csv(preds_file)
-    else:
-        preds_df = pd.read_csv(
-            os.path.join(output_dir, OUTCOME + "_cohort.csv"))
-        preds_df = preds_df.iloc[test, :]
+    #if os.path.exists(preds_file):
+    #    preds_df = pd.read_csv(preds_file)
+    #else:
+    #    preds_df = pd.read_csv(
+    #        os.path.join(output_dir, OUTCOME + "_cohort.csv"))
+    #    preds_df = preds_df.iloc[test, :]
 
-    preds_df[MOD_NAME + '_prob'] = test_probs
-    preds_df[MOD_NAME + '_pred'] = test_preds
-    preds_df.to_csv(preds_file, index=False)
+    #preds_df[MOD_NAME + '_prob'] = test_probs
+    #preds_df[MOD_NAME + '_pred'] = test_preds
+    #preds_df.to_csv(preds_file, index=False)

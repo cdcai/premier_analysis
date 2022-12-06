@@ -1,0 +1,17 @@
+
+channels:
+- anaconda
+- default
+dependencies:
+- python=3.8
+- pip:
+  - azureml-defaults
+  - matplotlib
+  - pandas
+  - argparse
+  - joblib
+  - scikit-learn
+  - azureml-sdk
+  - openpyxl
+  - mlflow
+  - azureml-mlflow

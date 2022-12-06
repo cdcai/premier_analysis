@@ -1,0 +1,18 @@
+channels:
+- anaconda
+- default
+dependencies:
+- python=3.8
+- pip:
+  - azureml-defaults
+  - azureml-core
+  - matplotlib
+  - pandas
+  - argparse
+  - joblib
+  - inference-schema[numpy-support]
+  - scikit-learn
+  - azureml-sdk
+  - openpyxl
+  - tensorflow
+  - azureml-dataset-runtime[fuse,pandas] 

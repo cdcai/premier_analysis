@@ -19,6 +19,22 @@ import tools.analysis as ta
 import tools.preprocessing as tp
 import tools.keras as tk
 
+from azureml.core import Workspace, Dataset
+from azureml.core import Run
+import mlflow
+
+class LogToAzure(keras.callbacks.Callback):
+    '''Keras Callback for realtime logging to Azure'''
+    def __init__(self, run):
+        super(LogToAzure, self).__init__()
+        self.run = run
+
+    def on_epoch_end(self, epoch, logs=None):
+        # Log all log data to Azure
+        for k, v in logs.items():
+            self.run.log(k, v)
+
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
@@ -107,6 +123,19 @@ if __name__ == "__main__":
         help="How frequently (in batches) should Tensorboard write diagnostics?"
     )
 
+    ################# Pipelinedata
+    parser.add_argument("--trimmed_seq_pkl_file",type=str)
+    parser.add_argument("--demog_dict_file",type=str)
+    parser.add_argument("--all_ftrs_dict_file",type=str)
+    parser.add_argument("--feature_lookup",type=str)
+    parser.add_argument("--cohort",type=str)
+
+    parser.add_argument("--model_file",type=str)
+    parser.add_argument("--probs_file",type=str)
+    parser.add_argument("--stats_file",type=str)
+    parser.add_argument("--preds_file",type=str)
+
+
     # Parse Args, assign to globals
     args = parser.parse_args()
 
@@ -134,12 +163,31 @@ if __name__ == "__main__":
     RAND = args.rand_seed
     TB_UPDATE_FREQ = args.tb_update_freq
 
+
+    ########## Run AZUREML ######################
+    run = Run.get_context()
+    print("run name:",run.display_name)
+    print("run details:",run.get_details())
+
+    mlflow.log_param("MOD_NAME",MOD_NAME)
+    mlflow.log_param("Outcome",OUTCOME)
+    mlflow.log_param("DAY_ONE_ONLY",DAY_ONE_ONLY)
+    mlflow.log_param("DEMOG",DEMOG)
+    mlflow.log_param("BATCH_SIZE",BATCH_SIZE)
+    mlflow.log_param("EPOCHS",EPOCHS)
+
+    ws = run.experiment.workspace
+    data_store = ws.get_default_datastore()
+
     # DIRS
     pwd = os.path.dirname(__file__)
 
     # If no args are passed to overwrite these values, use repo structure to construct
-    data_dir = os.path.abspath(os.path.join(pwd, "..", "data", "data", ""))
-    output_dir = os.path.abspath(os.path.join(pwd, "..","output/", ""))
+    #data_dir = os.path.abspath(os.path.join(pwd, "..", "data", "data", ""))
+    #output_dir = os.path.abspath(os.path.join(pwd, "..","output/", ""))
+
+    data_dir = os.path.abspath(os.path.join(pwd,"data", "data", ""))
+    output_dir = os.path.abspath(os.path.join(pwd,"output"))
 
     if args.data_dir is not None:
         data_dir = os.path.abspath(args.data_dir)
@@ -152,29 +200,36 @@ if __name__ == "__main__":
     pkl_dir = os.path.join(output_dir, "pkl")
     stats_dir = os.path.join(output_dir, "analysis")
     probs_dir = os.path.join(stats_dir, "probs")
+    cohort_dir = os.path.join(output_dir, "cohort")
 
     # Create analysis dir if it doesn't exist
     [
         os.makedirs(directory, exist_ok=True)
-        for directory in [stats_dir, probs_dir,tensorboard_dir]
+        for directory in [stats_dir, probs_dir,tensorboard_dir,pkl_dir,cohort_dir]
     ]
 
+    ####### SAVE in the Pipeline Data ##############
+    os.makedirs(args.model_file, exist_ok=True)
+    os.makedirs(args.stats_file, exist_ok=True)
+    os.makedirs(args.preds_file, exist_ok=True)
+    os.makedirs(args.probs_file, exist_ok=True)
+
     # FILES Created
-    stats_file = os.path.join(stats_dir, OUTCOME + "_stats.csv")
-    probs_file = os.path.join(probs_dir, MOD_NAME + "_" + OUTCOME + ".pkl")
-    preds_file = os.path.join(stats_dir, OUTCOME + "_preds.csv")
+    stats_file = os.path.join(args.stats_file, OUTCOME + "_stats.csv")
+    probs_file = os.path.join(args.probs_file, MOD_NAME + "_" + OUTCOME + ".pkl")
+    preds_file = os.path.join(args.preds_file, OUTCOME + "_preds.csv")
 
     # Data load
-    with open(os.path.join(pkl_dir, CHRT_PRFX, "trimmed_seqs.pkl"), "rb") as f:
+    with open(os.path.join(args.trimmed_seq_pkl_file, CHRT_PRFX, "trimmed_seqs.pkl"), "rb") as f:
         inputs = pkl.load(f)
 
-    with open(os.path.join(pkl_dir, "all_ftrs_dict.pkl"), "rb") as f:
+    with open(os.path.join(args.all_ftrs_dict_file, "all_ftrs_dict.pkl"), "rb") as f:
         vocab = pkl.load(f)
 
-    with open(os.path.join(pkl_dir, "feature_lookup.pkl"), "rb") as f:
+    with open(os.path.join(args.feature_lookup, "feature_lookup.pkl"), "rb") as f:
         all_feats = pkl.load(f)
 
-    with open(os.path.join(pkl_dir, "demog_dict.pkl"), "rb") as f:
+    with open(os.path.join(args.demog_dict_file, "demog_dict.pkl"), "rb") as f:
         demog_lookup = pkl.load(f)
 
     # Save Embedding metadata
@@ -192,7 +247,7 @@ if __name__ == "__main__":
     MAX_DEMOG = max(len(x) for _, x, _ in inputs)
 
     # Setting y here so it's stable
-    cohort = pd.read_csv(os.path.join(output_dir, CHRT_PRFX, 'cohort.csv'))
+    cohort = pd.read_csv(os.path.join(args.cohort, CHRT_PRFX, 'cohort.csv'))
     labels = cohort[OUTCOME]
     y = cohort[OUTCOME].values.astype(np.uint8)
 
@@ -266,8 +321,13 @@ if __name__ == "__main__":
         keras.callbacks.EarlyStopping(monitor="val_loss",
                                       min_delta=0,
                                       patience=2,
-                                      mode="auto")
+                                      mode="auto"),
+
+        # Log epochs
+        # LogToAzure(run)
     ]
+
+    mlflow.keras.autolog(log_models=False)
 
     # === Long short-term memory model
     if "lstm" in MOD_NAME:
@@ -414,6 +474,11 @@ if __name__ == "__main__":
                                test_probs,
                                cutpoint=cutpoint,
                                mod_name=MOD_NAME)
+        #run.log(name="f1-score",value=stats.to_dict()['f1'][0])
+        #run.log(name="auc",value=stats.to_dict()['auc'][0])
+        mlflow.log_metric("f1-score",value=stats.to_dict()['f1'][0])
+        mlflow.log_metric("auc",value=stats.to_dict()['auc'][0],)
+
 
         # Creating probability dict to save
         prob_out = {'cutpoint': cutpoint, 'probs': test_probs}
@@ -427,6 +492,11 @@ if __name__ == "__main__":
                                test_probs,
                                average="weighted",
                                mod_name=MOD_NAME)
+        # run.log(name="f1-score",value=stats.to_dict()['f1'][0])
+        # run.log(name="auc",value=stats.to_dict()['auc'][0])
+
+        mlflow.log_metric("f1-score",value=stats.to_dict()['f1'][0])
+        mlflow.log_metric("auc",value=stats.to_dict()['auc'][0],)
 
         # Creating probability dict to save
         prob_out = {'cutpoint': 0.5, 'probs': test_probs}
@@ -441,6 +511,7 @@ if __name__ == "__main__":
     # Optionally append results if file already exists
     append_file = os.path.exists(stats_file)
 
+    ## SHOULD SAVE STATSFILE
     stats.to_csv(stats_file,
                  mode="a" if append_file else "w",
                  header=False if append_file else True,
@@ -452,13 +523,31 @@ if __name__ == "__main__":
 
     # --- Writing the test predictions to the test predictions CSV
 
-    if os.path.exists(preds_file):
-        preds_df = pd.read_csv(preds_file)
-    else:
-        preds_df = pd.read_csv(
-            os.path.join(output_dir, OUTCOME + "_cohort.csv"))
-        preds_df = preds_df.iloc[test, :]
+    #### SAVING ONLY TEST PREDICTIONS FOR PATIENT TEST IN COHORT FILE
+    preds_df = pd.read_csv(
+            os.path.join(args.cohort, 'cohort.csv'))
+    preds_df = preds_df.iloc[test, :]
 
     preds_df[MOD_NAME + '_prob'] = test_probs
     preds_df[MOD_NAME + '_pred'] = test_preds
     preds_df.to_csv(preds_file, index=False)
+
+    ### SAVING THE MODEL
+    model.save(os.path.join(args.model_file, MOD_NAME + "_" + OUTCOME + ".h5"))
+    mlflow.autolog(log_models=False)
+    # Signature
+    signature = mlflow.models.infer_signature(X[test],test_preds)
+    mlflow.keras.log_model(model,
+                           "models",
+                           signature=signature)
+
+    #if os.path.exists(preds_file):
+    #    preds_df = pd.read_csv(preds_file)
+    #else:
+    #    preds_df = pd.read_csv(
+    #        os.path.join(output_dir, OUTCOME + "_cohort.csv"))
+    #    preds_df = preds_df.iloc[test, :]
+
+    #preds_df[MOD_NAME + '_prob'] = test_probs
+    #preds_df[MOD_NAME + '_pred'] = test_preds
+    #preds_df.to_csv(preds_file, index=False)
