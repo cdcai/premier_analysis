@@ -28,7 +28,7 @@ et-xmlfile==1.0.1
 filelock==3.0.12
 focal-loss==0.0.6
 fsspec==0.8.3
-future==0.18.2
+future
 gast==0.3.3
 google-auth==1.22.1
 google-auth-oauthlib==0.4.1
