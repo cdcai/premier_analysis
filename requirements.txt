@@ -144,7 +144,7 @@ thrift==0.13.0
 tokenizers>=0.8.1.rc2
 toml==0.10.1
 toolz==0.11.1
-tornado==6.0.4
+tornado==6.3.2
 tqdm==4.50.1
 traitlets==5.0.4
 transformers==3.3.1
